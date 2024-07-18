@@ -1,5 +1,14 @@
 package utils
 
+import "reflect"
+
+func DefaultIfEmpty[T any](value, defaultValue T) T {
+	// Check if the value is the zero value of its type
+	if reflect.DeepEqual(value, reflect.Zero(reflect.TypeOf(value)).Interface()) {
+		return defaultValue
+	}
+	return value
+}
 func ExtendSlice[T any](s *[]T, length int) {
 	for len(*s) < length {
 		var zero T
