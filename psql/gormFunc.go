@@ -37,10 +37,6 @@ type BaseModel struct {
 	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 }
 
-func NewBaseModel() *BaseModel {
-	return new(BaseModel)
-}
-
 func newStruct(s interface{}) interface{} {
 	t := reflect.TypeOf(s)
 	if t.Kind() == reflect.Ptr {
@@ -56,28 +52,28 @@ func DbErr(err error) error {
 	return err
 }
 
-func (t BaseModel) MustGet(ctx context.Context, DB *gorm.DB, item interface{}, condition map[string]interface{}) error {
-	err := DB.WithContext(ctx).Where(condition).First(item).Error
+func (t *GormDrive) MustGet(ctx context.Context, item interface{}, condition map[string]interface{}) error {
+	err := t.WithContext(ctx).Where(condition).First(item).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil
 	}
 	return err
 }
 
-func (t BaseModel) Get(ctx context.Context, DB *gorm.DB, item interface{}, condition map[string]interface{}) error {
-	return DB.WithContext(ctx).Where(condition).First(item).Error
+func (t *GormDrive) Get(ctx context.Context, item interface{}, condition map[string]interface{}) error {
+	return t.WithContext(ctx).Where(condition).First(item).Error
 }
 
-func (t BaseModel) List(ctx context.Context, DB *gorm.DB, list interface{}, condition map[string]interface{}) error {
-	return DB.WithContext(ctx).Where(condition).Find(list).Error
+func (t *GormDrive) List(ctx context.Context, list interface{}, condition map[string]interface{}) error {
+	return t.WithContext(ctx).Where(condition).Find(list).Error
 }
 
-func (t BaseModel) Insert(ctx context.Context, DB *gorm.DB, data interface{}) error {
-	return CheckRowsAffected(DB.WithContext(ctx).Create(data))
+func (t *GormDrive) Insert(ctx context.Context, data interface{}) error {
+	return CheckRowsAffected(t.WithContext(ctx).Create(data))
 }
 
-func (t BaseModel) Update(ctx context.Context, DB *gorm.DB, data interface{}, updateFields []string, condition map[string]interface{}) error {
-	dbModel := DB.WithContext(ctx).Where(condition)
+func (t *GormDrive) Update(ctx context.Context, data interface{}, updateFields []string, condition map[string]interface{}) error {
+	dbModel := t.WithContext(ctx).Where(condition)
 	if len(updateFields) > 0 {
 		if len(updateFields) == 1 && updateFields[0] == "*" {
 			dbModel.Select("*")
@@ -88,17 +84,18 @@ func (t BaseModel) Update(ctx context.Context, DB *gorm.DB, data interface{}, up
 	return CheckRowsAffected(dbModel.Updates(data))
 }
 
-func (t BaseModel) QueryAndSave(ctx context.Context, DB *gorm.DB, data interface{}, updateFields []string, condition map[string]interface{}) (operation string, err error) {
-	err = DB.Transaction(func(tx *gorm.DB) error {
+func (t *GormDrive) QueryAndSave(ctx context.Context, data interface{}, updateFields []string, condition map[string]interface{}) (operation string, err error) {
+	err = t.Transaction(func(tx *gorm.DB) error {
+		txDrive := NewGormDrive(tx)
 		queryStruct := newStruct(data)
-		err = t.Get(ctx, tx, queryStruct, condition)
+		err = txDrive.Get(ctx, queryStruct, condition)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				var clausesFields []string
 				for key := range condition {
 					clausesFields = append(clausesFields, key)
 				}
-				insertResult := t.Save(ctx, tx, data, updateFields, clausesFields)
+				insertResult := txDrive.Save(ctx, data, updateFields, clausesFields)
 				if insertResult.Error != nil {
 					return insertResult.Error
 				}
@@ -114,7 +111,7 @@ func (t BaseModel) QueryAndSave(ctx context.Context, DB *gorm.DB, data interface
 		if updateFields == nil {
 			return nil
 		}
-		updateModel := tx.WithContext(ctx).Where(condition)
+		updateModel := txDrive.WithContext(ctx).Where(condition)
 		//没有指定的话就只更新结构体不为空值的部分
 		if len(updateFields) > 0 {
 			if len(updateFields) == 1 && updateFields[0] == "*" {
@@ -135,7 +132,7 @@ func (t BaseModel) QueryAndSave(ctx context.Context, DB *gorm.DB, data interface
 	return
 
 }
-func (t BaseModel) Save(ctx context.Context, DB *gorm.DB, data interface{}, updateFields []string, clausesFields []string) *gorm.DB {
+func (t *GormDrive) Save(ctx context.Context, data interface{}, updateFields []string, clausesFields []string) *gorm.DB {
 
 	notUpdate := false
 	if updateFields == nil {
@@ -154,7 +151,7 @@ func (t BaseModel) Save(ctx context.Context, DB *gorm.DB, data interface{}, upda
 		})
 	}
 
-	dbModel := DB.WithContext(ctx).Clauses(clause.OnConflict{
+	dbModel := t.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   columns,
 		DoUpdates: clause.AssignmentColumns(updateFields),
 		DoNothing: notUpdate,

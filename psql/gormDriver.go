@@ -1,10 +1,10 @@
 package psql
 
 import (
+	"github.com/google/uuid"
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
-	"go-lib/common/utils"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -21,11 +21,16 @@ type GormConfig struct {
 	LogDir      string        `yaml:"log_dir"`
 }
 
-var GormDriveList []*GormDrive
-
 type GormDrive struct {
 	id string
 	*gorm.DB
+}
+
+func NewGormDrive(db *gorm.DB) *GormDrive {
+	return &GormDrive{
+		id: uuid.NewString(),
+		DB: db,
+	}
 }
 
 func NewGorm(c *GormConfig) *GormDrive {
@@ -75,10 +80,6 @@ func NewGorm(c *GormConfig) *GormDrive {
 		panic(err)
 	}
 
-	gd := &GormDrive{
-		id: utils.MD5(c.Dsn[0]),
-		DB: db,
-	}
-	GormDriveList = append(GormDriveList, gd)
+	gd := NewGormDrive(db)
 	return gd
 }

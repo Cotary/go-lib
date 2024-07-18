@@ -2,6 +2,7 @@ package psql
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	_ "github.com/lib/pq"
@@ -14,12 +15,15 @@ type DBTransactionManager struct {
 	nestingLevel int64 // 嵌套层级，普通是1，没有事务是0
 	nestingId    int64 // 嵌套最大id，只能累加，避免重复
 	isNested     bool  // 是否正在嵌套事务中
-
 }
 
-func newTx(db *gorm.DB) *DBTransactionManager {
+func (t DBTransactionManager) isNormal() bool {
+	return t.nestingLevel > 0
+}
+
+func newTx(db *gorm.DB, opts ...*sql.TxOptions) *DBTransactionManager {
 	return &DBTransactionManager{
-		tx:           db.Begin(),
+		tx:           db.Begin(opts...),
 		nestingLevel: 1,
 		nestingId:    1,
 		isNested:     false,
@@ -29,8 +33,6 @@ func newTx(db *gorm.DB) *DBTransactionManager {
 
 const (
 	DBTransactionKey = "DBTransactionManager" // 用于上下文中的键
-	DBOpenTxKey      = "DBOpenTx"             // 用于上下文中的键
-	CtxTxListKey     = "CtxTxList"            // 用于上下文中的键
 )
 
 // TxCtxFunc 是一个处理事务的函数类型。
@@ -42,32 +44,22 @@ func (g *GormDrive) getManager(ctx context.Context) (*DBTransactionManager, bool
 	return manager, ok
 }
 
-func GetCtxAllTx(ctx context.Context) (*[]DBTransactionManager, bool) {
-	managerList, ok := ctx.Value(CtxTxListKey).(*[]DBTransactionManager)
-	return managerList, ok
-}
-
 // WithContext 返回与给定上下文关联的事务。
 func (g *GormDrive) WithContext(ctx context.Context) *gorm.DB {
-	//manager, ok := g.getManager(*ctx)
-	//if ok {
-	//	return manager.tx
-	//}
-	//openTx, ok := (*ctx).Value(DBOpenTxKey).(bool)
-	//if openTx && ok {
-	//	manager, _ = g.getManager(g.BeginTx(*ctx))
-	//	return manager.tx
-	//}
+	manager, ok := g.getManager(ctx)
+	if ok && manager.isNormal() {
+		return manager.tx
+	}
 	return g.DB.WithContext(ctx)
 }
 
 // BeginTx 开始一个新的事务或返回当前事务。
 func (g *GormDrive) BeginTx(ctx context.Context) context.Context {
 	manager, ok := g.getManager(ctx)
-	if ok && manager.nestingLevel >= 1 {
-		return nil
+	if ok && manager.isNormal() {
+		return ctx
 	}
-	tx := newTx(g.DB.WithContext(ctx))
+	tx := newTx(g.DB)
 
 	name := DBTransactionKey + "-" + g.id
 	ctx = context.WithValue(ctx, name, tx)
