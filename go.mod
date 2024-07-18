@@ -1,4 +1,4 @@
-module go-lib
+module github.com/Cotary/go-lib
 
 go 1.20
 
