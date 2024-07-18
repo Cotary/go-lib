@@ -1,0 +1,42 @@
+package response
+
+import (
+	"fmt"
+	"github.com/gin-gonic/gin"
+	"github.com/pkg/errors"
+	"go-lib"
+	"go-lib/common/defined"
+	e "go-lib/err"
+)
+
+type Response struct {
+	Code    int         `json:"code"`
+	Message string      `json:"msg"`
+	Data    interface{} `json:"data"`
+}
+
+func NewResponse(code int, message string, data interface{}) *Response {
+	return &Response{Code: code, Message: message, Data: data}
+}
+
+// Success Response
+func Success(c *gin.Context, data any) *Response {
+	return NewResponse(0, "success", data)
+
+}
+
+// Fail Response
+func Error(c *gin.Context, err error) *Response {
+	var standardErr e.HttpErr
+	ok := errors.As(err, &standardErr)
+	if !ok {
+		standardErr = e.NewHttpErr(e.FailedErr, err)
+	}
+
+	msg := standardErr.Error()
+	if lib.Env != defined.PROD && standardErr.Err != nil {
+		msg = fmt.Sprintf("%s: %s", standardErr.Error(), standardErr.Err.Error())
+	}
+
+	return NewResponse(standardErr.Code, msg, standardErr.Data)
+}
