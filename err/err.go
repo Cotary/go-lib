@@ -110,10 +110,10 @@ func SendMessage(ctx context.Context, err error) {
 		Error(errMsg)
 
 	zMap := utils.NewZMap[string, string]().
-		Set("ServerName", serverName).
-		Set("Env", env).
-		Set("RequestID", requestID).
-		Set("Error", errMsg)
+		Set("ServerName:", serverName).
+		Set("Env:", env).
+		Set("RequestID:", requestID).
+		Set("Error:", errMsg)
 
 	messageSender(ctx, *zMap)
 }
