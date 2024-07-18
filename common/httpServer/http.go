@@ -1,10 +1,11 @@
-package utils
+package httpServer
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/Cotary/go-lib/common/defined"
+	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/Cotary/go-lib/log"
 	"github.com/go-resty/resty/v2"
@@ -73,8 +74,8 @@ func (hClient HttpClient) HttpRequest(ctx context.Context, method string, url st
 		logMap["Request Error"] = err.Error()
 		log.WithContext(ctx).WithFields(logMap).Error()
 
-		//发送lark报警
-		e.SendMessage(ctx, errors.New("HTTP Request Error:"+Json(logMap)))
+		//发送报警
+		e.SendMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
 	} else {
 		log.WithContext(ctx).WithFields(logMap).Info()
 	}

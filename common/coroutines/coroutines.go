@@ -1,9 +1,10 @@
-package utils
+package coroutines
 
 import (
 	"context"
 	"github.com/Cotary/go-lib"
 	"github.com/Cotary/go-lib/common/defined"
+	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -20,7 +21,7 @@ func SafeGo(ctx context.Context, F func()) {
 func SafeFunc(ctx context.Context, F func()) {
 	defer func() {
 		if r := recover(); r != nil {
-			err := errors.New(Json(r) + "\r\n" + string(debug.Stack()))
+			err := errors.New(utils.Json(r) + "\r\n" + string(debug.Stack()))
 			e.SendMessage(ctx, err)
 		}
 	}()

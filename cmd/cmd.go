@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Cotary/go-lib/common/coroutines"
 	utils2 "github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/robfig/cron/v3"
@@ -29,9 +30,9 @@ func Start(handlers []Handler) *cron.Cron {
 }
 
 func cmdHandle(handle Handler) {
-	ctx := utils2.NewContext("CRON")
-	utils2.SafeFunc(ctx, func() {
-		funcName := utils2.GetStructName(handle)
+	ctx := coroutines.NewContext("CRON")
+	coroutines.SafeFunc(ctx, func() {
+		funcName := coroutines.GetStructName(handle)
 		running := utils2.NewSingleRun(funcName)
 		err := running.SingleRun(func() error {
 			return handle.Do(ctx)
