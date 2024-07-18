@@ -2,9 +2,9 @@ package middleware
 
 import (
 	"bytes"
+	e "github.com/Cotary/go-lib/err"
+	"github.com/Cotary/go-lib/response"
 	"github.com/gin-gonic/gin"
-	e "go-lib/err"
-	"go-lib/response"
 	"io"
 	"net/http"
 )

@@ -3,9 +3,9 @@ package middleware
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/Cotary/go-lib/common/defined"
+	"github.com/Cotary/go-lib/log"
 	"github.com/gin-gonic/gin"
-	"go-lib/common/defined"
-	"go-lib/log"
 	"io"
 	"time"
 )

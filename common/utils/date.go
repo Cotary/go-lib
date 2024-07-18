@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"go-lib/common/defined"
+	"github.com/Cotary/go-lib/common/defined"
 	"time"
 )
 

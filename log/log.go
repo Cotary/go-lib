@@ -2,7 +2,7 @@ package log
 
 import (
 	"context"
-	"go-lib/common/defined"
+	"github.com/Cotary/go-lib/common/defined"
 	"time"
 
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"

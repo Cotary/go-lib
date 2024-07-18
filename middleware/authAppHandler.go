@@ -2,11 +2,11 @@ package middleware
 
 import (
 	"fmt"
+	"github.com/Cotary/go-lib/common/defined"
+	"github.com/Cotary/go-lib/common/utils"
+	e "github.com/Cotary/go-lib/err"
+	"github.com/Cotary/go-lib/response"
 	"github.com/gin-gonic/gin"
-	"go-lib/common/defined"
-	"go-lib/common/utils"
-	e "go-lib/err"
-	"go-lib/response"
 	"net/http"
 	"strconv"
 	"time"

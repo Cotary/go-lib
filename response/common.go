@@ -2,11 +2,11 @@ package response
 
 import (
 	"fmt"
+	"github.com/Cotary/go-lib"
+	"github.com/Cotary/go-lib/common/defined"
+	e "github.com/Cotary/go-lib/err"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
-	"go-lib"
-	"go-lib/common/defined"
-	e "go-lib/err"
 )
 
 type Response struct {

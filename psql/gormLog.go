@@ -3,9 +3,9 @@ package psql
 import (
 	"context"
 	"fmt"
+	"github.com/Cotary/go-lib/common/defined"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"go-lib/common/defined"
 	"gorm.io/gorm/logger"
 	_ "gorm.io/gorm/logger"
 	"gorm.io/gorm/utils"

@@ -2,10 +2,10 @@ package middleware
 
 import (
 	"context"
+	"github.com/Cotary/go-lib"
+	"github.com/Cotary/go-lib/common/defined"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"go-lib"
-	"go-lib/common/defined"
 )
 
 func RequestIDMiddleware() gin.HandlerFunc {

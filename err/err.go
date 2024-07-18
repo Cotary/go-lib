@@ -3,11 +3,11 @@ package e
 import (
 	"context"
 	"fmt"
+	"github.com/Cotary/go-lib"
+	"github.com/Cotary/go-lib/common/defined"
+	"github.com/Cotary/go-lib/common/utils"
+	"github.com/Cotary/go-lib/log"
 	"github.com/pkg/errors"
-	"go-lib"
-	"go-lib/common/defined"
-	"go-lib/common/utils"
-	"go-lib/log"
 	"runtime"
 	"strings"
 )

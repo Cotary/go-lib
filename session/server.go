@@ -3,9 +3,9 @@ package session
 import (
 	"encoding/json"
 	"errors"
+	e "github.com/Cotary/go-lib/err"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
-	e "go-lib/err"
 )
 
 var Nil = errors.New("session is nil")

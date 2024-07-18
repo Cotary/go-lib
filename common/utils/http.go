@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Cotary/go-lib/common/defined"
+	e "github.com/Cotary/go-lib/err"
+	"github.com/Cotary/go-lib/log"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	"github.com/tidwall/gjson"
-	"go-lib/common/defined"
-	e "go-lib/err"
-	"go-lib/log"
 	"net/http"
 )
 

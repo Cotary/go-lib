@@ -2,11 +2,11 @@ package utils
 
 import (
 	"context"
+	"github.com/Cotary/go-lib"
+	"github.com/Cotary/go-lib/common/defined"
+	e "github.com/Cotary/go-lib/err"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"go-lib"
-	"go-lib/common/defined"
-	e "go-lib/err"
 	"reflect"
 	"runtime/debug"
 )
