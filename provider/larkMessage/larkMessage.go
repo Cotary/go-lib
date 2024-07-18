@@ -83,7 +83,7 @@ func genMsg(language string, title string, message []string, atList []string) *l
 	messageRow := make([]content, 0)
 	for _, v := range message {
 		if v == "" {
-			v = "---"
+			v = " "
 		}
 		messageRow = append(messageRow, content{
 			Tag:  "text",
