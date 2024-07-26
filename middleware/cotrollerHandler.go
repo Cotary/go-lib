@@ -3,8 +3,12 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/Cotary/go-lib/cache"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/Cotary/go-lib/response"
+	"github.com/eko/gocache/lib/v4/store"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 	"io"
@@ -29,8 +33,19 @@ func C(wrapper HandlerFuncWrapper) gin.HandlerFunc {
 
 type ServiceFuncWrapper[T any, R any] func(c *gin.Context, req T) (resp R, err error)
 
-func CD[T any, R any](wrapper ServiceFuncWrapper[T, R]) gin.HandlerFunc {
+type ControllerOptions struct {
+	CacheStore  store.StoreInterface
+	CacheExpire int64
+}
+
+func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOptions) gin.HandlerFunc {
 	return C(func(c *gin.Context) (any, error) {
+
+		option := ControllerOptions{}
+		if len(options) > 0 {
+			option = options[0]
+		}
+
 		//ctx := c.Request.Context()
 		req := new(T)
 
@@ -46,10 +61,41 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R]) gin.HandlerFunc {
 			return nil, e.NewHttpErr(e.ParamErr, err)
 		}
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+		//cache
+		var cacheInstance *cache.BaseCache[R]
+		var reqJson []byte
+		if option.CacheExpire > 0 {
+			reqJson, err = json.Marshal(*req)
+			if err != nil {
+				e.SendMessage(c, e.Err(err, "request cache marshal error"))
+			}
+			prefix := fmt.Sprintf("Request-%s", c.Request.URL.Path)
+			cacheInstance = cache.StoreInstance[R](c,
+				cache.Config{
+					Prefix: prefix,
+					Expire: option.CacheExpire,
+				},
+				option.CacheStore)
+
+			resp, err := cacheInstance.Get(c, string(reqJson))
+			if err == nil {
+				return resp, nil
+			} else {
+				e.SendMessage(c, e.Err(err, "request cacheInstance error"))
+			}
+
+		}
 		//logic
 		resp, err := wrapper(c, *req)
 		if err != nil {
 			return nil, err
+		}
+		if option.CacheExpire > 0 {
+			err = cacheInstance.Set(c, string(reqJson), resp)
+			if err != nil {
+				e.SendMessage(c, e.Err(err, "request set cache error"))
+			}
 		}
 
 		return resp, nil

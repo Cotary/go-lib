@@ -36,13 +36,11 @@ func Err(err error, message ...string) error {
 	return errors.WithStack(err)
 }
 
-type StackTracer interface {
-	StackTrace() errors.StackTrace
-}
-
 func GetStakeErr(err error) error {
 	for unwrapErr := err; unwrapErr != nil; {
-		if _, ok := unwrapErr.(StackTracer); ok {
+		if _, ok := unwrapErr.(interface {
+			StackTrace() errors.StackTrace
+		}); ok {
 			return unwrapErr
 		}
 		u, ok := unwrapErr.(interface {
@@ -72,7 +70,9 @@ func GetErrMessage(err error) string {
 	str := "\n"
 	for i, e := range stackList {
 		str += fmt.Sprintf("[%d]:%s\n", i+1, e.Error())
-		if stackErr, ok := e.(StackTracer); ok {
+		if stackErr, ok := e.(interface {
+			StackTrace() errors.StackTrace
+		}); ok {
 			str += fmt.Sprintf("\nstack:\n")
 			isFirstErr := allLevel == i+1
 			for si, sf := range stackErr.StackTrace() {
