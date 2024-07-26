@@ -40,7 +40,7 @@ func newClient(cmd redis.Cmdable, config Config) Client {
 	}
 }
 
-func InitRedis(config *Config) Client {
+func NewRedis(config *Config) Client {
 	auth := config.Auth
 	if config.Encryption == 1 {
 		auth = utils.MD5(auth)
