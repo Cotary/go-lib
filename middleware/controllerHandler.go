@@ -79,12 +79,11 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOpt
 				option.CacheStore)
 
 			resp, err := cacheInstance.Get(c, string(reqJson))
-			if err == nil {
-				return resp, nil
+			if err != nil && err.Error() != store.NOT_FOUND_ERR {
+				e.SendMessage(c, e.Err(err, "request cache get error"))
 			} else {
-				e.SendMessage(c, e.Err(err, "request cacheInstance error"))
+				return resp, nil
 			}
-
 		}
 		//logic
 		resp, err := wrapper(c, *req)
