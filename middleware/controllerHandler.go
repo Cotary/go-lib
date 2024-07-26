@@ -79,8 +79,10 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOpt
 				option.CacheStore)
 
 			resp, err := cacheInstance.Get(c, string(reqJson))
-			if err != nil && err.Error() != store.NOT_FOUND_ERR {
-				e.SendMessage(c, e.Err(err, "request cache get error"))
+			if err != nil {
+				if err.Error() != store.NOT_FOUND_ERR {
+					e.SendMessage(c, e.Err(err, "request cache get error"))
+				}
 			} else {
 				return resp, nil
 			}
