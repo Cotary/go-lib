@@ -90,9 +90,9 @@ func GetErrMessage(err error) string {
 	return str
 }
 
-var messageSender func(ctx context.Context, zMap utils.ZMap[string, string])
+var messageSender func(ctx context.Context, zMap *utils.ZMap[string, string])
 
-func SetMessageSender(sender func(ctx context.Context, zMap utils.ZMap[string, string])) {
+func SetMessageSender(sender func(ctx context.Context, zMap *utils.ZMap[string, string])) {
 	messageSender = sender
 }
 
@@ -115,5 +115,5 @@ func SendMessage(ctx context.Context, err error) {
 		Set("RequestID:", requestID).
 		Set("Error:", errMsg)
 
-	messageSender(ctx, *zMap)
+	messageSender(ctx, zMap)
 }
