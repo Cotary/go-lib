@@ -65,6 +65,9 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOpt
 		//cache
 		var cacheInstance *cache.BaseCache[R]
 		var reqJson []byte
+		var originFunc = func(ctx context.Context, key string) (value any, err error) {
+			return wrapper(c, *req)
+		}
 		if option.CacheExpire > 0 {
 			reqJson, err = json.Marshal(*req)
 			if err != nil {
@@ -73,32 +76,17 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOpt
 			prefix := fmt.Sprintf("Request-%s", c.Request.URL.Path)
 			cacheInstance = cache.StoreInstance[R](c,
 				cache.Config{
-					Prefix: prefix,
-					Expire: option.CacheExpire,
+					Prefix:     prefix,
+					Expire:     option.CacheExpire,
+					OriginFunc: originFunc,
 				},
 				option.CacheStore)
 
-			resp, err := cacheInstance.Get(c, string(reqJson))
-			if err != nil {
-				if err.Error() != store.NOT_FOUND_ERR {
-					e.SendMessage(c, e.Err(err, "request cache get error"))
-				}
-			} else {
-				return resp, nil
-			}
+			resp, err := cacheInstance.OriginGet(string(reqJson))
+			return resp, e.Err(err, "request cache OriginGet error")
 		}
 		//logic
-		resp, err := wrapper(c, *req)
-		if err != nil {
-			return nil, err
-		}
-		if option.CacheExpire > 0 {
-			err = cacheInstance.Set(c, string(reqJson), resp)
-			if err != nil {
-				e.SendMessage(c, e.Err(err, "request set cache error"))
-			}
-		}
-
-		return resp, nil
+		resp, err := originFunc(c, string(reqJson))
+		return resp, e.Err(err)
 	})
 }

@@ -17,9 +17,9 @@ type BaseCache[T any] struct {
 }
 
 type Config struct {
-	Prefix    string
-	Expire    int64
-	GetOrigin func(ctx context.Context, key string) (value any, err error)
+	Prefix     string
+	Expire     int64
+	OriginFunc func(ctx context.Context, key string) (value any, err error)
 }
 
 func NewStore[T any](ctx context.Context, config Config, store store.StoreInterface) *BaseCache[T] {
@@ -56,7 +56,7 @@ func (c *BaseCache[T]) OriginGet(key string) (value T, err error) {
 	value, err = c.Get(c.ctx, key)
 	if err != nil {
 		if err.Error() == store.NOT_FOUND_ERR {
-			v, err := c.config.GetOrigin(c.ctx, key)
+			v, err := c.config.OriginFunc(c.ctx, key)
 			if err != nil {
 				return *new(T), err
 			}
