@@ -94,6 +94,24 @@ type CalculateMonthAndDayItem struct {
 	Day   int
 }
 
+func (t *Time) CalculateMonthAndDayList(start int64, end int64, targetDate string) (list []CalculateMonthAndDayItem) {
+	for i := GetSecTime(start); i < GetSecTime(end); i += 86400 {
+		month, day := t.CalculateMonthAndDay(i, targetDate)
+		list = append(list, CalculateMonthAndDayItem{
+			Month: month,
+			Day:   day,
+		})
+	}
+	return list
+}
+
+func (t *Time) CalculateMonthAndDay(timestamp int64, targetDateStr string) (int, int) {
+	targetDate, _ := time.ParseInLocation(defined.YearMonthDayLayout, targetDateStr, t.loc)
+	inputDate := time.Unix(GetSecTime(timestamp), 0).In(t.loc)
+	months := (inputDate.Year()-targetDate.Year())*12 + int(inputDate.Month()) - int(targetDate.Month()) + 1
+	return months, inputDate.Day()
+}
+
 func (t *Time) GetDayTimesBetween(start, end int64) []int64 {
 	start, _ = t.TimeFormatTime(start, defined.YearMonthDayLayout)
 	end, _ = t.TimeFormatTime(end, defined.YearMonthDayLayout)
@@ -120,26 +138,4 @@ func (t *Time) GetDaysBetween(start, end int64) []int64 {
 		day = append(day, dayTime)
 	}
 	return day
-}
-
-func ShiftTimeRange(start, end int64) (int64, int64) {
-	diff := end - start
-	interval := time.Duration(diff) * time.Second
-	startTime := time.Unix(start, 0)
-	endTime := time.Unix(end, 0)
-	beforeStartTime := startTime.Add(-interval)
-	beforeEndTime := endTime.Add(-interval)
-	return beforeStartTime.Unix(), beforeEndTime.Unix()
-}
-
-// 获取毫秒级时间戳的当日开始时间戳和结束时间戳
-func (t *Time) GetDataStartAndEnd(tInt int64) (int64, int64) {
-	timestamp := time.Unix(tInt, 0).In(time.UTC)
-
-	y, m, d := timestamp.Date()
-	startOfDay := time.Date(y, m, d, 0, 0, 0, 0, t.loc)
-	endOfDay := time.Date(y, m, d, 23, 59, 59, 999999, t.loc)
-	startUnix := startOfDay.UTC().Unix()
-	endUnix := endOfDay.UTC().Unix()
-	return startUnix, endUnix
 }
