@@ -10,6 +10,7 @@ import (
 	"github.com/Cotary/go-lib/log"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"net/http"
 )
@@ -29,9 +30,9 @@ func NewHttpClient() *HttpClient {
 	return newHttp
 }
 
-type checkFunc func(res *resty.Response, gj gjson.Result) error
+type CheckFunc func(res *resty.Response, gj gjson.Result) error
 
-var DefaultCheck []checkFunc = []checkFunc{HttpStatusCheckFunc}
+var DefaultCheck []CheckFunc = []CheckFunc{HttpStatusCheckFunc}
 
 func (hClient HttpClient) HttpRequest(ctx context.Context, method string, url string, query map[string][]string, body interface{}, headers map[string]string) RestyResult {
 	if query != nil {
@@ -59,28 +60,8 @@ func (hClient HttpClient) HttpRequest(ctx context.Context, method string, url st
 		resp, err = hClient.Request.Get(url)
 	}
 
-	logMap := map[string]interface{}{
-		"Context ID":           ctx.Value(defined.RequestID),
-		"Request URL":          url,
-		"Request Method":       method,
-		"Request Headers":      headers,
-		"Request Query":        query,
-		"Request Body":         body,
-		"Response Status Code": resp.StatusCode(),
-		"Response Headers":     resp.Header(),
-		"Response Body":        resp.String(),
-	}
-	if err != nil {
-		logMap["Request Error"] = err.Error()
-		log.WithContext(ctx).WithFields(logMap).Error()
-
-		//发送报警
-		e.SendMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
-	} else {
-		log.WithContext(ctx).WithFields(logMap).Info()
-	}
-
 	return RestyResult{
+		Context:  ctx,
 		Client:   hClient.Client,
 		Response: resp,
 		Error:    err,
@@ -88,13 +69,38 @@ func (hClient HttpClient) HttpRequest(ctx context.Context, method string, url st
 }
 
 type RestyResult struct {
+	context.Context
 	*resty.Client
 	*resty.Response
 	Error error
 }
 
+func (t RestyResult) Log(logEntry *logrus.Entry) {
+	ctx := t.Context
+	logMap := map[string]interface{}{
+		"Context ID":           ctx.Value(defined.RequestID),
+		"Request URL":          t.Response.Request.URL,
+		"Request Method":       t.Response.Request.Method,
+		"Request Headers":      t.Response.Request.Header,
+		"Request Query":        t.Response.Request.RawRequest.URL.Query(),
+		"Request Body":         t.Response.Request.Body,
+		"Response Status Code": t.Response.StatusCode(),
+		"Response Headers":     t.Response.Header(),
+		"Response Body":        t.Response.String(),
+	}
+	if t.Error != nil {
+		logMap["Request Error"] = t.Error.Error()
+		logEntry.WithContext(ctx).WithFields(logMap).Error()
+
+		//发送报警
+		e.SendMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
+	} else {
+		log.WithContext(ctx).WithFields(logMap).Info()
+	}
+}
+
 // Parse 解析响应
-func (t RestyResult) Parse(checkFuncList []checkFunc, path string, data interface{}) error {
+func (t RestyResult) Parse(checkFuncList []CheckFunc, path string, data interface{}) error {
 	if t.Error != nil {
 		return t.Error
 	}

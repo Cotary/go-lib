@@ -97,6 +97,9 @@ func SetMessageSender(sender func(ctx context.Context, zMap *utils.ZMap[string, 
 }
 
 func SendMessage(ctx context.Context, err error) {
+	if messageSender == nil {
+		return
+	}
 	errMsg := GetErrMessage(Err(err))
 
 	env := lib.Env
