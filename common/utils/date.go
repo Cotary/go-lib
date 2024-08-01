@@ -6,13 +6,13 @@ import (
 )
 
 type Time struct {
-	Loc     *time.Location
-	NowTime time.Time
+	*time.Location
+	time.Time
 }
 
-func NewTime(t time.Time, loc ...*time.Location) *Time {
-	if len(loc) > 0 {
-		return &Time{loc[0], t}
+func NewTime(t time.Time, Location ...*time.Location) *Time {
+	if len(Location) > 0 {
+		return &Time{Location[0], t}
 	}
 	return &Time{time.Local, t}
 }
@@ -21,9 +21,9 @@ func NewUTC() *Time {
 	return &Time{time.UTC, time.Now()}
 }
 
-func NewLocal(loc ...*time.Location) *Time {
-	if len(loc) > 0 {
-		return &Time{loc[0], time.Now()}
+func NewLocal(Location ...*time.Location) *Time {
+	if len(Location) > 0 {
+		return &Time{Location[0], time.Now()}
 	}
 	return &Time{time.Local, time.Now()}
 }
@@ -46,7 +46,7 @@ func GetMillTime(t int64, end ...bool) int64 {
 }
 
 func (t *Time) StrToTime(str string, layout string) (int64, error) {
-	tm, err := time.ParseInLocation(layout, str, t.Loc)
+	tm, err := time.ParseInLocation(layout, str, t.Location)
 	if err != nil {
 		return 0, err
 	}
@@ -54,7 +54,7 @@ func (t *Time) StrToTime(str string, layout string) (int64, error) {
 }
 
 func (t *Time) TimeFormat(timestamp int64, layout string) string {
-	return time.Unix(GetSecTime(timestamp), 0).In(t.Loc).Format(layout)
+	return time.Unix(GetSecTime(timestamp), 0).In(t.Location).Format(layout)
 }
 
 func (t *Time) TimeFormatTime(time int64, layout string) (int64, error) {
@@ -63,19 +63,19 @@ func (t *Time) TimeFormatTime(time int64, layout string) (int64, error) {
 }
 
 func (t *Time) GetDayTimes(d int) (int64, int64) {
-	now := time.Now().In(t.Loc).AddDate(0, 0, d)
+	now := time.Now().In(t.Location).AddDate(0, 0, d)
 	year, month, day := now.Date()
-	startOfDay := time.Date(year, month, day, 0, 0, 0, 0, t.Loc)
-	endOfDay := time.Date(year, month, day, 23, 59, 59, 0, t.Loc)
+	startOfDay := time.Date(year, month, day, 0, 0, 0, 0, t.Location)
+	endOfDay := time.Date(year, month, day, 23, 59, 59, 0, t.Location)
 	startTime := startOfDay.Unix()
 	endTime := endOfDay.Unix()
 	return startTime, endTime
 }
 
 func (t *Time) GetMonthTimes(d int) (int64, int64) {
-	now := time.Now().In(t.Loc).AddDate(0, d, 1)
+	now := time.Now().In(t.Location).AddDate(0, d, 1)
 	year, month, _ := now.Date()
-	startOfDay := time.Date(year, month, 1, 0, 0, 0, 0, t.Loc)
+	startOfDay := time.Date(year, month, 1, 0, 0, 0, 0, t.Location)
 	startTime := startOfDay.Unix()
 	if month == 12 {
 		year++
@@ -89,11 +89,11 @@ func (t *Time) GetMonthTimes(d int) (int64, int64) {
 }
 
 func (t *Time) GetHourUnixMilli(h int) (int64, int64) {
-	now := time.Now().In(t.Loc).Add(time.Duration(h) * time.Hour)
+	now := time.Now().In(t.Location).Add(time.Duration(h) * time.Hour)
 	year, month, day := now.Date()
 	hour := now.Hour()
-	startOfDay := time.Date(year, month, day, hour, 0, 0, 0, t.Loc)
-	endOfDay := time.Date(year, month, day, hour, 59, 59, 999999, t.Loc)
+	startOfDay := time.Date(year, month, day, hour, 0, 0, 0, t.Location)
+	endOfDay := time.Date(year, month, day, hour, 59, 59, 999999, t.Location)
 	startTime := startOfDay.UnixMilli()
 	endTime := endOfDay.UnixMilli()
 	return startTime, endTime
@@ -116,8 +116,8 @@ func (t *Time) CalculateMonthAndDayList(start int64, end int64, targetDate strin
 }
 
 func (t *Time) CalculateMonthAndDay(timestamp int64, targetDateStr string) (int, int) {
-	targetDate, _ := time.ParseInLocation(defined.YearMonthDayLayout, targetDateStr, t.Loc)
-	inputDate := time.Unix(GetSecTime(timestamp), 0).In(t.Loc)
+	targetDate, _ := time.ParseInLocation(defined.YearMonthDayLayout, targetDateStr, t.Location)
+	inputDate := time.Unix(GetSecTime(timestamp), 0).In(t.Location)
 	months := (inputDate.Year()-targetDate.Year())*12 + int(inputDate.Month()) - int(targetDate.Month()) + 1
 	return months, inputDate.Day()
 }
