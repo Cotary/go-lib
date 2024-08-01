@@ -10,11 +10,21 @@ type Time struct {
 	nowTime time.Time
 }
 
+func NewTime(t time.Time, loc ...*time.Location) *Time {
+	if len(loc) > 0 {
+		return &Time{loc[0], t}
+	}
+	return &Time{time.Local, t}
+}
+
 func NewUTC() *Time {
 	return &Time{time.UTC, time.Now()}
 }
 
-func NewLocal() *Time {
+func NewLocal(loc ...*time.Location) *Time {
+	if len(loc) > 0 {
+		return &Time{loc[0], time.Now()}
+	}
 	return &Time{time.Local, time.Now()}
 }
 
