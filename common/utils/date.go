@@ -62,6 +62,17 @@ func (t *Time) TimeFormatTime(time int64, layout string) (int64, error) {
 	return t.StrToTime(str, layout)
 }
 
+func (t *Time) GetHourTimes(h int) (int64, int64) {
+	now := time.Now().In(t.Location).Add(time.Duration(h) * time.Hour)
+	year, month, day := now.Date()
+	hour := now.Hour()
+	startOfDay := time.Date(year, month, day, hour, 0, 0, 0, t.Location)
+	endOfDay := time.Date(year, month, day, hour, 59, 59, 999999, t.Location)
+	startTime := startOfDay.Unix()
+	endTime := endOfDay.Unix()
+	return startTime, endTime
+}
+
 func (t *Time) GetDayTimes(d int) (int64, int64) {
 	now := time.Now().In(t.Location).AddDate(0, 0, d)
 	year, month, day := now.Date()
@@ -72,6 +83,33 @@ func (t *Time) GetDayTimes(d int) (int64, int64) {
 	return startTime, endTime
 }
 
+// GetWeekTimes 周日到周六为一周
+func (t *Time) GetWeekTimes(d int) (int64, int64) {
+	now := time.Now().In(t.Location).AddDate(0, 0, d*7)
+	year, month, day := now.Date()
+	weekday := now.Weekday()
+	startOfWeek := time.Date(year, month, day-int(weekday), 0, 0, 0, 0, t.Location)
+	endOfWeek := time.Date(year, month, day+(6-int(weekday)), 23, 59, 59, 999999, t.Location)
+	startTime := startOfWeek.Unix()
+	endTime := endOfWeek.Unix()
+	return startTime, endTime
+}
+
+// GetCWeekTimes 周一到周日为一周
+func (t *Time) GetCWeekTimes(d int) (int64, int64) {
+	now := time.Now().In(t.Location).AddDate(0, 0, d*7)
+	year, month, day := now.Date()
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	startOfWeek := time.Date(year, month, day-(weekday-1), 0, 0, 0, 0, t.Location)
+	endOfWeek := time.Date(year, month, day+(7-weekday), 23, 59, 59, 999999, t.Location)
+	startTime := startOfWeek.Unix()
+	endTime := endOfWeek.Unix()
+	return startTime, endTime
+}
+
 func (t *Time) GetMonthTimes(d int) (int64, int64) {
 	now := time.Now().In(t.Location).AddDate(0, d, 1)
 	year, month, _ := now.Date()
@@ -79,17 +117,6 @@ func (t *Time) GetMonthTimes(d int) (int64, int64) {
 	startTime := startOfDay.Unix()
 	endOfDay := startOfDay.AddDate(0, 1, 0)
 	endTime := endOfDay.Unix() - 1
-	return startTime, endTime
-}
-
-func (t *Time) GetHourTimes(h int) (int64, int64) {
-	now := time.Now().In(t.Location).Add(time.Duration(h) * time.Hour)
-	year, month, day := now.Date()
-	hour := now.Hour()
-	startOfDay := time.Date(year, month, day, hour, 0, 0, 0, t.Location)
-	endOfDay := time.Date(year, month, day, hour, 59, 59, 999999, t.Location)
-	startTime := startOfDay.Unix()
-	endTime := endOfDay.Unix()
 	return startTime, endTime
 }
 
