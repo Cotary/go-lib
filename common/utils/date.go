@@ -66,7 +66,7 @@ func (t *Time) GetDayTimes(d int) (int64, int64) {
 	now := time.Now().In(t.Location).AddDate(0, 0, d)
 	year, month, day := now.Date()
 	startOfDay := time.Date(year, month, day, 0, 0, 0, 0, t.Location)
-	endOfDay := time.Date(year, month, day, 23, 59, 59, 0, t.Location)
+	endOfDay := time.Date(year, month, day, 23, 59, 59, 999999, t.Location)
 	startTime := startOfDay.Unix()
 	endTime := endOfDay.Unix()
 	return startTime, endTime
@@ -77,25 +77,19 @@ func (t *Time) GetMonthTimes(d int) (int64, int64) {
 	year, month, _ := now.Date()
 	startOfDay := time.Date(year, month, 1, 0, 0, 0, 0, t.Location)
 	startTime := startOfDay.Unix()
-	if month == 12 {
-		year++
-		month = 1
-	} else {
-		month++
-	}
 	endOfDay := startOfDay.AddDate(0, 1, 0)
 	endTime := endOfDay.Unix() - 1
 	return startTime, endTime
 }
 
-func (t *Time) GetHourUnixMilli(h int) (int64, int64) {
+func (t *Time) GetHourTimes(h int) (int64, int64) {
 	now := time.Now().In(t.Location).Add(time.Duration(h) * time.Hour)
 	year, month, day := now.Date()
 	hour := now.Hour()
 	startOfDay := time.Date(year, month, day, hour, 0, 0, 0, t.Location)
 	endOfDay := time.Date(year, month, day, hour, 59, 59, 999999, t.Location)
-	startTime := startOfDay.UnixMilli()
-	endTime := endOfDay.UnixMilli()
+	startTime := startOfDay.Unix()
+	endTime := endOfDay.Unix()
 	return startTime, endTime
 }
 
@@ -134,18 +128,4 @@ func (t *Time) GetDayTimesBetween(start, end int64) []int64 {
 		dayTimes = append(dayTimes, dayTime)
 	}
 	return dayTimes
-}
-
-func (t *Time) GetDaysBetween(start, end int64) []int64 {
-	start, _ = t.TimeFormatTime(start, defined.YearMonthDayLayout)
-	end, _ = t.TimeFormatTime(end, defined.YearMonthDayLayout)
-	var day []int64
-	if start > end {
-		return day
-	}
-	for i := start; i <= end; i += 86400 {
-		dayTime := AnyToInt(t.TimeFormat(i, defined.YearMonthDayLayout))
-		day = append(day, dayTime)
-	}
-	return day
 }

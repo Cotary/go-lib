@@ -14,6 +14,10 @@ import (
 
 func Err(err error, message ...string) error {
 	str := strings.Join(message, "-")
+	if codeErr, ok := err.(*CodeErr); ok {
+		return NewHttpErr(codeErr, errors.New(str))
+	}
+
 	if err == nil {
 		if str != "" {
 			return errors.New(str)
