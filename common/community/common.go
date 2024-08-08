@@ -14,8 +14,7 @@ type TimeRange struct {
 }
 
 type ListResponse struct {
-	List      interface{} `json:"list"`
-	OtherList interface{} `json:"other_list"`
+	List interface{} `json:"list"`
 }
 
 type ListPageResponse struct {
@@ -24,10 +23,9 @@ type ListPageResponse struct {
 }
 
 type Paging struct {
-	Page         int    `json:"page" form:"page"`
-	PageSize     int    `json:"page_size" form:"page_size"`
-	Export       bool   `json:"export" form:"export"`
-	CustomFields string `json:"custom_fields" form:"custom_fields"`
+	Page     int  `json:"page" form:"page"`
+	PageSize int  `json:"page_size" form:"page_size"`
+	Export   bool `json:"export" form:"export"`
 }
 
 type Page struct {

@@ -3,6 +3,7 @@ package psql
 import (
 	"context"
 	"errors"
+	"github.com/Cotary/go-lib/common/community"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"reflect"
@@ -158,4 +159,18 @@ func (t *GormDrive) Save(ctx context.Context, data interface{}, updateFields []s
 		UpdateAll: updateAll,
 	})
 	return dbModel.Create(data)
+}
+
+func Paging(session *gorm.DB, paging *community.Paging) *gorm.DB {
+	if paging.PageSize < 1 {
+		paging.PageSize = 20
+	}
+	if paging.Page < 1 {
+		paging.Page = 1
+	}
+
+	return session.Limit(paging.PageSize).Offset((paging.Page - 1) * paging.PageSize)
+}
+func Page(session *gorm.DB, count *int64) *gorm.DB {
+	return session.Limit(-1).Offset(-1).Count(count)
 }
