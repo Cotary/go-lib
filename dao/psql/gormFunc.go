@@ -172,7 +172,7 @@ func Page(session *gorm.DB, count *int64) *gorm.DB {
 	return session.Limit(-1).Offset(-1).Count(count)
 }
 
-func Order(db *gorm.DB, order *community.Order, bind map[string]string) *gorm.DB {
+func Order(db *gorm.DB, order community.Order, bind map[string]string) *gorm.DB {
 	if order.OrderField != "" {
 		return db
 	}
