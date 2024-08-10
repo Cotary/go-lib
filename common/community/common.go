@@ -22,6 +22,11 @@ type ListPageResponse struct {
 	Page
 }
 
+type Order struct {
+	Order      string `form:"order" json:"order"`
+	OrderField string `form:"order_field" json:"order_field"`
+}
+
 type Paging struct {
 	Page     int  `json:"page" form:"page"`
 	PageSize int  `json:"page_size" form:"page_size"`
