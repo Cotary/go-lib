@@ -171,3 +171,18 @@ func Paging(session *gorm.DB, paging *community.Paging) *gorm.DB {
 func Page(session *gorm.DB, count *int64) *gorm.DB {
 	return session.Limit(-1).Offset(-1).Count(count)
 }
+
+func Order(db *gorm.DB, order *community.Order, bind map[string]string) *gorm.DB {
+	if order.OrderField != "" {
+		return db
+	}
+	orderType := "aes"
+	if order.OrderType == "desc" {
+		orderType = "desc"
+	}
+	field, ok := bind[order.OrderField]
+	if ok {
+		db.Order(field + " " + orderType)
+	}
+	return db
+}

@@ -5,7 +5,7 @@ type IDRequest struct {
 }
 
 type IDsRequest struct {
-	IDs []int64 `form:"ids" json:"ids"  binding:"required"`
+	IDs []int64 `form:"ids" json:"ids"`
 }
 
 type TimeRange struct {
@@ -23,7 +23,7 @@ type ListPageResponse struct {
 }
 
 type Order struct {
-	Order      string `form:"order" json:"order"`
+	OrderType  string `form:"order" json:"order" binding:"omitempty,oneof=aes desc"`
 	OrderField string `form:"order_field" json:"order_field"`
 }
 
