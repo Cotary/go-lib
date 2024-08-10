@@ -25,13 +25,6 @@ const (
 	ModifyField = "updated_at"
 )
 
-func CheckRowsAffected(tx *gorm.DB) error {
-	if tx.RowsAffected == 0 && tx.Error == nil {
-		return RowsAffectedZero
-	}
-	return tx.Error
-}
-
 type BaseModel struct {
 	ID        int64     `gorm:"column:id;primaryKey"`
 	CreatedAt time.Time `gorm:"autoCreateTime"`
@@ -53,12 +46,16 @@ func DbErr(err error) error {
 	return err
 }
 
+func DbAffectedErr(tx *gorm.DB) error {
+	if tx.RowsAffected == 0 && tx.Error == nil {
+		return RowsAffectedZero
+	}
+	return tx.Error
+}
+
 func (t *GormDrive) MustGet(ctx context.Context, item interface{}, condition map[string]interface{}) error {
 	err := t.WithContext(ctx).Where(condition).First(item).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil
-	}
-	return err
+	return DbErr(err)
 }
 
 func (t *GormDrive) Get(ctx context.Context, item interface{}, condition map[string]interface{}) error {
@@ -70,7 +67,7 @@ func (t *GormDrive) List(ctx context.Context, list interface{}, condition map[st
 }
 
 func (t *GormDrive) Insert(ctx context.Context, data interface{}) error {
-	return CheckRowsAffected(t.WithContext(ctx).Create(data))
+	return DbAffectedErr(t.WithContext(ctx).Create(data))
 }
 
 func (t *GormDrive) Update(ctx context.Context, data interface{}, updateFields []string, condition map[string]interface{}) error {
@@ -82,7 +79,7 @@ func (t *GormDrive) Update(ctx context.Context, data interface{}, updateFields [
 			dbModel.Select(updateFields)
 		}
 	}
-	return CheckRowsAffected(dbModel.Updates(data))
+	return DbAffectedErr(dbModel.Updates(data))
 }
 
 func (t *GormDrive) QueryAndSave(ctx context.Context, data interface{}, updateFields []string, condition map[string]interface{}) (operation string, err error) {
