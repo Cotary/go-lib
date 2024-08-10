@@ -2,6 +2,14 @@ package utils
 
 import "reflect"
 
+func GetField[T any, U any](s []T, f func(T) U) []U {
+	var result []U
+	for _, v := range s {
+		field := f(v)
+		result = append(result, field)
+	}
+	return result
+}
 func DefaultIfEmpty[T any](value, defaultValue T) T {
 	// Check if the value is the zero value of its type
 	if reflect.DeepEqual(value, reflect.Zero(reflect.TypeOf(value)).Interface()) {
@@ -22,7 +30,7 @@ func SafeSliceAdd[T any](s *[]T, key int, value T) {
 }
 
 // 去重
-func RemoveDuplicates[T comparable](s []T) []T {
+func ListUnique[T comparable](s []T) []T {
 	var seen = make(map[T]bool)
 	var result []T
 	for _, v := range s {
