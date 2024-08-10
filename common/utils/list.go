@@ -2,7 +2,7 @@ package utils
 
 import "reflect"
 
-func GetField[T any, U any](s []T, f func(T) U) []U {
+func ListField[T any, U any](s []T, f func(T) U) []U {
 	var result []U
 	for _, v := range s {
 		field := f(v)
