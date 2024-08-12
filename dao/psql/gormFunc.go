@@ -158,7 +158,7 @@ func (t *GormDrive) Save(ctx context.Context, data interface{}, updateFields []s
 	return dbModel.Create(data)
 }
 
-func Paging(session *gorm.DB, paging *community.Paging) *gorm.DB {
+func Paging(db *gorm.DB, paging *community.Paging) *gorm.DB {
 	if paging.PageSize < 1 {
 		paging.PageSize = 20
 	}
@@ -166,10 +166,10 @@ func Paging(session *gorm.DB, paging *community.Paging) *gorm.DB {
 		paging.Page = 1
 	}
 
-	return session.Limit(paging.PageSize).Offset((paging.Page - 1) * paging.PageSize)
+	return db.Limit(paging.PageSize).Offset((paging.Page - 1) * paging.PageSize)
 }
-func Page(session *gorm.DB, count *int64) *gorm.DB {
-	return session.Limit(-1).Offset(-1).Count(count)
+func Total(db *gorm.DB, count *int64) *gorm.DB {
+	return db.Limit(-1).Offset(-1).Count(count)
 }
 
 func Order(db *gorm.DB, order community.Order, bind map[string]string) *gorm.DB {
