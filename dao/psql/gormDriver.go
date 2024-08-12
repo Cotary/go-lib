@@ -12,13 +12,13 @@ import (
 )
 
 type GormConfig struct {
-	Driver      string        `yaml:"driver"`
-	Dsn         []string      `yaml:"dsn"`
-	IdleTimeout time.Duration `yaml:"idleTimeout"`
-	MaxOpens    int           `yaml:"maxOpens"`
-	MaxIdles    int           `yaml:"maxIdles"`
-	Debug       bool          `yaml:"debug"`
-	LogDir      string        `yaml:"log_dir"`
+	Driver      string   `yaml:"driver"`
+	Dsn         []string `yaml:"dsn"`
+	IdleTimeout int64    `yaml:"idleTimeout"`
+	MaxOpens    int      `yaml:"maxOpens"`
+	MaxIdles    int      `yaml:"maxIdles"`
+	Debug       bool     `yaml:"debug"`
+	LogDir      string   `yaml:"log_dir"`
 }
 
 type GormDrive struct {
@@ -72,7 +72,7 @@ func NewGorm(c *GormConfig) *GormDrive {
 	}
 	sqlDB.SetMaxIdleConns(c.MaxIdles)
 	sqlDB.SetMaxOpenConns(c.MaxOpens)
-	sqlDB.SetConnMaxLifetime(c.IdleTimeout)
+	sqlDB.SetConnMaxLifetime(time.Duration(c.IdleTimeout))
 	if c.Debug {
 		db = db.Debug()
 	}

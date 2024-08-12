@@ -2,7 +2,9 @@ package utils
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"github.com/Cotary/go-lib/common/defined"
 	"github.com/gin-gonic/gin"
 	"io"
 	"net/url"
@@ -66,4 +68,18 @@ func GetFullURL(c *gin.Context) string {
 	host := req.Host
 	fullURL := scheme + "://" + host + req.RequestURI
 	return fullURL
+}
+
+func GetRequestBody(c *gin.Context) ([]byte, error) {
+	contextBody, ok := c.Value(defined.RequestBody).([]byte)
+	if !ok || contextBody == nil {
+		bodyBytes, err := c.GetRawData()
+		if err != nil {
+			return nil, err
+		}
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), defined.RequestBody, bodyBytes))
+		return bodyBytes, nil
+	}
+	return contextBody, nil
 }

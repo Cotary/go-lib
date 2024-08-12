@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/Cotary/go-lib/common/defined"
+	"github.com/Cotary/go-lib/common/utils"
 	"github.com/Cotary/go-lib/log"
 	"github.com/gin-gonic/gin"
-	"io"
 	"time"
 )
 
@@ -29,8 +29,7 @@ func RequestLogMiddleware() gin.HandlerFunc {
 
 		ctx := c.Request.Context()
 		//log
-		requestBody, _ := c.GetRawData()
-		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
+		requestBody, _ := utils.GetRequestBody(c)
 		bodyLogWriter := &BodyLogWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
 		c.Writer = bodyLogWriter
 		start := time.Now()

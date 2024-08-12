@@ -11,11 +11,11 @@ import (
 )
 
 type Logs struct {
-	Level         string        `yaml:"level"`
-	Path          string        `yaml:"path"`
-	FileSuffix    string        `yaml:"fileSuffix"`
-	MaxAgeHour    time.Duration `yaml:"maxAgeHour"`
-	RotationCount uint          `yaml:"rotationCount"`
+	Level         string `yaml:"level"`
+	Path          string `yaml:"path"`
+	FileSuffix    string `yaml:"fileSuffix"`
+	MaxAgeHour    int64  `yaml:"maxAgeHour"`
+	RotationCount uint   `yaml:"rotationCount"`
 }
 
 var DefaultLogger *logrus.Logger
@@ -29,7 +29,7 @@ func InitLogger(logs *Logs) {
 	writer, _ := rotatelogs.New(logs.Path+"%Y%m%d"+logs.FileSuffix,
 		rotatelogs.WithRotationTime(24*time.Hour),
 		rotatelogs.WithRotationCount(logs.RotationCount),
-		rotatelogs.WithRotationTime(time.Hour*logs.MaxAgeHour),
+		rotatelogs.WithRotationTime(time.Hour*time.Duration(logs.MaxAgeHour)),
 	)
 	DefaultLogger.AddHook(lfshook.NewHook(writer, &logrus.JSONFormatter{TimestampFormat: "2006-01-02 15:04:05"}))
 }

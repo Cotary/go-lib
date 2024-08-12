@@ -109,6 +109,8 @@ func SendMessage(ctx context.Context, err error) {
 	env := lib.Env
 	serverName := lib.ServerName
 	requestID, _ := ctx.Value(defined.RequestID).(string)
+	requestUri, _ := ctx.Value(defined.RequestURI).(string)
+	requestJson, _ := ctx.Value(defined.RequestBodyJson).(string)
 
 	log.WithContext(ctx).
 		WithField("ServerName", serverName).
@@ -120,6 +122,8 @@ func SendMessage(ctx context.Context, err error) {
 		Set("ServerName:", serverName).
 		Set("Env:", env).
 		Set("RequestID:", requestID).
+		Set("RequestUri:", requestUri).
+		Set("RequestJson:", requestJson).
 		Set("Error:", errMsg)
 
 	messageSender(ctx, zMap)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Cotary/go-lib/cache"
+	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/Cotary/go-lib/response"
 	"github.com/eko/gocache/lib/v4/store"
@@ -50,11 +51,10 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOpt
 		req := new(T)
 
 		//reload body
-		bodyBytes, err := c.GetRawData()
+		bodyBytes, err := utils.GetRequestBody(c)
 		if err != nil {
 			return nil, e.Err(err)
 		}
-		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 		//bind
 		if err = c.ShouldBind(req); err != nil {
