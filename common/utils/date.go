@@ -10,11 +10,25 @@ type Time struct {
 	time.Time
 }
 
-func NewTime(t time.Time, Location ...*time.Location) *Time {
-	if len(Location) > 0 {
-		return &Time{Location[0], t}
+type TimeType interface {
+	~int64 | time.Time
+}
+
+func NewTime[T TimeType](t T, Location ...*time.Location) *Time {
+	switch v := any(t).(type) {
+	case time.Time:
+		if len(Location) > 0 {
+			return &Time{Location[0], v}
+		}
+		return &Time{time.Local, v}
+	case int64:
+		if len(Location) > 0 {
+			return &Time{Location[0], time.UnixMilli(GetMillTime(v))}
+		}
+		return &Time{time.Local, time.UnixMilli(GetMillTime(v))}
+	default:
+		return nil
 	}
-	return &Time{time.Local, t}
 }
 
 func NewUTC() *Time {
@@ -53,17 +67,17 @@ func (t *Time) StrToTime(str string, layout string) (int64, error) {
 	return tm.Unix(), nil
 }
 
-func (t *Time) TimeFormat(timestamp int64, layout string) string {
-	return time.Unix(GetSecTime(timestamp), 0).In(t.Location).Format(layout)
+func (t *Time) TimeFormat(layout string) string {
+	return t.In(t.Location).Format(layout)
 }
 
-func (t *Time) TimeFormatTime(time int64, layout string) (int64, error) {
-	str := t.TimeFormat(time, layout)
+func (t *Time) TimeFormatTime(layout string) (int64, error) {
+	str := t.TimeFormat(layout)
 	return t.StrToTime(str, layout)
 }
 
 func (t *Time) GetHourTimes(h int) (int64, int64) {
-	now := time.Now().In(t.Location).Add(time.Duration(h) * time.Hour)
+	now := t.In(t.Location).Add(time.Duration(h) * time.Hour)
 	year, month, day := now.Date()
 	hour := now.Hour()
 	startOfDay := time.Date(year, month, day, hour, 0, 0, 0, t.Location)
@@ -74,7 +88,7 @@ func (t *Time) GetHourTimes(h int) (int64, int64) {
 }
 
 func (t *Time) GetDayTimes(d int) (int64, int64) {
-	now := time.Now().In(t.Location).AddDate(0, 0, d)
+	now := t.In(t.Location).AddDate(0, 0, d)
 	year, month, day := now.Date()
 	startOfDay := time.Date(year, month, day, 0, 0, 0, 0, t.Location)
 	endOfDay := time.Date(year, month, day, 23, 59, 59, 999999, t.Location)
@@ -85,7 +99,7 @@ func (t *Time) GetDayTimes(d int) (int64, int64) {
 
 // GetWeekTimes 周日到周六为一周
 func (t *Time) GetWeekTimes(d int) (int64, int64) {
-	now := time.Now().In(t.Location).AddDate(0, 0, d*7)
+	now := t.In(t.Location).AddDate(0, 0, d*7)
 	year, month, day := now.Date()
 	weekday := now.Weekday()
 	startOfWeek := time.Date(year, month, day-int(weekday), 0, 0, 0, 0, t.Location)
@@ -97,7 +111,7 @@ func (t *Time) GetWeekTimes(d int) (int64, int64) {
 
 // GetCWeekTimes 周一到周日为一周
 func (t *Time) GetCWeekTimes(d int) (int64, int64) {
-	now := time.Now().In(t.Location).AddDate(0, 0, d*7)
+	now := t.In(t.Location).AddDate(0, 0, d*7)
 	year, month, day := now.Date()
 	weekday := int(now.Weekday())
 	if weekday == 0 {
@@ -111,7 +125,7 @@ func (t *Time) GetCWeekTimes(d int) (int64, int64) {
 }
 
 func (t *Time) GetMonthTimes(d int) (int64, int64) {
-	now := time.Now().In(t.Location).AddDate(0, d, 1)
+	now := t.In(t.Location).AddDate(0, d, 1)
 	year, month, _ := now.Date()
 	startOfDay := time.Date(year, month, 1, 0, 0, 0, 0, t.Location)
 	startTime := startOfDay.Unix()
@@ -144,14 +158,14 @@ func (t *Time) CalculateMonthAndDay(timestamp int64, targetDateStr string) (int,
 }
 
 func (t *Time) GetDayTimesBetween(start, end int64) []int64 {
-	start, _ = t.TimeFormatTime(start, defined.YearMonthDayLayout)
-	end, _ = t.TimeFormatTime(end, defined.YearMonthDayLayout)
+	start, _ = NewTime(start, t.Location).TimeFormatTime(defined.YearMonthDayLayout)
+	end, _ = NewTime(end, t.Location).TimeFormatTime(defined.YearMonthDayLayout)
 	var dayTimes []int64
 	if start > end {
 		return dayTimes
 	}
 	for i := start; i <= end; i += 86400 {
-		dayTime, _ := t.TimeFormatTime(i, defined.YearMonthDayLayout)
+		dayTime, _ := NewTime(i, t.Location).TimeFormatTime(defined.YearMonthDayLayout)
 		dayTimes = append(dayTimes, dayTime)
 	}
 	return dayTimes
