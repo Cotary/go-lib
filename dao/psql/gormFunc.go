@@ -86,7 +86,7 @@ func (t *GormDrive) QueryAndSave(ctx context.Context, data interface{}, updateFi
 	err = t.Transaction(func(tx *gorm.DB) error {
 		txDrive := NewGormDrive(tx)
 		queryStruct := newStruct(data)
-		err = txDrive.Get(ctx, queryStruct, condition)
+		err = tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where(condition).First(queryStruct).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				var clausesFields []string
