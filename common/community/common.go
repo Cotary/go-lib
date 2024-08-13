@@ -23,7 +23,7 @@ type ListPageResponse struct {
 }
 
 type Order struct {
-	OrderType  string `form:"order" json:"order" binding:"omitempty,oneof=aes desc"`
+	OrderType  string `form:"order_type" json:"order_type" binding:"omitempty,oneof=aes desc"`
 	OrderField string `form:"order_field" json:"order_field"`
 }
 
