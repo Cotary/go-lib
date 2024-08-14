@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"reflect"
+	"strings"
 	"time"
 )
 
@@ -181,8 +182,14 @@ func Order(db *gorm.DB, order community.Order, bind map[string]string) *gorm.DB 
 		orderType = "desc"
 	}
 	field, ok := bind[order.OrderField]
+	orderStr := ""
 	if ok {
-		db.Order(field + " " + orderType)
+		if strings.Contains(field, "{order_type}") {
+			orderStr = strings.Replace(field, "{order_type}", orderType, -1)
+		} else {
+			orderStr = field + " " + orderType
+		}
+		db.Order(orderStr)
 	}
 	return db
 }
