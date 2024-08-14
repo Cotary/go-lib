@@ -174,10 +174,10 @@ func Total(db *gorm.DB, count *int64) *gorm.DB {
 }
 
 func Order(db *gorm.DB, order community.Order, bind map[string]string) *gorm.DB {
-	if order.OrderField != "" {
+	if order.OrderField == "" {
 		return db
 	}
-	orderType := "aes"
+	orderType := "asc"
 	if order.OrderType == "desc" {
 		orderType = "desc"
 	}
@@ -189,7 +189,7 @@ func Order(db *gorm.DB, order community.Order, bind map[string]string) *gorm.DB 
 		} else {
 			orderStr = field + " " + orderType
 		}
-		db.Order(orderStr)
+		return db.Order(orderStr)
 	}
 	return db
 }
