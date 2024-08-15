@@ -17,16 +17,34 @@ func DefaultIfEmpty[T any](value, defaultValue T) T {
 	}
 	return value
 }
-func ExtendSlice[T any](s *[]T, length int) {
-	for len(*s) < length {
-		var zero T
-		*s = append(*s, zero)
+
+// SplitSlice
+func SplitSlice[T any](slice []T, size int) [][]T {
+	if size <= 0 {
+		return nil
 	}
+
+	var result [][]T
+	for i := 0; i < len(slice); i += size {
+		end := i + size
+		if end > len(slice) {
+			end = len(slice)
+		}
+		result = append(result, slice[i:end])
+	}
+	return result
 }
 
 func SafeSliceAdd[T any](s *[]T, key int, value T) {
 	ExtendSlice(s, key+1)
 	(*s)[key] = value
+}
+
+func ExtendSlice[T any](s *[]T, length int) {
+	for len(*s) < length {
+		var zero T
+		*s = append(*s, zero)
+	}
 }
 
 // 去重
