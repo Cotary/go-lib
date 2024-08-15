@@ -47,32 +47,32 @@ func DbErr(err error) error {
 	return err
 }
 
-func DbAffectedErr(tx *gorm.DB) error {
-	if tx.RowsAffected == 0 && tx.Error == nil {
+func DbAffectedErr(db *gorm.DB) error {
+	if db.RowsAffected == 0 && db.Error == nil {
 		return RowsAffectedZero
 	}
-	return tx.Error
+	return db.Error
 }
 
-func (t *GormDrive) MustGet(ctx context.Context, item interface{}, condition map[string]interface{}) error {
-	err := t.WithContext(ctx).Where(condition).First(item).Error
+func MustGet(ctx context.Context, db *gorm.DB, item interface{}, condition map[string]interface{}) error {
+	err := db.WithContext(ctx).Where(condition).First(item).Error
 	return DbErr(err)
 }
 
-func (t *GormDrive) Get(ctx context.Context, item interface{}, condition map[string]interface{}) error {
-	return t.WithContext(ctx).Where(condition).First(item).Error
+func Get(ctx context.Context, db *gorm.DB, item interface{}, condition map[string]interface{}) error {
+	return db.WithContext(ctx).Where(condition).First(item).Error
 }
 
-func (t *GormDrive) List(ctx context.Context, list interface{}, condition map[string]interface{}) error {
-	return t.WithContext(ctx).Where(condition).Find(list).Error
+func List(ctx context.Context, db *gorm.DB, list interface{}, condition map[string]interface{}) error {
+	return db.WithContext(ctx).Where(condition).Find(list).Error
 }
 
-func (t *GormDrive) Insert(ctx context.Context, data interface{}) error {
-	return DbAffectedErr(t.WithContext(ctx).Create(data))
+func Insert(ctx context.Context, db *gorm.DB, data interface{}) error {
+	return DbAffectedErr(db.WithContext(ctx).Create(data))
 }
 
-func (t *GormDrive) Update(ctx context.Context, data interface{}, updateFields []string, condition map[string]interface{}) error {
-	dbModel := t.WithContext(ctx).Where(condition)
+func Update(ctx context.Context, db *gorm.DB, data interface{}, updateFields []string, condition map[string]interface{}) error {
+	dbModel := db.WithContext(ctx).Where(condition)
 	if len(updateFields) > 0 {
 		if len(updateFields) == 1 && updateFields[0] == "*" {
 			dbModel.Select("*")
@@ -83,9 +83,8 @@ func (t *GormDrive) Update(ctx context.Context, data interface{}, updateFields [
 	return DbAffectedErr(dbModel.Updates(data))
 }
 
-func (t *GormDrive) QueryAndSave(ctx context.Context, data interface{}, updateFields []string, condition map[string]interface{}) (operation string, err error) {
-	err = t.Transaction(func(tx *gorm.DB) error {
-		txDrive := NewGormDrive(tx)
+func QueryAndSave(ctx context.Context, db *gorm.DB, data interface{}, updateFields []string, condition map[string]interface{}) (operation string, err error) {
+	err = db.Transaction(func(tx *gorm.DB) error {
 		queryStruct := newStruct(data)
 		err = tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where(condition).First(queryStruct).Error
 		if err != nil {
@@ -94,7 +93,7 @@ func (t *GormDrive) QueryAndSave(ctx context.Context, data interface{}, updateFi
 				for key := range condition {
 					clausesFields = append(clausesFields, key)
 				}
-				insertResult := txDrive.Save(ctx, data, updateFields, clausesFields)
+				insertResult := Save(ctx, tx, data, updateFields, clausesFields)
 				if insertResult.Error != nil {
 					return insertResult.Error
 				}
@@ -110,7 +109,7 @@ func (t *GormDrive) QueryAndSave(ctx context.Context, data interface{}, updateFi
 		if updateFields == nil {
 			return nil
 		}
-		updateModel := txDrive.WithContext(ctx).Where(condition)
+		updateModel := tx.WithContext(ctx).Where(condition)
 		//没有指定的话就只更新结构体不为空值的部分
 		if len(updateFields) > 0 {
 			if len(updateFields) == 1 && updateFields[0] == "*" {
@@ -131,7 +130,7 @@ func (t *GormDrive) QueryAndSave(ctx context.Context, data interface{}, updateFi
 	return
 
 }
-func (t *GormDrive) Save(ctx context.Context, data interface{}, updateFields []string, clausesFields []string) *gorm.DB {
+func Save(ctx context.Context, db *gorm.DB, data interface{}, updateFields []string, clausesFields []string) *gorm.DB {
 
 	notUpdate := false
 	if updateFields == nil {
@@ -150,7 +149,7 @@ func (t *GormDrive) Save(ctx context.Context, data interface{}, updateFields []s
 		})
 	}
 
-	dbModel := t.WithContext(ctx).Clauses(clause.OnConflict{
+	dbModel := db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   columns,
 		DoUpdates: clause.AssignmentColumns(updateFields),
 		DoNothing: notUpdate,

@@ -18,7 +18,7 @@ func (s *LarkSender) Send(ctx context.Context, title string, zMap *utils.ZMap[st
 		message = append(message, p.Key+": ", p.Value)
 	})
 	larkRobot := NewLarkRobot(s.RobotPath, s.Secret)
-	res, err := larkRobot.SendMessage("en-US", title, message, nil, false)
+	res, err := larkRobot.SendMessage("en-US", title, message, s.AtList, false)
 	if err != nil {
 		logger := log.WithContext(ctx).
 			WithField("type", "larkRobotMsgError")

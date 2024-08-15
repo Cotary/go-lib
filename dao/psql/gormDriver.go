@@ -21,21 +21,15 @@ type GormConfig struct {
 	MaxIdles    int      `yaml:"maxIdles"`    //设置连接池中保持空闲状态的最大连接数。
 
 	LogDir        string `yaml:"log_dir"`
-	LogLevel      string `yaml:"log_level"`
+	LogLevel      string `yaml:"log_level"`      //日志等级 silent error warn info
 	SlowThreshold int    `yaml:"slow_threshold"` // 慢sql阈值 ms
 	LogSaveDay    int    `yaml:"log_save_day"`   //日志保留天数
 }
 
 type GormDrive struct {
-	id string
+	ID     string
+	Logger *GormLogger
 	*gorm.DB
-}
-
-func NewGormDrive(db *gorm.DB) *GormDrive {
-	return &GormDrive{
-		id: uuid.NewString(),
-		DB: db,
-	}
 }
 
 func handleConfig(config *GormConfig) {
@@ -89,14 +83,13 @@ func getDriver(driver string, dsn []string) gorm.Dialector {
 	}
 }
 
-func NewGorm(c GormConfig) *GormDrive {
-
-	handleConfig(&c)
+func NewGorm(config *GormConfig) *GormDrive {
+	handleConfig(config)
 	// 创建日志目录
 	writer, err := rotatelogs.New(
-		c.LogDir+"/%Y%m%d%H.log",
-		rotatelogs.WithMaxAge(time.Duration(c.LogSaveDay)*24*time.Hour), // 保留 x 天的日志
-		rotatelogs.WithRotationTime(time.Hour),                          // 每小时分割一次日志
+		config.LogDir+"/%Y%m%d%H.log",
+		rotatelogs.WithMaxAge(time.Duration(config.LogSaveDay)*24*time.Hour), // 保留 x 天的日志
+		rotatelogs.WithRotationTime(time.Hour),                               // 每小时分割一次日志
 	)
 	if err != nil {
 		panic("gorm create log dir error:" + err.Error())
@@ -108,16 +101,16 @@ func NewGorm(c GormConfig) *GormDrive {
 	newLogger := New(
 		NewGormLogger(log), // io writer
 		logger.Config{
-			SlowThreshold:             time.Duration(c.SlowThreshold) * time.Millisecond, // Slow SQL threshold
-			LogLevel:                  getLogLevelEnum(c.LogLevel),                       // Log level
-			IgnoreRecordNotFoundError: false,                                             // Ignore ErrRecordNotFound error for logger
+			SlowThreshold:             time.Duration(config.SlowThreshold) * time.Millisecond, // Slow SQL threshold
+			LogLevel:                  getLogLevelEnum(config.LogLevel),                       // Log level
+			IgnoreRecordNotFoundError: false,                                                  // Ignore ErrRecordNotFound error for logger
 			ParameterizedQueries:      false,
 			Colorful:                  false,
 		},
 	)
-	driver := getDriver(c.Driver, c.Dsn)
+	driver := getDriver(config.Driver, config.Dsn)
 	if driver == nil {
-		panic("driver not support:" + c.Driver)
+		panic("driver not support:" + config.Driver)
 	}
 
 	db, err := gorm.Open(driver, &gorm.Config{
@@ -132,12 +125,16 @@ func NewGorm(c GormConfig) *GormDrive {
 	if err != nil {
 		panic(err)
 	}
-	sqlDB.SetMaxIdleConns(c.MaxIdles)
-	sqlDB.SetMaxOpenConns(c.MaxOpens)
-	sqlDB.SetConnMaxLifetime(time.Duration(c.IdleTimeout))
+	sqlDB.SetMaxIdleConns(config.MaxIdles)
+	sqlDB.SetMaxOpenConns(config.MaxOpens)
+	sqlDB.SetConnMaxLifetime(time.Duration(config.IdleTimeout))
 
 	if err = sqlDB.Ping(); err != nil {
 		panic(err)
 	}
-	return NewGormDrive(db)
+	return &GormDrive{
+		ID:     uuid.NewString(),
+		DB:     db,
+		Logger: newLogger,
+	}
 }

@@ -24,29 +24,34 @@ func (f *RawLogFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 }
 
 // NewGormLogger creates a custom GORM logger
-func NewGormLogger(log *logrus.Logger) *GormLogger {
-	return &GormLogger{log}
+func NewGormLogger(log *logrus.Logger) *GormLogWriter {
+	return &GormLogWriter{log}
 }
 
-// GormLogger is a custom GORM logger
-type GormLogger struct {
+// GormLogWriter is a custom GORM logger
+type GormLogWriter struct {
 	Log *logrus.Logger
 }
 
 // Printf implements the GORM logger interface
-func (l *GormLogger) Printf(format string, v ...any) {
+func (l *GormLogWriter) Printf(format string, v ...any) {
 	l.Log.Printf(format, v...)
 }
 
-type gormLogger struct {
+type GormLogger struct {
 	logger.Writer
 	logger.Config
+	message.Sender
 	infoStr, warnStr, errStr            string
 	traceStr, traceErrStr, traceWarnStr string
 }
 
+func (l *GormLogger) SetSender(s message.Sender) {
+	l.Sender = s
+}
+
 // New creates a new GORM logger with custom configurations
-func New(writer logger.Writer, config logger.Config) logger.Interface {
+func New(writer logger.Writer, config logger.Config) *GormLogger {
 	var (
 		infoStr      = "%s %s [%s]\n[info] "
 		warnStr      = "%s %s [%s]\n[warn] "
@@ -65,7 +70,7 @@ func New(writer logger.Writer, config logger.Config) logger.Interface {
 		traceErrStr = logger.RedBold + "%s %s [%s] " + logger.MagentaBold + "%s\n" + logger.Reset + logger.Yellow + "[%.3fms] " + logger.BlueBold + "[rows:%v]" + logger.Reset + " %s"
 	}
 
-	return &gormLogger{
+	return &GormLogger{
 		Writer:       writer,
 		Config:       config,
 		infoStr:      infoStr,
@@ -78,7 +83,7 @@ func New(writer logger.Writer, config logger.Config) logger.Interface {
 }
 
 // LogMode sets the log mode
-func (l *gormLogger) LogMode(level logger.LogLevel) logger.Interface {
+func (l *GormLogger) LogMode(level logger.LogLevel) logger.Interface {
 	newlogger := *l
 	newlogger.LogLevel = level
 	return &newlogger
@@ -93,28 +98,28 @@ func getRequestInfo(ctx context.Context) string {
 }
 
 // Info prints info messages
-func (l gormLogger) Info(ctx context.Context, msg string, data ...interface{}) {
+func (l GormLogger) Info(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= logger.Info {
 		l.Printf(l.infoStr+msg, append([]interface{}{time.Now().Format(time.DateTime), utils.FileWithLineNum(), getRequestInfo(ctx)}, data...)...)
 	}
 }
 
 // Warn prints warning messages
-func (l gormLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
+func (l GormLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= logger.Warn {
 		l.Printf(l.warnStr+msg, append([]interface{}{time.Now().Format(time.DateTime), utils.FileWithLineNum(), getRequestInfo(ctx)}, data...)...)
 	}
 }
 
 // Error prints error messages
-func (l gormLogger) Error(ctx context.Context, msg string, data ...interface{}) {
+func (l GormLogger) Error(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= logger.Error {
 		l.Printf(l.errStr+msg, append([]interface{}{time.Now().Format(time.DateTime), utils.FileWithLineNum(), getRequestInfo(ctx)}, data...)...)
 	}
 }
 
 // Trace prints SQL trace messages
-func (l gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+func (l GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
 	if l.LogLevel <= logger.Silent {
 		return
 	}
@@ -138,7 +143,7 @@ func (l gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (strin
 		}
 
 		msgStr := fmt.Sprintf(l.traceWarnStr, time.Now().Format(time.DateTime), utils.FileWithLineNum(), getRequestInfo(ctx), slowLog, float64(elapsed.Nanoseconds())/1e6, rows, sql)
-		SendMessage(ctx, msgStr)
+		SendMessage(ctx, l.Sender, msgStr)
 	case l.LogLevel == logger.Info:
 		sql, rows := fc()
 		if rows == -1 {
@@ -149,17 +154,10 @@ func (l gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (strin
 	}
 }
 
-var sender message.Sender
-
-func SetSender(s message.Sender) {
-	sender = s
-}
-
-func SendMessage(ctx context.Context, msg string) {
+func SendMessage(ctx context.Context, sender message.Sender, msg string) {
 	if sender == nil {
 		return
 	}
-
 	env := lib.Env
 	serverName := lib.ServerName
 	requestID, _ := ctx.Value(defined.RequestID).(string)
