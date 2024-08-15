@@ -32,7 +32,7 @@ func Start(handlers []Handler) *cron.Cron {
 
 func cmdHandle(handle Handler) {
 	ctx := coroutines.NewContext("CRON")
-	coroutines.SafeFunc(ctx, func() {
+	coroutines.SafeFunc(ctx, func(ctx context.Context) {
 		funcName := coroutines.GetStructName(handle)
 		running := utils2.NewSingleRun(funcName)
 		runInfo, err := running.SingleRun(func() error {
