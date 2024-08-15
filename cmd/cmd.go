@@ -12,7 +12,7 @@ import (
 )
 
 func Start(handlers []Handler) *cron.Cron {
-	//任务计划
+	// 任务计划
 	c := cron.New(cron.WithSeconds())
 	cmdHandlers := handlers
 	for _, v := range cmdHandlers {
@@ -34,15 +34,24 @@ func cmdHandle(handle Handler) {
 	ctx := coroutines.NewContext("CRON")
 	coroutines.SafeFunc(ctx, func(ctx context.Context) {
 		funcName := coroutines.GetStructName(handle)
-		running := utils2.NewSingleRun(funcName)
-		runInfo, err := running.SingleRun(func() error {
+		singleRun := utils2.NewSingleRun(funcName)
+		runInfo, err := singleRun.SingleRun(func() error {
 			return handle.Do(ctx)
 		})
 		if err != nil {
 			if errors.Is(err, utils2.ErrProcessIsRunning) {
-				err = e.Err(err, fmt.Sprintf("funcName:"+funcName+" is running"+
-					",startTime:"+utils2.NewTime(runInfo.StartTime).Format(time.DateTime)+
-					",nowTime:"+utils2.NewLocal().Format(time.DateTime)))
+				executionTime := time.Since(runInfo.StartTime)
+				if executionTime < handle.MaxExecuteTime() {
+					// 执行时间小于最大执行时间，不报错
+					return
+				}
+				err = e.Err(err, fmt.Sprintf(
+					"funcName: %s is running\nstartTime: %s\nnowTime: %s",
+					funcName,
+					utils2.NewTime(runInfo.StartTime).Format(time.DateTime),
+					utils2.NewLocal().Format(time.DateTime),
+				))
+
 			}
 			e.SendMessage(ctx, err)
 		}
@@ -52,5 +61,6 @@ func cmdHandle(handle Handler) {
 type Handler interface {
 	New() Handler
 	Spec() string
+	MaxExecuteTime() time.Duration
 	Do(ctx context.Context) error
 }
