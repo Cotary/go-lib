@@ -1,49 +1,65 @@
 package utils
 
 import (
-	"github.com/pkg/errors"
+	"errors"
 	"sync"
+	"time"
 )
 
-// 配置只能单次运行的方法
-
-var runStatus sync.Map
+var (
+	runStatus = make(map[string]RunInfo)
+	mu        sync.Mutex
+)
 
 type SingleRun struct {
 	Key string
 }
 
-func NewSingleRun(key string) *SingleRun {
-	run := new(SingleRun)
-	run.Key = key
-	return run
+type RunInfo struct {
+	IsRunning bool
+	StartTime time.Time
+	RunCount  int64
 }
 
-func (t *SingleRun) markAsRunning() {
-	runStatus.Store(t.Key, true)
+func NewSingleRun(key string) *SingleRun {
+	return &SingleRun{Key: key}
 }
-func (t *SingleRun) markAsNotRunning() {
-	runStatus.Store(t.Key, false)
-}
-func (t *SingleRun) isRunning() bool {
-	running, _ := runStatus.Load(t.Key)
-	if run, ok := running.(bool); ok {
-		return run
+
+func (t *SingleRun) setRunningStatus(status bool, startTime time.Time, runCount int64) {
+	mu.Lock()
+	defer mu.Unlock()
+	runStatus[t.Key] = RunInfo{
+		IsRunning: status,
+		StartTime: startTime,
+		RunCount:  runCount,
 	}
-	return false
 }
-func (t *SingleRun) CheckRunning() bool {
-	return t.isRunning()
+
+func (t *SingleRun) getRunningInfo() (RunInfo, bool) {
+	mu.Lock()
+	defer mu.Unlock()
+	info, ok := runStatus[t.Key]
+	if !ok {
+		return RunInfo{}, false
+	}
+	return info, true
 }
 
 var ErrProcessIsRunning = errors.New("process is running")
 
-func (t *SingleRun) SingleRun(f func() error) error {
-	if t.isRunning() {
-		return ErrProcessIsRunning
+func (t *SingleRun) SingleRun(f func() error) (RunInfo, error) {
+	info, running := t.getRunningInfo()
+	if running && info.IsRunning {
+		return info, ErrProcessIsRunning
 	}
-	t.markAsRunning()
-	defer t.markAsNotRunning()
-	return f()
 
+	startTime := time.Now()
+	runCount := info.RunCount + 1
+	t.setRunningStatus(true, startTime, runCount)
+	defer t.setRunningStatus(false, startTime, runCount)
+
+	err := f()
+	info, _ = t.getRunningInfo()
+
+	return info, err
 }

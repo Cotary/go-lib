@@ -8,6 +8,7 @@ import (
 	utils2 "github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/robfig/cron/v3"
+	"time"
 )
 
 func Start(handlers []Handler) *cron.Cron {
@@ -34,12 +35,14 @@ func cmdHandle(handle Handler) {
 	coroutines.SafeFunc(ctx, func() {
 		funcName := coroutines.GetStructName(handle)
 		running := utils2.NewSingleRun(funcName)
-		err := running.SingleRun(func() error {
+		runInfo, err := running.SingleRun(func() error {
 			return handle.Do(ctx)
 		})
 		if err != nil {
 			if errors.Is(err, utils2.ErrProcessIsRunning) {
-				err = e.Err(err, "funcName:"+funcName)
+				err = e.Err(err, fmt.Sprintf("funcName:"+funcName+" is running"+
+					",startTime:"+utils2.NewTime(runInfo.StartTime).Format(time.DateTime)+
+					",nowTime:"+utils2.NewLocal().Format(time.DateTime)))
 			}
 			e.SendMessage(ctx, err)
 		}

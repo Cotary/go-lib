@@ -29,7 +29,7 @@ func SafeFunc(ctx context.Context, F func()) {
 }
 
 func NewContext(contextType string) context.Context {
-	requestID := contextType + uuid.NewString()
+	requestID := contextType + "-" + uuid.NewString()
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, defined.ServerName, lib.ServerName)
 	ctx = context.WithValue(ctx, defined.ENV, lib.Env)
