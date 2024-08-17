@@ -14,6 +14,7 @@ import (
 	"github.com/pkg/errors"
 	"io"
 	"net/http"
+	"time"
 )
 
 type HandlerFuncWrapper func(c *gin.Context) (any, error)
@@ -36,7 +37,7 @@ type ServiceFuncWrapper[T any, R any] func(c *gin.Context, req T) (resp R, err e
 
 type ControllerOptions struct {
 	CacheStore  store.StoreInterface
-	CacheExpire int64
+	CacheExpire time.Duration
 }
 
 func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOptions) gin.HandlerFunc {

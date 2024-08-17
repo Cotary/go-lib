@@ -1,15 +1,33 @@
 package e
 
-var (
-	SystemErr    = NewCodeErr(10001, "System abnormality", PanicLevel)
-	FailedErr    = NewCodeErr(10002, "Operation failed", ErrorLevel)
-	ParamErr     = NewCodeErr(10003, "Params Error", InfoLevel)
-	DataNotExist = NewCodeErr(10004, "Data Not Exist", InfoLevel)
-	DataExist    = NewCodeErr(10005, "Data Exist", InfoLevel)
-	AuthErr      = NewCodeErr(10006, "Auth Error", InfoLevel)
-	SignTimeErr  = NewCodeErr(10007, "Sign Time Error", InfoLevel)
-	SignErr      = NewCodeErr(10008, "Sign Error", InfoLevel)
-	VerifyErr    = NewCodeErr(10009, "Verify Error", InfoLevel)
+const (
+	SystemErrCode = iota + 10001
+	FailedErrCode
+	NeedLoginErrCode
+	ParamErrCode
+	DataNotExistCode
+	DataExistCode
+	AuthErrCode
+	SignTimeErrCode
+	SignErrCode
+	SignReplayErrCode
+	VerifyErrCode
+	PermissionErrCode
+	TimeoutErrCode
+)
 
-	NeedLoginErr = NewCodeErr(20000, "Need Login", InfoLevel)
+var (
+	SystemErr     = NewCodeErr(SystemErrCode, "System abnormality", PanicLevel)
+	FailedErr     = NewCodeErr(FailedErrCode, "Operation failed", ErrorLevel)
+	NeedLoginErr  = NewCodeErr(NeedLoginErrCode, "Need Login", InfoLevel)
+	ParamErr      = NewCodeErr(ParamErrCode, "Params Error", InfoLevel)
+	DataNotExist  = NewCodeErr(DataNotExistCode, "Data Not Exist", InfoLevel)
+	DataExist     = NewCodeErr(DataExistCode, "Data Exist", InfoLevel)
+	AuthErr       = NewCodeErr(AuthErrCode, "Auth Error", InfoLevel)
+	SignTimeErr   = NewCodeErr(SignTimeErrCode, "Sign Time Error", InfoLevel)
+	SignErr       = NewCodeErr(SignErrCode, "Sign Error", InfoLevel)
+	SignReplayErr = NewCodeErr(SignReplayErrCode, "Sign Replay Error", InfoLevel)
+	VerifyErr     = NewCodeErr(VerifyErrCode, "Verify Error", InfoLevel)
+	PermissionErr = NewCodeErr(PermissionErrCode, "Permission Denied", InfoLevel)
+	TimeoutErr    = NewCodeErr(TimeoutErrCode, "Request Timeout", InfoLevel)
 )

@@ -18,7 +18,7 @@ type BaseCache[T any] struct {
 
 type Config struct {
 	Prefix     string
-	Expire     int64
+	Expire     time.Duration
 	OriginFunc func(ctx context.Context, key string) (value any, err error)
 }
 
@@ -47,7 +47,7 @@ func (c *BaseCache[T]) Get(ctx context.Context, key string) (value T, err error)
 func (c *BaseCache[T]) Set(ctx context.Context, key string, value T, options ...store.Option) error {
 	key = c.GetKey(key)
 	if c.config.Expire >= 0 {
-		options = append(options, store.WithExpiration(time.Duration(c.config.Expire)*time.Second))
+		options = append(options, store.WithExpiration(c.config.Expire))
 	}
 	return c.cache.Set(ctx, key, value, options...)
 }
