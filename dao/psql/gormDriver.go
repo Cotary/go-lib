@@ -16,9 +16,9 @@ import (
 type GormConfig struct {
 	Driver      string   `yaml:"driver"`
 	Dsn         []string `yaml:"dsn"`
-	IdleTimeout int      `yaml:"idleTimeout"` //设置连接的最大生命周期,超过这个时间的连接将被关闭并重新建立。
-	MaxOpens    int      `yaml:"maxOpens"`    //设置数据库的最大打开连接数。
-	MaxIdles    int      `yaml:"maxIdles"`    //设置连接池中保持空闲状态的最大连接数。
+	IdleTimeout int      `yaml:"idleTimeout"` //秒,设置连接的最大生命周期,超过这个时间的连接将被关闭并重新建立。默认值为 0，表示连接不会过期。
+	MaxOpens    int      `yaml:"maxOpens"`    //设置数据库的最大打开连接数。 默认值为 0，表示没有限制。
+	MaxIdles    int      `yaml:"maxIdles"`    //设置连接池中保持空闲状态的最大连接数。默认值为 2
 
 	LogDir        string `yaml:"log_dir"`
 	LogLevel      string `yaml:"log_level"`      //日志等级 silent error warn info
@@ -44,16 +44,6 @@ func handleConfig(config *GormConfig) {
 	}
 	if config.SlowThreshold == 0 {
 		config.SlowThreshold = 500
-	}
-
-	if config.IdleTimeout == 0 {
-		config.IdleTimeout = 30
-	}
-	if config.MaxOpens == 0 {
-		config.MaxOpens = 50
-	}
-	if config.MaxIdles == 0 {
-		config.MaxIdles = 15
 	}
 }
 
@@ -127,7 +117,7 @@ func NewGorm(config *GormConfig) *GormDrive {
 	}
 	sqlDB.SetMaxIdleConns(config.MaxIdles)
 	sqlDB.SetMaxOpenConns(config.MaxOpens)
-	sqlDB.SetConnMaxLifetime(time.Duration(config.IdleTimeout))
+	sqlDB.SetConnMaxLifetime(time.Duration(config.IdleTimeout) * time.Second)
 
 	if err = sqlDB.Ping(); err != nil {
 		panic(err)
