@@ -25,7 +25,7 @@ type Config struct {
 }
 
 type Client struct {
-	redis.Cmdable
+	redis.UniversalClient
 	Config
 }
 
@@ -33,10 +33,10 @@ func (t Client) Key(key string) string {
 	return fmt.Sprintf("%s%s", t.Config.Prefix, key)
 }
 
-func newClient(cmd redis.Cmdable, config Config) Client {
+func newClient(client redis.UniversalClient, config Config) Client {
 	return Client{
-		Cmdable: cmd,
-		Config:  config,
+		UniversalClient: client,
+		Config:          config,
 	}
 }
 
