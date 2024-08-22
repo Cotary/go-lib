@@ -1,8 +1,10 @@
 package utils
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"github.com/spf13/cast"
+	"math/big"
 	"strings"
 )
 
@@ -41,4 +43,22 @@ func FirstUpper(s string) string {
 		return ""
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+const (
+	Num     = "23456789"                 // 去除 0 和 1
+	Letters = "ABCDEFGHJKLMNPQRSTUVWXYZ" // 去除 O, I, l
+	Mix     = Num + Letters
+)
+
+func GenerateCode(length int, charset string) (string, error) {
+	code := make([]byte, length)
+	for i := range code {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return "", err
+		}
+		code[i] = charset[num.Int64()]
+	}
+	return string(code), nil
 }
