@@ -48,7 +48,7 @@ func FirstUpper(s string) string {
 const (
 	Num     = "23456789"                 // 去除 0 和 1
 	Letters = "ABCDEFGHJKLMNPQRSTUVWXYZ" // 去除 O, I, l
-	Mix     = Num + Letters
+	Mixed   = Num + Letters
 )
 
 func GenerateCode(length int, charset string) (string, error) {

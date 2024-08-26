@@ -1,6 +1,11 @@
 package e
 
-import "context"
+import (
+	"context"
+	"runtime"
+
+	"github.com/pkg/errors"
+)
 
 // Level type
 type Level uint32
@@ -26,14 +31,42 @@ const (
 	TraceLevel
 )
 
+type stack []uintptr
+
+func callers() *stack {
+	const depth = 32
+	var pcs [depth]uintptr
+	n := runtime.Callers(3, pcs[:])
+	var st stack = pcs[0:n]
+	return &st
+}
+
+func (s *stack) StackTrace() errors.StackTrace {
+	if s == nil {
+		return nil
+	}
+	f := make([]errors.Frame, len(*s))
+	for i := 0; i < len(f); i++ {
+		f[i] = errors.Frame((*s)[i])
+	}
+	return f
+}
+
 type CodeErr struct {
 	Code  int    `json:"code"`    //内置的http错误
 	Msg   string `json:"message"` //内置的http错误
 	Level Level  `json:"-"`       //内置的http错误等级
+	*stack
 }
 
-func (err *CodeErr) Error() string {
-	return err.Msg
+func (e *CodeErr) Error() string {
+	return e.Msg
+}
+func (e *CodeErr) WithStack() *CodeErr {
+	if e.stack == nil {
+		e.stack = callers()
+	}
+	return e
 }
 
 func NewCodeErr(code int, msg string, level Level) *CodeErr {
@@ -52,6 +85,11 @@ type HttpErr struct {
 }
 
 func NewHttpErr(codeErr *CodeErr, err error) HttpErr {
+	if err == nil {
+		return HttpErr{
+			CodeErr: codeErr.WithStack(),
+		}
+	}
 	return HttpErr{
 		CodeErr: codeErr,
 		Err:     Err(err),

@@ -2,15 +2,19 @@ package e
 
 import (
 	"fmt"
-	"github.com/pkg/errors"
 	"runtime"
 	"strings"
+
+	"github.com/pkg/errors"
 )
 
 func Err(err error, message ...string) error {
 	str := strings.Join(message, "-")
 	if codeErr, ok := err.(*CodeErr); ok {
-		return NewHttpErr(codeErr, errors.New(str))
+		if str != "" {
+			return NewHttpErr(codeErr, errors.New(str))
+		}
+		return codeErr.WithStack()
 	}
 
 	if err == nil {
@@ -54,7 +58,11 @@ func GetStakeErr(err error) error {
 }
 
 func GetErrMessage(err error) string {
-	stackList := make([]error, 0)
+	if err == nil {
+		return ""
+	}
+
+	var stackList []error
 	for unwrapErr := err; unwrapErr != nil; {
 		stackList = append(stackList, unwrapErr)
 		u, ok := unwrapErr.(interface {
@@ -65,15 +73,15 @@ func GetErrMessage(err error) string {
 		}
 		unwrapErr = u.Unwrap()
 	}
-	allLevel := len(stackList)
-	str := "\n"
+
+	var str strings.Builder
+	str.WriteString("\n")
 	for i, e := range stackList {
-		str += fmt.Sprintf("[%d]:%s\n", i+1, e.Error())
+		str.WriteString(fmt.Sprintf("[%d]:%s\n", i+1, e.Error()))
 		if stackErr, ok := e.(interface {
 			StackTrace() errors.StackTrace
 		}); ok {
-			str += fmt.Sprintf("\nstack:\n")
-			isFirstErr := allLevel == i+1
+			isFirstErr := len(stackList) == i+1
 			for si, sf := range stackErr.StackTrace() {
 				if !isFirstErr && si == 0 {
 					continue
@@ -81,10 +89,10 @@ func GetErrMessage(err error) string {
 				pc := uintptr(sf) - 1
 				fn := runtime.FuncForPC(pc)
 				file, line := fn.FileLine(pc)
-				str += fmt.Sprintf("%s:%d\n", file, line)
+				str.WriteString(fmt.Sprintf("%s:%d\n", file, line))
 			}
-			str += fmt.Sprintf("\n")
+			str.WriteString("\n")
 		}
 	}
-	return str
+	return str.String()
 }

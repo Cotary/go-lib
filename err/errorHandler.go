@@ -2,19 +2,21 @@ package e
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/pkg/errors"
 )
 
 func HTTPErrHandler(c *gin.Context, err error) HttpErr {
 
 	var httpErr HttpErr
-	switch typeErr := err.(type) {
-	case *CodeErr:
-		httpErr = NewHttpErr(typeErr, nil)
-	case HttpErr:
-		httpErr = typeErr
-	default:
+	var asHttpErr HttpErr
+	var asCodeErr *CodeErr
 
-		httpErr = NewHttpErr(FailedErr, typeErr)
+	if errors.As(err, &asHttpErr) {
+		httpErr = asHttpErr
+	} else if errors.As(err, &asCodeErr) {
+		httpErr = NewHttpErr(asCodeErr, nil)
+	} else {
+		httpErr = NewHttpErr(FailedErr, err)
 	}
 	httpErr.SendErrorMsg(c.Request.Context())
 	return httpErr
