@@ -34,7 +34,7 @@ type CheckFunc func(res *resty.Response, gj gjson.Result) error
 
 var DefaultCheck []CheckFunc = []CheckFunc{HttpStatusCheckFunc}
 
-func (hClient HttpClient) HttpRequest(ctx context.Context, method string, url string, query map[string][]string, body interface{}, headers map[string]string) RestyResult {
+func (hClient HttpClient) HttpRequest(ctx context.Context, method string, url string, query map[string][]string, body interface{}, headers map[string]string) *RestyResult {
 	if query != nil {
 		hClient.Request.SetQueryParamsFromValues(query)
 	}
@@ -60,12 +60,14 @@ func (hClient HttpClient) HttpRequest(ctx context.Context, method string, url st
 		resp, err = hClient.Request.Get(url)
 	}
 
-	return RestyResult{
+	rr := &RestyResult{
 		Context:  ctx,
 		Client:   hClient.Client,
 		Response: resp,
 		Error:    err,
 	}
+	rr.Log(log.DefaultLogger)
+	return rr
 }
 
 type RestyResult struct {
@@ -75,7 +77,10 @@ type RestyResult struct {
 	Error error
 }
 
-func (t RestyResult) Log(logEntry *logrus.Entry) {
+func (t *RestyResult) Log(logEntry *logrus.Logger) *RestyResult {
+	if logEntry == nil {
+		return t
+	}
 	ctx := t.Context
 	logMap := map[string]interface{}{
 		"Context ID":           ctx.Value(defined.RequestID),
@@ -97,10 +102,11 @@ func (t RestyResult) Log(logEntry *logrus.Entry) {
 	} else {
 		log.WithContext(ctx).WithFields(logMap).Info()
 	}
+	return t
 }
 
 // Parse 解析响应
-func (t RestyResult) Parse(checkFuncList []CheckFunc, path string, data interface{}) error {
+func (t *RestyResult) Parse(checkFuncList []CheckFunc, path string, data interface{}) error {
 	if t.Error != nil {
 		return t.Error
 	}
