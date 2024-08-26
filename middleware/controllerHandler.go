@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/Cotary/go-lib/cache"
@@ -11,7 +10,6 @@ import (
 	"github.com/Cotary/go-lib/response"
 	"github.com/eko/gocache/lib/v4/store"
 	"github.com/gin-gonic/gin"
-	"github.com/pkg/errors"
 	"io"
 	"net/http"
 	"time"
@@ -23,9 +21,7 @@ func C(wrapper HandlerFuncWrapper) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resp, err := wrapper(c)
 		if err != nil {
-			if !errors.Is(err, context.Canceled) {
-				c.JSON(http.StatusOK, response.Error(c, e.HTTPErrHandler(c, err)))
-			}
+			c.JSON(http.StatusOK, response.Error(c, e.HTTPErrHandler(c, err)))
 			c.Abort()
 			return
 		}
