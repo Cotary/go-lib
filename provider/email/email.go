@@ -10,8 +10,8 @@ type Config struct {
 	Identity string `yaml:"identity"`
 	UserName string `yaml:"userName"`
 	Password string `yaml:"password"`
-	smtp     string `yaml:"smtp"`
-	port     int    `yaml:"port"`
+	Smtp     string `yaml:"smtp"`
+	Port     int    `yaml:"port"`
 }
 
 type Email struct {
@@ -23,14 +23,14 @@ func NewEmail(config *Config) *Email {
 }
 
 func (e *Email) QQEmail() *Email {
-	e.config.smtp = "smtp.qq.com"
-	e.config.port = 25
+	e.config.Smtp = "smtp.qq.com"
+	e.config.Port = 25
 	return e
 }
 
 func (e *Email) Gmail() *Email {
-	e.config.smtp = "smtp.gmail.com"
-	e.config.port = 587
+	e.config.Smtp = "smtp.gmail.com"
+	e.config.Port = 587
 	return e
 }
 
@@ -39,7 +39,7 @@ func (e *Email) Send(email *jemail.Email) error {
 		email.From = e.config.UserName
 	}
 	return email.Send(
-		fmt.Sprintf("%s:%d", e.config.smtp, e.config.port),
-		smtp.PlainAuth(e.config.Identity, e.config.UserName, e.config.Password, e.config.smtp),
+		fmt.Sprintf("%s:%d", e.config.Smtp, e.config.Port),
+		smtp.PlainAuth(e.config.Identity, e.config.UserName, e.config.Password, e.config.Smtp),
 	)
 }
