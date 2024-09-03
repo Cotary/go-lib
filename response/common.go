@@ -34,7 +34,7 @@ func Error(c *gin.Context, err error) *Response {
 	}
 
 	msg := standardErr.Error()
-	if lib.Env != defined.PROD && standardErr.Err != nil {
+	if lib.Env != defined.Release && standardErr.Err != nil {
 		msg = fmt.Sprintf("%s: %s", standardErr.Error(), standardErr.Err.Error())
 	}
 

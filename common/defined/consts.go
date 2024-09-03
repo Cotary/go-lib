@@ -62,10 +62,10 @@ const (
 
 // env
 const (
-	Local = "local"
-	DEV   = "dev"
-	TEST  = "test"
-	PROD  = "prod"
+	Local       = "local"
+	Development = "development"
+	TEST        = "test"
+	Release     = "release"
 )
 
 // http
