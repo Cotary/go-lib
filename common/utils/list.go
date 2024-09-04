@@ -22,7 +22,7 @@ func ArrayColumn[T any, U comparable](s []T, f func(T) U) map[U]T {
 	return result
 }
 
-func InArray[T comparable](array []T, val T) bool {
+func InArray[T comparable](val T, array []T) bool {
 	for _, item := range array {
 		if item == val {
 			return true
