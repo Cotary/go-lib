@@ -120,7 +120,9 @@ func (t *RestyResult) Parse(checkFuncList []CheckFunc, path string, data interfa
 			return err
 		}
 	}
-
+	if data == nil {
+		return nil
+	}
 	if path != "" {
 		value := gj.Get(path)
 		if !value.Exists() {
