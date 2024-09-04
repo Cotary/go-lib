@@ -5,11 +5,32 @@ import "reflect"
 func ListFields[T any, U any](s []T, f func(T) U) []U {
 	var result []U
 	for _, v := range s {
-		field := f(v)
+		data := v
+		field := f(data)
 		result = append(result, field)
 	}
 	return result
 }
+
+func ArrayColumn[T any, U comparable](s []T, f func(T) U) map[U]T {
+	var result = make(map[U]T)
+	for _, v := range s {
+		data := v
+		field := f(data)
+		result[field] = data
+	}
+	return result
+}
+
+func InArray[T comparable](array []T, val T) bool {
+	for _, item := range array {
+		if item == val {
+			return true
+		}
+	}
+	return false
+}
+
 func DefaultIfEmpty[T any](value, defaultValue T) T {
 	// Check if the value is the zero value of its type
 	if reflect.DeepEqual(value, reflect.Zero(reflect.TypeOf(value)).Interface()) {
