@@ -127,7 +127,7 @@ func (t *RestyResult) Log(logEntry *logrus.Logger) *RestyResult {
 }
 
 // Parse 解析响应
-func (t *RestyResult) Parse(checkFuncList []ResponseHandler, path string, data interface{}) error {
+func (t *RestyResult) Parse(path string, data interface{}) error {
 	if t.Error != nil {
 		return t.Error
 	}
@@ -141,7 +141,7 @@ func (t *RestyResult) Parse(checkFuncList []ResponseHandler, path string, data i
 		return errors.New(errMsg)
 	}
 
-	for _, f := range checkFuncList {
+	for _, f := range t.Handlers {
 		if err := f(t, gj); err != nil {
 			return errors.Wrap(err, errMsg)
 		}
