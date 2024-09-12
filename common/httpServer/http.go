@@ -17,7 +17,7 @@ import (
 
 type HttpClient struct {
 	*resty.Client
-	BeforeHandler []BeforeHandler
+	Handlers []RequestHandler
 }
 
 func NewHttpClient() *HttpClient {
@@ -27,13 +27,13 @@ func NewHttpClient() *HttpClient {
 	}
 }
 
-func (hClient *HttpClient) SetBeforeHandler(handler []BeforeHandler) *HttpClient {
-	hClient.BeforeHandler = handler
+func (hClient *HttpClient) SetHandlers(handler ...RequestHandler) *HttpClient {
+	hClient.Handlers = handler
 	return hClient
 }
 
 func (hClient *HttpClient) HttpRequest(ctx context.Context, method string, url string, query map[string][]string, body interface{}, headers map[string]string) *RestyResult {
-	for _, handler := range hClient.BeforeHandler {
+	for _, handler := range hClient.Handlers {
 		if err := handler(ctx, &method, &url, query, body, headers); err != nil {
 			return &RestyResult{
 				Context: ctx,
@@ -79,12 +79,19 @@ func executeRequest(req *resty.Request, method, url string) (*resty.Response, er
 	}
 }
 
+// RestyResult Response Result
 type RestyResult struct {
 	context.Context
 	*resty.Client
 	*resty.Response
-	Logs  map[string]interface{}
-	Error error
+	Logs     map[string]interface{}
+	Handlers []ResponseHandler
+	Error    error
+}
+
+func (t *RestyResult) SetHandlers(handlers ...ResponseHandler) *RestyResult {
+	t.Handlers = handlers
+	return t
 }
 
 func (t *RestyResult) Log(logEntry *logrus.Logger) *RestyResult {
@@ -120,7 +127,7 @@ func (t *RestyResult) Log(logEntry *logrus.Logger) *RestyResult {
 }
 
 // Parse 解析响应
-func (t *RestyResult) Parse(checkFuncList []CheckFunc, path string, data interface{}) error {
+func (t *RestyResult) Parse(checkFuncList []ResponseHandler, path string, data interface{}) error {
 	if t.Error != nil {
 		return t.Error
 	}

@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-type BeforeHandler func(ctx context.Context, method *string, url *string, query map[string][]string, body interface{}, headers map[string]string) error
+type RequestHandler func(ctx context.Context, method *string, url *string, query map[string][]string, body interface{}, headers map[string]string) error
 
-func AuthAppHandler(ctx context.Context, appID, secret string) BeforeHandler {
+func AuthAppHandler(ctx context.Context, appID, secret string) RequestHandler {
 	return func(ctx context.Context, method *string, url *string, query map[string][]string, body interface{}, headers map[string]string) error {
 		timestamp := time.Now().UnixMilli()
 		signature := calculateSignature(*url, secret, timestamp)

@@ -6,9 +6,9 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-type CheckFunc func(res *RestyResult, gj gjson.Result) error
+type ResponseHandler func(res *RestyResult, gj gjson.Result) error
 
-var CodeCheckFunc = func(code int64, codeStr ...string) CheckFunc {
+var CodeCheckHandler = func(code int64, codeStr ...string) ResponseHandler {
 	return func(res *RestyResult, gj gjson.Result) error {
 		field := "code"
 		if len(codeStr) > 0 {
