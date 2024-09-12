@@ -17,49 +17,43 @@ import (
 
 type HttpClient struct {
 	*resty.Client
-	*resty.Request
+	BeforeHandler []BeforeHandler
 }
 
 func NewHttpClient() *HttpClient {
 	restyClient := resty.New()
-	newHttp := &HttpClient{
-		Client:  restyClient,
-		Request: restyClient.R(),
+	return &HttpClient{
+		Client: restyClient,
 	}
-	newHttp.Client.SetRetryCount(2)
-	return newHttp
 }
 
-type CheckFunc func(res *resty.Response, gj gjson.Result) error
+func (hClient *HttpClient) SetBeforeHandler(handler []BeforeHandler) *HttpClient {
+	hClient.BeforeHandler = handler
+	return hClient
+}
 
-var DefaultCheck []CheckFunc = []CheckFunc{HttpStatusCheckFunc}
+func (hClient *HttpClient) HttpRequest(ctx context.Context, method string, url string, query map[string][]string, body interface{}, headers map[string]string) *RestyResult {
+	for _, handler := range hClient.BeforeHandler {
+		if err := handler(ctx, &method, &url, query, body, headers); err != nil {
+			return &RestyResult{
+				Context: ctx,
+				Error:   err,
+			}
+		}
+	}
 
-func (hClient HttpClient) HttpRequest(ctx context.Context, method string, url string, query map[string][]string, body interface{}, headers map[string]string) *RestyResult {
+	req := hClient.Client.R()
 	if query != nil {
-		hClient.Request.SetQueryParamsFromValues(query)
+		req.SetQueryParamsFromValues(query)
 	}
 	if headers != nil {
-		hClient.Request.SetHeaders(headers)
+		req.SetHeaders(headers)
 	}
 	if body != nil {
-		hClient.Request.SetBody(body)
+		req.SetBody(body)
 	}
 
-	var resp *resty.Response
-	var err error
-	switch method {
-	case http.MethodGet:
-		resp, err = hClient.Request.Get(url)
-	case http.MethodPost:
-		resp, err = hClient.Request.Post(url)
-	case http.MethodPut:
-		resp, err = hClient.Request.Put(url)
-	case http.MethodDelete:
-		resp, err = hClient.Request.Delete(url)
-	default:
-		resp, err = hClient.Request.Get(url)
-	}
-
+	resp, err := executeRequest(req, method, url)
 	rr := &RestyResult{
 		Context:  ctx,
 		Client:   hClient.Client,
@@ -70,38 +64,58 @@ func (hClient HttpClient) HttpRequest(ctx context.Context, method string, url st
 	return rr
 }
 
+func executeRequest(req *resty.Request, method, url string) (*resty.Response, error) {
+	switch method {
+	case http.MethodGet:
+		return req.Get(url)
+	case http.MethodPost:
+		return req.Post(url)
+	case http.MethodPut:
+		return req.Put(url)
+	case http.MethodDelete:
+		return req.Delete(url)
+	default:
+		return req.Get(url)
+	}
+}
+
 type RestyResult struct {
 	context.Context
 	*resty.Client
 	*resty.Response
+	Logs  map[string]interface{}
 	Error error
 }
 
 func (t *RestyResult) Log(logEntry *logrus.Logger) *RestyResult {
-	if logEntry == nil {
-		return t
-	}
 	ctx := t.Context
 	logMap := map[string]interface{}{
-		"Context ID":           ctx.Value(defined.RequestID),
-		"Request URL":          t.Response.Request.URL,
-		"Request Method":       t.Response.Request.Method,
-		"Request Headers":      t.Response.Request.Header,
-		"Request Query":        t.Response.Request.RawRequest.URL.Query(),
-		"Request Body":         t.Response.Request.Body,
-		"Response Status Code": t.Response.StatusCode(),
-		"Response Headers":     t.Response.Header(),
-		"Response Body":        t.Response.String(),
+		"Context ID": ctx.Value(defined.RequestID),
 	}
+
+	if t.Response != nil {
+		logMap["Request URL"] = t.Response.Request.URL
+		logMap["Request Method"] = t.Response.Request.Method
+		logMap["Request Headers"] = t.Response.Request.Header
+		logMap["Request Query"] = t.Response.Request.RawRequest.URL.Query()
+		logMap["Request Body"] = t.Response.Request.Body
+		logMap["Response Status Code"] = t.Response.StatusCode()
+		logMap["Response Headers"] = t.Response.Header()
+		logMap["Response Body"] = t.Response.String()
+	}
+
 	if t.Error != nil {
 		logMap["Request Error"] = t.Error.Error()
-		logEntry.WithContext(ctx).WithFields(logMap).Error()
-
-		//发送报警
+		if logEntry != nil {
+			logEntry.WithContext(ctx).WithFields(logMap).Error()
+		}
 		e.SendMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
 	} else {
-		log.WithContext(ctx).WithFields(logMap).Info()
+		if logEntry != nil {
+			logEntry.WithContext(ctx).WithFields(logMap).Info()
+		}
 	}
+	t.Logs = logMap
 	return t
 }
 
@@ -111,22 +125,30 @@ func (t *RestyResult) Parse(checkFuncList []CheckFunc, path string, data interfa
 		return t.Error
 	}
 
-	var respJson string
+	errMsg := fmt.Sprintf("\nResponse not success: %s\n", utils.Json(t.Logs))
 	gj := gjson.Parse(t.String())
+	if gj.Type != gjson.JSON {
+		return errors.New("Response is not json")
+	}
+	if !t.IsSuccess() {
+		return errors.New(errMsg)
+	}
 
 	for _, f := range checkFuncList {
-		err := f(t.Response, gj)
-		if err != nil {
-			return err
+		if err := f(t, gj); err != nil {
+			return errors.Wrap(err, errMsg)
 		}
 	}
+
 	if data == nil {
 		return nil
 	}
+
+	var respJson string
 	if path != "" {
 		value := gj.Get(path)
 		if !value.Exists() {
-			return fmt.Errorf("path not found: %s", path)
+			return errors.New(fmt.Sprintf("path not found: %s", path))
 		}
 		respJson = value.String()
 	} else {
@@ -134,30 +156,4 @@ func (t *RestyResult) Parse(checkFuncList []CheckFunc, path string, data interfa
 	}
 
 	return json.Unmarshal([]byte(respJson), data)
-}
-
-// HttpStatusCheckFunc http状态校验
-var HttpStatusCheckFunc = func(res *resty.Response, gj gjson.Result) error {
-	if !res.IsSuccess() || gj.Type != gjson.JSON {
-		return errors.New("HTTP Response Fail:" + res.Request.URL + " " + res.Status() + " " + res.String())
-	}
-	return nil
-}
-
-// CodeZeroCheckFunc 适用于老框架
-var CodeZeroCheckFunc = func(res *resty.Response, gj gjson.Result) error {
-	if gj.Get("code").Int() != 0 {
-		errMsg := gj.Get("data").String()
-		return errors.New("response err:" + errMsg)
-	}
-	return nil
-}
-
-// CodeTwoHundredCheckFunc 适用于新的go框架
-var CodeTwoHundredCheckFunc = func(res *resty.Response, gj gjson.Result) error {
-	if gj.Get("code").Int() != 200 {
-		errMsg := gj.Get("message").String()
-		return errors.New("response err:" + errMsg)
-	}
-	return nil
 }
