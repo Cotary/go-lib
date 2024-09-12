@@ -14,7 +14,8 @@ var CodeCheckHandler = func(code int64, codeStr ...string) ResponseHandler {
 		if len(codeStr) > 0 {
 			field = codeStr[0]
 		}
-		if gj.Get(field).Int() != code {
+		codeG := gj.Get(field)
+		if !codeG.Exists() || codeG.Int() != code {
 			return errors.New(fmt.Sprintf("code error,expect:%d", code))
 		}
 		return nil
