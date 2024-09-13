@@ -2,17 +2,33 @@ package cache
 
 import (
 	"context"
+	"errors"
+	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
-	"time"
-
 	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/eko/gocache/lib/v4/store"
+	"github.com/eko/gocache/store/redis/v4"
+	_ "github.com/patrickmn/go-cache"
+	"reflect"
+	"time"
 )
 
-type BaseCache[T any] struct {
+// UseString 这些store只能用string类型
+var UseString = []string{
+	redis.RedisType,
+}
+
+type Cache[T any] interface {
+	Get(ctx context.Context, key string) (value T, err error)
+	Set(ctx context.Context, key string, value T, options ...store.Option) error
+	OriginGet(key string) (value T, err error)
+}
+
+// BaseCache T 是实际类型，U 是缓存类型
+type BaseCache[T, U any] struct {
 	ctx    context.Context
 	config Config[T]
-	cache  *cache.Cache[T]
+	cache  *cache.Cache[U]
 	store  store.StoreInterface
 }
 
@@ -22,16 +38,16 @@ type Config[T any] struct {
 	OriginFunc func(ctx context.Context, key string) (value T, err error)
 }
 
-func NewStore[T any](ctx context.Context, config Config[T], store store.StoreInterface) *BaseCache[T] {
-	return &BaseCache[T]{
+func NewStore[T any, U any](ctx context.Context, config Config[T], store store.StoreInterface) *BaseCache[T, U] {
+	return &BaseCache[T, U]{
 		ctx:    ctx,
 		config: config,
-		cache:  cache.New[T](store),
+		cache:  cache.New[U](store),
 		store:  store,
 	}
 }
 
-func (c *BaseCache[T]) GetKey(key string) string {
+func (c *BaseCache[T, U]) GetKey(key string) string {
 	key = c.config.Prefix + "_" + key
 	if storeKey, ok := c.store.(interface {
 		Key(key string) string
@@ -41,24 +57,61 @@ func (c *BaseCache[T]) GetKey(key string) string {
 	return key
 }
 
-func (c *BaseCache[T]) Get(ctx context.Context, key string) (value T, err error) {
-	return c.cache.Get(ctx, c.GetKey(key))
+func (c *BaseCache[T, U]) Get(ctx context.Context, key string) (value T, err error) {
+	var zeroU U
+
+	if utils.InArray(c.store.GetType(), UseString) {
+		if reflect.TypeOf(zeroU).Kind() != reflect.String {
+			return value, errors.New("cache type error")
+		}
+	}
+	val, err := c.cache.Get(ctx, c.GetKey(key))
+	if err != nil {
+		return value, e.Err(err)
+	}
+
+	if reflect.TypeOf(val) != reflect.TypeOf(value) {
+		err = utils.AnyToAny(val, &value)
+		if err != nil {
+			return value, e.Err(err)
+		}
+		return value, nil
+	}
+	value = reflect.ValueOf(val).Convert(reflect.TypeOf(value)).Interface().(T)
+	return value, nil
+
 }
-func (c *BaseCache[T]) Set(ctx context.Context, key string, value T, options ...store.Option) error {
+func (c *BaseCache[T, U]) Set(ctx context.Context, key string, value T, options ...store.Option) error {
+	var cacheValue U
+	if utils.InArray(c.store.GetType(), UseString) {
+		if reflect.TypeOf(cacheValue).Kind() != reflect.String {
+			return errors.New("cache type error")
+		}
+	}
 	key = c.GetKey(key)
 	if c.config.Expire >= 0 {
 		options = append(options, store.WithExpiration(c.config.Expire))
 	}
-	return c.cache.Set(ctx, key, value, options...)
+
+	if reflect.TypeOf(value) != reflect.TypeOf(cacheValue) {
+		err := utils.AnyToAny(value, &cacheValue)
+		if err != nil {
+			return e.Err(err)
+		}
+	} else {
+		cacheValue = reflect.ValueOf(value).Convert(reflect.TypeOf(cacheValue)).Interface().(U)
+	}
+	err := c.cache.Set(ctx, key, cacheValue, options...)
+	return e.Err(err)
 }
 
-func (c *BaseCache[T]) OriginGet(key string) (value T, err error) {
+func (c *BaseCache[T, U]) OriginGet(key string) (value T, err error) {
 	value, err = c.Get(c.ctx, key)
 	if err != nil {
 		if err.Error() == store.NOT_FOUND_ERR {
 			v, err := c.config.OriginFunc(c.ctx, key)
 			if err != nil {
-				return *new(T), err
+				return *new(T), e.Err(err)
 			}
 			err = c.Set(c.ctx, key, v)
 			if err != nil {
@@ -66,7 +119,7 @@ func (c *BaseCache[T]) OriginGet(key string) (value T, err error) {
 			}
 			return v, nil
 		} else {
-			return *new(T), err
+			return *new(T), e.Err(err)
 		}
 	}
 	return value, nil

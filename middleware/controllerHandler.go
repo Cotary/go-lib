@@ -60,7 +60,7 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOpt
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 		//cache
-		var cacheInstance *cache.BaseCache[R]
+		var cacheInstance cache.Cache[R]
 		var reqJson []byte
 		if option.CacheExpire > 0 {
 			reqJson, err = json.Marshal(*req)
@@ -69,7 +69,7 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOpt
 			}
 			prefix := fmt.Sprintf("Request-%s", c.Request.URL.Path)
 			cacheInstance = cache.StoreInstance[R](ctx,
-				cache.Config{
+				cache.Config[R]{
 					Prefix: prefix,
 					Expire: option.CacheExpire,
 				},

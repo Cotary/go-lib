@@ -5,6 +5,8 @@ go 1.20
 require (
 	github.com/coocood/freecache v1.2.4
 	github.com/eko/gocache/lib/v4 v4.1.6
+	github.com/eko/gocache/store/go_cache/v4 v4.2.1
+	github.com/eko/gocache/store/redis/v4 v4.2.1
 	github.com/gagliardetto/binary v0.8.0
 	github.com/gin-contrib/sessions v1.0.1
 	github.com/gin-gonic/gin v1.10.0
@@ -14,6 +16,7 @@ require (
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
 	github.com/lib/pq v1.10.9
+	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pkg/errors v0.9.1
 	github.com/redis/go-redis/v9 v9.6.1
 	github.com/rifflock/lfshook v0.0.0-20180920164130-b9218ef580f5
