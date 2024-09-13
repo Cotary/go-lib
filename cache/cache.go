@@ -2,7 +2,7 @@ package cache
 
 import (
 	"context"
-	"errors"
+	e "github.com/Cotary/go-lib/err"
 	"time"
 
 	"github.com/eko/gocache/lib/v4/cache"
@@ -11,18 +11,18 @@ import (
 
 type BaseCache[T any] struct {
 	ctx    context.Context
-	config Config
+	config Config[T]
 	cache  *cache.Cache[T]
 	store  store.StoreInterface
 }
 
-type Config struct {
+type Config[T any] struct {
 	Prefix     string
 	Expire     time.Duration
-	OriginFunc func(ctx context.Context, key string) (value any, err error)
+	OriginFunc func(ctx context.Context, key string) (value T, err error)
 }
 
-func NewStore[T any](ctx context.Context, config Config, store store.StoreInterface) *BaseCache[T] {
+func NewStore[T any](ctx context.Context, config Config[T], store store.StoreInterface) *BaseCache[T] {
 	return &BaseCache[T]{
 		ctx:    ctx,
 		config: config,
@@ -60,16 +60,11 @@ func (c *BaseCache[T]) OriginGet(key string) (value T, err error) {
 			if err != nil {
 				return *new(T), err
 			}
-			if v == nil {
-				return *new(T), store.NotFound{}
+			err = c.Set(c.ctx, key, v)
+			if err != nil {
+				e.SendMessage(c.ctx, err)
 			}
-			if val, ok := v.(T); ok {
-				c.Set(c.ctx, key, val)
-				return val, nil
-			} else {
-				return *new(T), errors.New("origin type error")
-			}
-
+			return v, nil
 		} else {
 			return *new(T), err
 		}

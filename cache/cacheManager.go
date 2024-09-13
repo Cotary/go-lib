@@ -9,7 +9,7 @@ import (
 
 var cacheMap sync.Map
 
-func StoreInstance[T any](ctx context.Context, config Config, store store.StoreInterface) *BaseCache[T] {
+func StoreInstance[T any](ctx context.Context, config Config[T], store store.StoreInterface) *BaseCache[T] {
 	instance, err := GetCacheInstance[T](config.Prefix)
 	if err == nil {
 		return instance

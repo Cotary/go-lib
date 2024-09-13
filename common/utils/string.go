@@ -17,15 +17,6 @@ func AnyToInt(value interface{}) int64 {
 	return cast.ToInt64(value)
 }
 
-func AnyToIntArray[T any](value []T) []int64 {
-	var res []int64
-	for _, v := range value {
-		res = append(res, cast.ToInt64(v))
-	}
-	return res
-
-}
-
 func AnyJoinToString(data ...interface{}) string {
 	var str string
 	for _, v := range data {
