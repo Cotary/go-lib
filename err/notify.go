@@ -6,12 +6,12 @@ import (
 	"github.com/Cotary/go-lib/common/defined"
 	"github.com/Cotary/go-lib/common/utils"
 	"github.com/Cotary/go-lib/log"
-	"github.com/Cotary/go-lib/provider/message/asyncSender"
+	"github.com/Cotary/go-lib/provider/message"
 )
 
-var sender *asyncSender.AsyncSender
+var sender message.Sender
 
-func SetSender(s *asyncSender.AsyncSender) {
+func SetSender(s message.Sender) {
 	sender = s
 }
 

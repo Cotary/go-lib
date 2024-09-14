@@ -31,8 +31,9 @@ func NewAsyncSender(sender message.Sender, bufferSize int) *AsyncSender {
 	return asyncSender
 }
 
-func (a *AsyncSender) Send(ctx context.Context, title string, zMap *utils.ZMap[string, string]) {
+func (a *AsyncSender) Send(ctx context.Context, title string, zMap *utils.ZMap[string, string]) error {
 	a.message <- Message{ctx, title, zMap}
+	return nil
 }
 func (a *AsyncSender) consumeZMap() {
 	for msg := range a.message {
