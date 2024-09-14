@@ -3,7 +3,7 @@ package larkMessage
 import (
 	"context"
 	"github.com/Cotary/go-lib/common/utils"
-	"github.com/Cotary/go-lib/log"
+	e "github.com/Cotary/go-lib/err"
 )
 
 type LarkSender struct {
@@ -18,15 +18,9 @@ func (s *LarkSender) Send(ctx context.Context, title string, zMap *utils.ZMap[st
 		message = append(message, p.Key+": ", p.Value)
 	})
 	larkRobot := NewLarkRobot(s.RobotPath, s.Secret)
-	res, err := larkRobot.SendMessage("en-US", title, message, s.AtList, false)
+	_, err := larkRobot.SendMessage("en-US", title, message, s.AtList, false)
 	if err != nil {
-		logger := log.WithContext(ctx).
-			WithField("type", "larkRobotMsgError")
-		if res != nil {
-			logger.WithField("response", res.String())
-		}
-		logger.Error(err)
-		return err
+		return e.Err(err)
 	}
 	return nil
 }

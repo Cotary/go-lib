@@ -9,10 +9,10 @@ import (
 	"github.com/Cotary/go-lib/provider/message"
 )
 
-var sender message.Sender
+var sender *message.AsyncSender
 
 func SetSender(s message.Sender) {
-	sender = s
+	sender = message.NewAsyncSender(s, 100)
 }
 
 func SendMessage(ctx context.Context, err error) {
