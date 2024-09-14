@@ -2,7 +2,6 @@ package message
 
 import (
 	"context"
-	"github.com/Cotary/go-lib/common/coroutines"
 	"github.com/Cotary/go-lib/common/utils"
 	"github.com/Cotary/go-lib/log"
 )
@@ -27,10 +26,7 @@ func NewAsyncSender(sender Sender, bufferSize int) *AsyncSender {
 		sender:  sender,
 		message: make(chan Message, bufferSize),
 	}
-	newCtx := coroutines.NewContext("messageSender")
-	coroutines.SafeGo(newCtx, func(ctx context.Context) {
-		asyncSender.consumeZMap()
-	})
+	go asyncSender.consumeZMap() //todo safe go
 	return asyncSender
 }
 
