@@ -36,7 +36,7 @@ func (s *TGSender) Send(ctx context.Context, title string, zMap *utils.ZMap[stri
 	return nil
 }
 
-func NewTelegramRobotSender(token string, chatID int64) *TGSender {
+func NewTelegramSender(token string, chatID int64) *TGSender {
 	return &TGSender{
 		RobotToken:  token,
 		GroupChatID: chatID,
