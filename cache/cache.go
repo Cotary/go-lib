@@ -2,7 +2,6 @@ package cache
 
 import (
 	"context"
-	"errors"
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/eko/gocache/lib/v4/cache"
@@ -57,18 +56,10 @@ func (c *BaseCache[T, U]) GetKey(key string) string {
 }
 
 func (c *BaseCache[T, U]) Get(ctx context.Context, key string) (value T, err error) {
-	var zeroU U
-
-	if utils.InArray(c.store.GetType(), UseString) {
-		if reflect.TypeOf(zeroU).Kind() != reflect.String {
-			return value, errors.New("cache type error")
-		}
-	}
 	val, err := c.cache.Get(ctx, c.GetKey(key))
 	if err != nil {
 		return value, e.Err(err)
 	}
-
 	if reflect.TypeOf(val) != reflect.TypeOf(value) {
 		err = utils.AnyToAny(val, &value)
 		if err != nil {
@@ -78,15 +69,10 @@ func (c *BaseCache[T, U]) Get(ctx context.Context, key string) (value T, err err
 	}
 	value = reflect.ValueOf(val).Convert(reflect.TypeOf(value)).Interface().(T)
 	return value, nil
-
 }
+
 func (c *BaseCache[T, U]) Set(ctx context.Context, key string, value T, options ...store.Option) error {
 	var cacheValue U
-	if utils.InArray(c.store.GetType(), UseString) {
-		if reflect.TypeOf(cacheValue).Kind() != reflect.String {
-			return errors.New("cache type error")
-		}
-	}
 	key = c.GetKey(key)
 	if c.config.Expire >= 0 {
 		options = append(options, store.WithExpiration(c.config.Expire))
@@ -117,9 +103,8 @@ func (c *BaseCache[T, U]) OriginGet(key string) (value T, err error) {
 				e.SendMessage(c.ctx, err)
 			}
 			return v, nil
-		} else {
-			return *new(T), e.Err(err)
 		}
+		return *new(T), e.Err(err)
 	}
 	return value, nil
 }

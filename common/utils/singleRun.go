@@ -47,9 +47,7 @@ func (t *SingleRun) SingleRun(f func() error) (RunInfo, error) {
 	err := f()
 
 	mu.Lock()
-	defer func() {
-		mu.Unlock()
-	}()
+	defer mu.Unlock()
 	runStatus[t.Key] = RunInfo{
 		IsRunning: false,
 		StartTime: startTime,

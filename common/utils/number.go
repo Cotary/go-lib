@@ -4,6 +4,7 @@ import (
 	"github.com/gagliardetto/binary"
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
+	"golang.org/x/exp/constraints"
 	"math/big"
 	"strings"
 )
@@ -15,25 +16,23 @@ func HexToString(hex string) (string, bool) {
 }
 
 func DecimalSymbol(val decimal.Decimal, symbol string) string {
-	zeroNum := decimal.NewFromInt(0)
-	t := val.Cmp(zeroNum)
-	if t == 0 {
+	if val.IsZero() {
 		return val.String()
 	}
 
-	if symbol == "+" {
+	switch symbol {
+	case "+":
 		return AnyJoinToString("+", val.Abs().String())
-	} else if symbol == "-" {
+	case "-":
 		return AnyJoinToString("-", val.Abs().String())
-	} else {
-		if t != -1 {
+	default:
+		if val.Sign() >= 0 {
 			return AnyJoinToString("+", val.String())
-		} else {
-			return val.String()
 		}
+		return val.String()
 	}
-
 }
+
 func NumberTruncate(num string, decimalPlaces int32) string {
 	data, _ := decimal.NewFromString(num)
 	return data.Truncate(decimalPlaces).String()
@@ -68,11 +67,11 @@ func BigInt2Uint128(i *big.Int) (u bin.Uint128, err error) {
 	return u, nil
 }
 
-func AvgList(data []interface{}, filter bool, decimalPlaces int32) decimal.Decimal {
+func AvgList[T constraints.Integer](data []T, filter bool, decimalPlaces int32) decimal.Decimal {
 	var all decimal.Decimal
 	var count int64
 	for _, v := range data {
-		val, _ := decimal.NewFromString(AnyToString(v))
+		val := decimal.NewFromInt(int64(v))
 		if filter && val.IsZero() {
 			continue
 		}
@@ -82,6 +81,5 @@ func AvgList(data []interface{}, filter bool, decimalPlaces int32) decimal.Decim
 	if count == 0 {
 		return decimal.Decimal{}
 	}
-
 	return all.Div(decimal.NewFromInt(count)).Truncate(decimalPlaces)
 }
