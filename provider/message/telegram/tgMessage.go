@@ -30,7 +30,7 @@ func NewTelegramRobot(conf Config) (*Robot, error) {
 
 func (t *Robot) SendMessage(chatID int64, message string) error {
 	msg := tgbotapi.NewMessage(chatID, message)
-	msg.ParseMode = tgbotapi.ModeHTML
+	msg.ParseMode = tgbotapi.ModeMarkdown
 	return t.Send(msg)
 
 }

@@ -13,10 +13,6 @@ type TGSender struct {
 }
 
 func (s *TGSender) Send(ctx context.Context, title string, zMap *utils.ZMap[string, string]) error {
-	var message []string
-	zMap.Each(func(p utils.Pair[string, string]) {
-		message = append(message, p.Key+": ", p.Value)
-	})
 	robot, err := NewTelegramRobot(Config{
 		Token: s.RobotToken,
 		Debug: true,
@@ -24,7 +20,7 @@ func (s *TGSender) Send(ctx context.Context, title string, zMap *utils.ZMap[stri
 	if err != nil {
 		return e.Err(err)
 	}
-	msg := fmt.Sprintf("**%s**", title)
+	msg := fmt.Sprintf("***%s***", title)
 	zMap.Each(func(p utils.Pair[string, string]) {
 		msg = msg + fmt.Sprintf("\n%s: %s", p.Key, p.Value)
 	})
