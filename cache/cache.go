@@ -8,7 +8,6 @@ import (
 	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/eko/gocache/lib/v4/store"
 	"github.com/eko/gocache/store/redis/v4"
-	_ "github.com/patrickmn/go-cache"
 	"reflect"
 	"time"
 )
