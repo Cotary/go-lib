@@ -1,5 +1,10 @@
 package log
 
+import (
+	"context"
+	"github.com/Cotary/go-lib/common/defined"
+)
+
 type Config struct {
 	Level         string `yaml:"level"`         // 日志级别
 	Path          string `yaml:"path"`          // 日志文件路径
@@ -13,7 +18,7 @@ type Config struct {
 
 func handleConfig(config *Config) {
 	if config.Level == "" {
-		config.Level = "info"
+		config.Level = "debug"
 	}
 	if config.Path == "" {
 		config.Path = "./logs/"
@@ -50,3 +55,14 @@ func handleConfig(config *Config) {
 }
 
 var GlobalLogger Logger
+
+func WithContext(ctx context.Context) Logger {
+	if GlobalLogger == nil {
+		GlobalLogger = NewZapLogger(&Config{}).WithContext(ctx)
+	}
+	return GlobalLogger.WithContext(ctx).WithFields(map[string]interface{}{
+		defined.RequestID:       ctx.Value(defined.RequestID),
+		defined.RequestURI:      ctx.Value(defined.RequestURI),
+		defined.RequestBodyJson: ctx.Value(defined.RequestBodyJson),
+	})
+}

@@ -39,11 +39,11 @@ func (a *AsyncSender) consumeZMap() {
 	for msg := range a.message {
 		if a.sender != nil {
 			err := a.sender.Send(msg.Ctx, msg.Title, msg.Content)
-			if err != nil && log.DefaultLogger != nil {
+			if err != nil {
 				log.WithContext(msg.Ctx).WithFields(map[string]interface{}{
 					"title":   msg.Title,
 					"message": msg,
-				}).Error(err)
+				}).Error(err.Error())
 			}
 		}
 	}
