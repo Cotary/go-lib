@@ -6,6 +6,7 @@ import (
 	"github.com/Cotary/go-lib"
 	"github.com/Cotary/go-lib/common/defined"
 	utils2 "github.com/Cotary/go-lib/common/utils"
+	"github.com/Cotary/go-lib/log"
 	"github.com/Cotary/go-lib/provider/message"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -24,18 +25,18 @@ func (f *RawLogFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 }
 
 // NewGormLogger creates a custom GORM logger
-func NewGormLogger(log *logrus.Logger) *GormLogWriter {
+func NewGormLogger(log log.Logger) *GormLogWriter {
 	return &GormLogWriter{log}
 }
 
 // GormLogWriter is a custom GORM logger
 type GormLogWriter struct {
-	Log *logrus.Logger
+	Log log.Logger
 }
 
 // Printf implements the GORM logger interface
 func (l *GormLogWriter) Printf(format string, v ...any) {
-	l.Log.Printf(format, v...)
+	l.Log.Info(fmt.Sprintf(format, v...))
 }
 
 type GormLogger struct {

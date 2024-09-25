@@ -1,41 +1,52 @@
 package log
 
-import (
-	"context"
-	"github.com/Cotary/go-lib/common/defined"
-	"time"
-
-	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
-	"github.com/rifflock/lfshook"
-	"github.com/sirupsen/logrus"
-)
-
-type Logs struct {
-	Level         string `yaml:"level"`
-	Path          string `yaml:"path"`
-	FileSuffix    string `yaml:"fileSuffix"`
-	MaxAgeHour    int64  `yaml:"maxAgeHour"`
-	RotationCount uint   `yaml:"rotationCount"`
+type Config struct {
+	Level         string `yaml:"level"`         // 日志级别
+	Path          string `yaml:"path"`          // 日志文件路径
+	FileSuffix    string `yaml:"fileSuffix"`    // 日志文件后缀
+	MaxAgeHour    int64  `yaml:"maxAgeHour"`    // 日志文件最大保存时间（小时）
+	RotationTime  int64  `yaml:"rotationTime"`  // 日志文件轮转时间
+	RotationCount int64  `yaml:"rotationCount"` // 日志文件最大数量
+	RotationSize  int64  `yaml:"rotationSize"`  // 日志文件大小
+	FileName      string `yaml:"fileName"`      // 日志文件名
 }
 
-var DefaultLogger *logrus.Logger
-
-func InitLogger(logs *Logs) {
-	DefaultLogger = logrus.New()
-	level, _ := logrus.ParseLevel(logs.Level)
-	DefaultLogger.SetLevel(level)
-	DefaultLogger.SetReportCaller(false)
-	DefaultLogger.SetFormatter(&logrus.JSONFormatter{TimestampFormat: "2006-01-02 15:04:05", DisableTimestamp: false, PrettyPrint: false})
-	writer, _ := rotatelogs.New(logs.Path+"%Y%m%d"+logs.FileSuffix,
-		rotatelogs.WithRotationTime(24*time.Hour),
-		rotatelogs.WithRotationCount(logs.RotationCount),
-		rotatelogs.WithRotationTime(time.Hour*time.Duration(logs.MaxAgeHour)),
-	)
-	DefaultLogger.AddHook(lfshook.NewHook(writer, &logrus.JSONFormatter{TimestampFormat: "2006-01-02 15:04:05"}))
-}
-func WithContext(ctx context.Context) *logrus.Entry {
-	if ctx.Value(defined.RequestID) != nil {
-		return DefaultLogger.WithContext(ctx).WithField(defined.RequestID, ctx.Value(defined.RequestID))
+func handleConfig(config *Config) {
+	if config.Level == "" {
+		config.Level = "info"
 	}
-	return DefaultLogger.WithContext(ctx)
+	if config.Path == "" {
+		config.Path = "./logs/"
+	}
+	if config.FileSuffix == "" {
+		config.FileSuffix = ".log"
+	}
+
+	if config.FileName == "" {
+		config.FileName = "%Y%m%d_%03d"
+	}
+
+	if config.MaxAgeHour == 0 {
+		config.MaxAgeHour = 24 * 30
+	} else if config.MaxAgeHour < 0 {
+		config.MaxAgeHour = 0
+	}
+	if config.RotationTime == 0 {
+		config.RotationTime = 24
+	} else if config.RotationTime < 0 {
+		config.RotationTime = 0
+	}
+	if config.RotationCount == 0 {
+		config.RotationCount = 30
+	} else if config.RotationCount < 0 {
+		config.RotationCount = 0
+	}
+
+	if config.RotationSize == 0 {
+		config.RotationSize = 100
+	} else if config.RotationSize < 0 {
+		config.RotationSize = 0
+	}
 }
+
+var GlobalLogger Logger

@@ -1,10 +1,9 @@
 package psql
 
 import (
+	log2 "github.com/Cotary/go-lib/log"
 	"github.com/google/uuid"
-	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 	_ "github.com/lib/pq"
-	"github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
@@ -22,8 +21,8 @@ type GormConfig struct {
 
 	LogDir        string `yaml:"log_dir"`
 	LogLevel      string `yaml:"log_level"`      //日志等级 silent error warn info
-	SlowThreshold int    `yaml:"slow_threshold"` // 慢sql阈值 ms
-	LogSaveDay    int    `yaml:"log_save_day"`   //日志保留天数
+	SlowThreshold int64  `yaml:"slow_threshold"` // 慢sql阈值 ms
+	LogSaveDay    int64  `yaml:"log_save_day"`   //日志保留天数
 }
 
 type GormDrive struct {
@@ -75,21 +74,21 @@ func getDriver(driver string, dsn []string) gorm.Dialector {
 
 func NewGorm(config *GormConfig) *GormDrive {
 	handleConfig(config)
-	// 创建日志目录
-	writer, err := rotatelogs.New(
-		config.LogDir+"/%Y%m%d%H.log",
-		rotatelogs.WithMaxAge(time.Duration(config.LogSaveDay)*24*time.Hour), // 保留 x 天的日志
-		rotatelogs.WithRotationTime(time.Hour),                               // 每小时分割一次日志
-	)
-	if err != nil {
-		panic("gorm create log dir error:" + err.Error())
-	}
-	log := logrus.New()
-	log.SetOutput(writer)
-	log.SetFormatter(&RawLogFormatter{})
 
+	logConfig := log2.Config{
+		Level:         "info",
+		Path:          config.LogDir,
+		FileSuffix:    ".log",
+		MaxAgeHour:    config.LogSaveDay * 24,
+		RotationTime:  1,
+		RotationCount: -1,
+		RotationSize:  -1,
+		FileName:      "%Y%m%d%H",
+	}
+	glog := log2.NewLogrusLogger(&logConfig)
+	glog.Entry.Logger.SetFormatter(&RawLogFormatter{})
 	newLogger := New(
-		NewGormLogger(log), // io writer
+		NewGormLogger(glog), // io writer
 		logger.Config{
 			SlowThreshold:             time.Duration(config.SlowThreshold) * time.Millisecond, // Slow SQL threshold
 			LogLevel:                  getLogLevelEnum(config.LogLevel),                       // Log level

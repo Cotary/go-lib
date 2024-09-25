@@ -8,6 +8,7 @@ const (
 	TimestampHeader     = "X-Timestamp"
 	SignHeader          = "X-Sign"
 	SignTimestampHeader = "X-SignTimestamp"
+	SignTypeHeader      = "X-SignType"
 	DeviceHeader        = "X-Device"
 	TokenHeader         = "X-Token"
 	Language            = "X-Language"

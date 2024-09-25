@@ -16,6 +16,7 @@ const (
 	TimeoutErrCode
 	ServiceBusyErrCode
 	LimitExceedCode
+	ConfigErrCode
 )
 
 var (
@@ -34,4 +35,5 @@ var (
 	TimeoutErr           = NewCodeErr(TimeoutErrCode, "Request Timeout", InfoLevel)
 	ServiceBusy          = NewCodeErr(ServiceBusyErrCode, "The service is busy", InfoLevel)
 	RequestLimitExceeded = NewCodeErr(LimitExceedCode, "Request limit exceeded", InfoLevel)
+	ConfigErr            = NewCodeErr(ConfigErrCode, "Config Error", InfoLevel)
 )

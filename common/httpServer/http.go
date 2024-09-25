@@ -10,7 +10,6 @@ import (
 	"github.com/Cotary/go-lib/log"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"net/http"
 )
@@ -60,7 +59,7 @@ func (hClient *HttpClient) HttpRequest(ctx context.Context, method string, url s
 		Response: resp,
 		Error:    err,
 	}
-	rr.Log(log.DefaultLogger)
+	rr.Log(log.GlobalLogger)
 	return rr
 }
 
@@ -94,7 +93,7 @@ func (t *RestyResult) SetHandlers(handlers ...ResponseHandler) *RestyResult {
 	return t
 }
 
-func (t *RestyResult) Log(logEntry *logrus.Logger) *RestyResult {
+func (t *RestyResult) Log(logEntry log.Logger) *RestyResult {
 	ctx := t.Context
 	logMap := map[string]interface{}{
 		"Context ID": ctx.Value(defined.RequestID),
@@ -114,12 +113,12 @@ func (t *RestyResult) Log(logEntry *logrus.Logger) *RestyResult {
 	if t.Error != nil {
 		logMap["Request Error"] = t.Error.Error()
 		if logEntry != nil {
-			logEntry.WithContext(ctx).WithFields(logMap).Error()
+			logEntry.WithContext(ctx).WithFields(logMap).Error("HTTP Request")
 		}
 		e.SendMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
 	} else {
 		if logEntry != nil {
-			logEntry.WithContext(ctx).WithFields(logMap).Info()
+			logEntry.WithContext(ctx).WithFields(logMap).Info("HTTP Request")
 		}
 	}
 	t.Logs = logMap
