@@ -72,6 +72,11 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 
 		// 这里应该使用你的方法来获取appID对应的secret
 		secret := conf.SecretGetter(ctx, appID)
+		if secret == "" {
+			c.JSON(http.StatusOK, response.Error(c, e.NewHttpErr(e.SignErr, errors.New(fmt.Sprintf("secret not found")))))
+			c.Abort()
+			return
+		}
 
 		// 验证时间戳
 		if !validateTimestamp(signTime, conf.Expire) {
