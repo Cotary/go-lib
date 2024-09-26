@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"bytes"
-	"encoding/json"
 	"github.com/Cotary/go-lib/common/defined"
 	"github.com/Cotary/go-lib/common/utils"
 	"github.com/Cotary/go-lib/log"
@@ -41,8 +40,8 @@ func RequestLogMiddleware() gin.HandlerFunc {
 		responseBody := bodyLogWriter.body.String()
 		logField := map[string]interface{}{
 			"url":             c.Request.URL.String(),
-			"start_timestamp": start.Format("2006-01-02 15:04:05"),
-			"end_timestamp":   end.Format("2006-01-02 15:04:05"),
+			"start_timestamp": start.Format(time.DateTime),
+			"end_timestamp":   end.Format(time.DateTime),
 			"server_name":     c.Request.Host,
 			"remote_addr":     c.ClientIP(),
 			"proto":           c.Request.Proto,
@@ -52,15 +51,10 @@ func RequestLogMiddleware() gin.HandlerFunc {
 			"status": c.Writer.Status(),
 			"header": c.Request.Header,
 
-			"request_id": c.Writer.Header().Get(defined.RequestID),
-
+			"request_id":    c.Writer.Header().Get(defined.RequestID),
 			"request_body":  string(requestBody),
 			"response_body": responseBody,
 		}
-		bf2 := bytes.NewBuffer([]byte{})
-		jsonEncoder := json.NewEncoder(bf2)
-		jsonEncoder.SetEscapeHTML(false)
-		jsonEncoder.Encode(logField)
-		log.WithContext(ctx).Info(bf2.String())
+		log.WithContext(ctx).WithFields(logField).Info("request log")
 	}
 }

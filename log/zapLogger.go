@@ -16,23 +16,26 @@ type ZapLogger struct {
 
 func NewZapLogger(config *Config) *ZapLogger {
 	handleConfig(config)
-	writer, _ := rotatelogs.New(
+	writer, err := rotatelogs.New(
 		fmt.Sprintf("%s%s%s", config.Path, config.FileName, config.FileSuffix),
 		rotatelogs.WithRotationTime(time.Duration(config.RotationTime)*time.Hour),
 		rotatelogs.WithRotationCount(uint(config.RotationCount)),
 		rotatelogs.WithMaxAge(time.Duration(config.MaxAgeHour)*time.Hour),
-		rotatelogs.WithRotationSize(config.RotationSize),
+		rotatelogs.WithRotationSize(config.RotationSize*1024*1024),
 	)
+	if err != nil {
+		panic(err)
+	}
 	writeSyncer := zapcore.AddSync(writer)
 	encoderConfig := zap.NewProductionEncoderConfig()
-	encoderConfig.TimeKey = "timestamp"
+	encoderConfig.TimeKey = "time"
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+	//encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder //把日志级别转换成大写字母
 	encoderConfig.EncodeDuration = zapcore.SecondsDurationEncoder
 	encoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
 
 	var level = new(zapcore.Level)
-	err := level.UnmarshalText([]byte(config.Level))
+	err = level.UnmarshalText([]byte(config.Level))
 	if err != nil {
 		panic(err)
 	}

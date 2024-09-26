@@ -33,7 +33,7 @@ type GormDrive struct {
 
 func handleConfig(config *GormConfig) {
 	if config.LogDir == "" {
-		config.LogDir = "./logs/gorm"
+		config.LogDir = "./logs/gorm/"
 	}
 	if config.LogLevel == "" {
 		config.LogLevel = "info"
@@ -42,7 +42,7 @@ func handleConfig(config *GormConfig) {
 		config.LogSaveDay = 30
 	}
 	if config.SlowThreshold == 0 {
-		config.SlowThreshold = 500
+		config.SlowThreshold = 1000
 	}
 }
 
@@ -86,7 +86,6 @@ func NewGorm(config *GormConfig) *GormDrive {
 		FileName:      "%Y%m%d%H",
 	}
 	glog := log2.NewLogrusLogger(&logConfig)
-	glog.Entry.Logger.SetFormatter(&RawLogFormatter{})
 	newLogger := New(
 		NewGormLogger(glog), // io writer
 		logger.Config{

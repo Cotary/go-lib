@@ -16,17 +16,21 @@ type LogrusLogger struct {
 func NewLogrusLogger(config *Config) *LogrusLogger {
 	handleConfig(config)
 	logger := logrus.New()
-	logger.SetFormatter(&logrus.JSONFormatter{TimestampFormat: time.DateTime})
+	timeFormat := "2006-01-02T15:04:05.000Z0700"
+	logger.SetFormatter(&logrus.JSONFormatter{TimestampFormat: timeFormat})
 
-	writer, _ := rotatelogs.New(
+	writer, err := rotatelogs.New(
 		fmt.Sprintf("%s%s%s", config.Path, config.FileName, config.FileSuffix),
 		rotatelogs.WithRotationTime(time.Duration(config.RotationTime)*time.Hour),
 		rotatelogs.WithRotationCount(uint(config.RotationCount)),
 		rotatelogs.WithMaxAge(time.Duration(config.MaxAgeHour)*time.Hour),
-		rotatelogs.WithRotationSize(config.RotationSize),
+		rotatelogs.WithRotationSize(config.RotationSize*1024*1024),
 	)
+	if err != nil {
+		panic(err)
+	}
 
-	logger.AddHook(lfshook.NewHook(writer, &logrus.JSONFormatter{TimestampFormat: time.DateTime}))
+	logger.AddHook(lfshook.NewHook(writer, &logrus.JSONFormatter{TimestampFormat: timeFormat}))
 	logger.SetReportCaller(false)
 	logger.SetLevel(parseLogrusLevel(config.Level))
 	return &LogrusLogger{Entry: logrus.NewEntry(logger)}

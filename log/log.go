@@ -12,7 +12,7 @@ type Config struct {
 	MaxAgeHour    int64  `yaml:"maxAgeHour"`    // 日志文件最大保存时间（小时）
 	RotationTime  int64  `yaml:"rotationTime"`  // 日志文件轮转时间
 	RotationCount int64  `yaml:"rotationCount"` // 日志文件最大数量
-	RotationSize  int64  `yaml:"rotationSize"`  // 日志文件大小
+	RotationSize  int64  `yaml:"rotationSize"`  // 日志文件大小 MB
 	FileName      string `yaml:"fileName"`      // 日志文件名
 }
 
@@ -28,7 +28,7 @@ func handleConfig(config *Config) {
 	}
 
 	if config.FileName == "" {
-		config.FileName = "%Y%m%d_%03d"
+		config.FileName = "%Y%m%d"
 	}
 
 	if config.MaxAgeHour == 0 {
@@ -41,8 +41,9 @@ func handleConfig(config *Config) {
 	} else if config.RotationTime < 0 {
 		config.RotationTime = 0
 	}
-	if config.RotationCount == 0 {
-		config.RotationCount = 30
+
+	if config.MaxAgeHour > 0 {
+		config.RotationCount = 0
 	} else if config.RotationCount < 0 {
 		config.RotationCount = 0
 	}
