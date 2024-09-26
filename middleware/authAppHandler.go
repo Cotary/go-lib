@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"github.com/Cotary/go-lib/cache"
 	"github.com/Cotary/go-lib/common/defined"
@@ -21,7 +22,7 @@ type AuthConf struct {
 	SecretGetter  SecretGetter
 	SignatureFunc SignatureFunc
 }
-type SecretGetter func(appID string) string
+type SecretGetter func(ctx context.Context, appID string) string
 type SignatureFunc func(c *gin.Context, signTime int64, secret string) (string, error)
 
 func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
@@ -70,7 +71,7 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 		}
 
 		// 这里应该使用你的方法来获取appID对应的secret
-		secret := conf.SecretGetter(appID)
+		secret := conf.SecretGetter(ctx, appID)
 
 		// 验证时间戳
 		if !validateTimestamp(signTime, conf.Expire) {
