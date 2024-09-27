@@ -2,6 +2,8 @@ package utils
 
 import (
 	"container/list"
+	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -68,4 +70,23 @@ func (m *ZMap[T, U]) Each(f func(Pair[T, U])) {
 	for e := m.List.Front(); e != nil; e = e.Next() {
 		f(e.Value.(Pair[T, U]))
 	}
+}
+
+func (m *ZMap[T, U]) String() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var sb strings.Builder
+	sb.WriteString("{")
+	first := true
+	for e := m.List.Front(); e != nil; e = e.Next() {
+		if !first {
+			sb.WriteString(", ")
+		}
+		pair := e.Value.(Pair[T, U])
+		sb.WriteString(fmt.Sprintf("%v: %v", pair.Key, pair.Value))
+		first = false
+	}
+	sb.WriteString("}")
+	return sb.String()
 }
