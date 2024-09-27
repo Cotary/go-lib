@@ -42,7 +42,7 @@ func (a *AsyncSender) consumeZMap() {
 			if err != nil {
 				log.WithContext(msg.Ctx).WithFields(map[string]interface{}{
 					"title":   msg.Title,
-					"message": msg,
+					"message": msg.Content,
 				}).Error(err.Error())
 			}
 		}
