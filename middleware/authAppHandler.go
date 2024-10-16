@@ -23,7 +23,7 @@ type AuthConf struct {
 	SignatureFunc SignatureFunc
 }
 type SecretGetter func(ctx context.Context, appID string) string
-type SignatureFunc func(c *gin.Context, signTime int64, secret string) (string, error)
+type SignatureFunc func(c *gin.Context, signTime int64, secret, signType, nonce string) (string, error)
 
 func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -36,6 +36,7 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 		appID := c.Request.Header.Get(defined.AppidHeader)
 		signature := c.Request.Header.Get(defined.SignHeader)
 		signatureType := c.Request.Header.Get(defined.SignTypeHeader)
+		nonce := c.Request.Header.Get(defined.NonceHeader)
 		timestamp := c.Request.Header.Get(defined.SignTimestampHeader) //ms
 		signTime := utils.AnyToInt(timestamp)
 
@@ -89,7 +90,7 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 		if conf.SignatureFunc != nil {
 			validateFunc = conf.SignatureFunc
 		}
-		signatureCalculated, err := validateFunc(c, signTime, secret)
+		signatureCalculated, err := validateFunc(c, signTime, secret, signatureType, nonce)
 		if err != nil {
 			c.JSON(http.StatusOK, response.Error(c, e.NewHttpErr(e.SignErr, err)))
 			c.Abort()
@@ -113,9 +114,9 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 	}
 }
 
-func defaultValidateFunc(c *gin.Context, signTime int64, secret string) (string, error) {
+func defaultValidateFunc(c *gin.Context, signTime int64, secret, signType, nonce string) (string, error) {
 	url := c.Request.URL.Path
-	data := fmt.Sprintf("%s%d%s", url, signTime, secret)
+	data := fmt.Sprintf("%s%d%s%s%s", url, signTime, secret, signType, nonce)
 	hash := utils.MD5(data)
 	return hash, nil
 }
