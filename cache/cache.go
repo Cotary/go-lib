@@ -19,12 +19,11 @@ var UseString = []string{
 type Cache[T any] interface {
 	Get(ctx context.Context, key string) (value T, err error)
 	Set(ctx context.Context, key string, value T, options ...store.Option) error
-	OriginGet(key string) (value T, err error)
+	OriginGet(ctx context.Context, key string) (value T, err error)
 }
 
 // BaseCache T 是实际类型，U 是缓存类型
 type BaseCache[T, U any] struct {
-	ctx    context.Context
 	config Config[T]
 	cache  *cache.Cache[U]
 	store  store.StoreInterface
@@ -36,9 +35,8 @@ type Config[T any] struct {
 	OriginFunc func(ctx context.Context, key string) (value T, err error)
 }
 
-func NewStore[T any, U any](ctx context.Context, config Config[T], store store.StoreInterface) *BaseCache[T, U] {
+func NewStore[T any, U any](config Config[T], store store.StoreInterface) *BaseCache[T, U] {
 	return &BaseCache[T, U]{
-		ctx:    ctx,
 		config: config,
 		cache:  cache.New[U](store),
 		store:  store,
@@ -90,17 +88,17 @@ func (c *BaseCache[T, U]) Set(ctx context.Context, key string, value T, options 
 	return e.Err(err)
 }
 
-func (c *BaseCache[T, U]) OriginGet(key string) (value T, err error) {
-	value, err = c.Get(c.ctx, key)
+func (c *BaseCache[T, U]) OriginGet(ctx context.Context, key string) (value T, err error) {
+	value, err = c.Get(ctx, key)
 	if err != nil {
 		if err.Error() == store.NOT_FOUND_ERR {
-			v, err := c.config.OriginFunc(c.ctx, key)
+			v, err := c.config.OriginFunc(ctx, key)
 			if err != nil {
 				return *new(T), e.Err(err)
 			}
-			err = c.Set(c.ctx, key, v)
+			err = c.Set(ctx, key, v)
 			if err != nil {
-				e.SendMessage(c.ctx, err)
+				e.SendMessage(ctx, err)
 			}
 			return v, nil
 		}

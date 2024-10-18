@@ -28,7 +28,7 @@ func TestRedisNotStringCache(t *testing.T) {
 	//gocacheClient := gocache.New(5*time.Minute, 10*time.Minute)
 	//gocacheStore := gocache_store.NewGoCache(gocacheClient)
 	// 创建缓存实例
-	baseCache := NewStore[string, string](ctx, Config[string]{
+	baseCache := NewStore[string, string](Config[string]{
 		Prefix: "test",
 		Expire: 1 * time.Second,
 		OriginFunc: func(ctx context.Context, key string) (string, error) {
@@ -50,7 +50,7 @@ func TestRedisNotStringCache(t *testing.T) {
 	fmt.Println("test expire:", value, "err:", err)
 
 	// 测试 OriginGet 方法
-	value, err = baseCache.OriginGet("key2")
+	value, err = baseCache.OriginGet(ctx, "key2")
 	fmt.Println("test OriginGet:", value, err)
 
 	value, err = baseCache.Get(ctx, "key2")
@@ -69,7 +69,7 @@ func TestStringCache(t *testing.T) {
 	gocacheClient := gocache.New(5*time.Minute, 10*time.Minute)
 	gocacheStore := gocache_store.NewGoCache(gocacheClient)
 	// 创建缓存实例
-	baseCache := StoreInstance(ctx, Config[string]{
+	baseCache := StoreInstance(Config[string]{
 		Prefix: "test",
 		Expire: 1 * time.Second,
 		OriginFunc: func(ctx context.Context, key string) (string, error) {
@@ -91,7 +91,7 @@ func TestStringCache(t *testing.T) {
 	fmt.Println("test expire:", value, "err:", err)
 
 	// 测试 OriginGet 方法
-	value, err = baseCache.OriginGet("key2")
+	value, err = baseCache.OriginGet(ctx, "key2")
 	fmt.Println("test OriginGet:", value, err)
 
 	value, err = baseCache.Get(ctx, "key2")
@@ -110,7 +110,7 @@ func TestBaseCache(t *testing.T) {
 	gocacheClient := gocache.New(5*time.Minute, 10*time.Minute)
 	gocacheStore := gocache_store.NewGoCache(gocacheClient)
 	// 创建缓存实例
-	baseCache := StoreInstance(ctx, Config[A]{
+	baseCache := StoreInstance(Config[A]{
 		Prefix: "test",
 		Expire: 1 * time.Second,
 		OriginFunc: func(ctx context.Context, key string) (A, error) {
@@ -137,7 +137,7 @@ func TestBaseCache(t *testing.T) {
 	fmt.Println("test expire:", value, "err:", err)
 
 	// 测试 OriginGet 方法
-	value, err = baseCache.OriginGet("key2")
+	value, err = baseCache.OriginGet(ctx, "key2")
 	fmt.Println("test OriginGet:", value, err)
 
 	value, err = baseCache.Get(ctx, "key2")

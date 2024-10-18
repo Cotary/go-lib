@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"context"
 	"github.com/Cotary/go-lib/common/utils"
 	"github.com/eko/gocache/lib/v4/store"
 	"github.com/pkg/errors"
@@ -10,16 +9,16 @@ import (
 
 var cacheMap sync.Map
 
-func StoreInstance[T any](ctx context.Context, config Config[T], store store.StoreInterface) Cache[T] {
+func StoreInstance[T any](config Config[T], store store.StoreInterface) Cache[T] {
 	if instance, err := GetCacheInstance[T](config.Prefix); err == nil {
 		return instance
 	}
 
 	var storeInstance Cache[T]
 	if utils.InArray(store.GetType(), UseString) {
-		storeInstance = NewStore[T, string](ctx, config, store)
+		storeInstance = NewStore[T, string](config, store)
 	} else {
-		storeInstance = NewStore[T, T](ctx, config, store)
+		storeInstance = NewStore[T, T](config, store)
 	}
 
 	cacheMap.Store(config.Prefix, storeInstance)
