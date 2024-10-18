@@ -7,7 +7,6 @@ import (
 	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/eko/gocache/lib/v4/store"
 	"github.com/eko/gocache/store/redis/v4"
-	"reflect"
 	"time"
 )
 
@@ -58,14 +57,16 @@ func (c *BaseCache[T, U]) Get(ctx context.Context, key string) (value T, err err
 	if err != nil {
 		return value, e.Err(err)
 	}
-	if reflect.TypeOf(val) != reflect.TypeOf(value) {
+	// 检查和转换类型
+	switch v := any(val).(type) {
+	case T:
+		value = v
+	default:
 		err = utils.AnyToAny(val, &value)
 		if err != nil {
 			return value, e.Err(err)
 		}
-		return value, nil
 	}
-	value = reflect.ValueOf(val).Convert(reflect.TypeOf(value)).Interface().(T)
 	return value, nil
 }
 
@@ -76,13 +77,15 @@ func (c *BaseCache[T, U]) Set(ctx context.Context, key string, value T, options 
 		options = append(options, store.WithExpiration(c.config.Expire))
 	}
 
-	if reflect.TypeOf(value) != reflect.TypeOf(cacheValue) {
+	// 尝试将 value 转换为 U 类型
+	if v, ok := any(value).(U); ok {
+		cacheValue = v
+	} else {
+		// 如果类型转换失败，使用 AnyToAny 进行转换
 		err := utils.AnyToAny(value, &cacheValue)
 		if err != nil {
 			return e.Err(err)
 		}
-	} else {
-		cacheValue = reflect.ValueOf(value).Convert(reflect.TypeOf(cacheValue)).Interface().(U)
 	}
 	err := c.cache.Set(ctx, key, cacheValue, options...)
 	return e.Err(err)
