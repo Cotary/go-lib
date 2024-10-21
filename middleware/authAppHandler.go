@@ -115,8 +115,7 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 }
 
 func defaultValidateFunc(c *gin.Context, signTime int64, secret, signType, nonce string) (string, error) {
-	url := c.Request.URL.Path
-	data := fmt.Sprintf("%s%d%s%s%s", url, signTime, secret, signType, nonce)
+	data := fmt.Sprintf("%d%s%s%s", signTime, secret, signType, nonce)
 	hash := utils.MD5(data)
 	return hash, nil
 }
