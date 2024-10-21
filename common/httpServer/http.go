@@ -32,6 +32,12 @@ func (hClient *HttpClient) SetHandlers(handler ...RequestHandler) *HttpClient {
 }
 
 func (hClient *HttpClient) HttpRequest(ctx context.Context, method string, url string, query map[string][]string, body interface{}, headers map[string]string) *RestyResult {
+	if query == nil {
+		query = map[string][]string{}
+	}
+	if headers == nil {
+		headers = map[string]string{}
+	}
 	for _, handler := range hClient.Handlers {
 		if err := handler(ctx, &method, &url, query, body, headers); err != nil {
 			return &RestyResult{
@@ -42,12 +48,8 @@ func (hClient *HttpClient) HttpRequest(ctx context.Context, method string, url s
 	}
 
 	req := hClient.Client.R()
-	if query != nil {
-		req.SetQueryParamsFromValues(query)
-	}
-	if headers != nil {
-		req.SetHeaders(headers)
-	}
+	req.SetQueryParamsFromValues(query)
+	req.SetHeaders(headers)
 	if body != nil {
 		req.SetBody(body)
 	}

@@ -9,10 +9,10 @@ import (
 	"time"
 )
 
-type RequestHandler func(ctx context.Context, method *string, url *string, query map[string][]string, body interface{}, headers map[string]string) error
+type RequestHandler func(ctx context.Context, method *string, url *string, query map[string][]string, body any, headers map[string]string) error
 
 func AuthAppHandler(appID, secret, signType string) RequestHandler {
-	return func(ctx context.Context, method *string, url *string, query map[string][]string, body interface{}, headers map[string]string) error {
+	return func(ctx context.Context, method *string, url *string, query map[string][]string, body any, headers map[string]string) error {
 		timestamp := time.Now().UnixMilli()
 		signature := calculateSignature(*url, secret, signType, timestamp)
 		// 添加签名字段到请求头
