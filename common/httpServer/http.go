@@ -2,7 +2,6 @@ package httpServer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/Cotary/go-lib/common/defined"
 	"github.com/Cotary/go-lib/common/utils"
@@ -163,5 +162,9 @@ func (t *RestyResult) Parse(path string, data interface{}) error {
 		respJson = gj.String()
 	}
 
-	return json.Unmarshal([]byte(respJson), data)
+	err := utils.StringTo(respJson, data)
+	if err != nil {
+		return e.Err(err)
+	}
+	return nil
 }
