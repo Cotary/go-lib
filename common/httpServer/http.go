@@ -133,12 +133,13 @@ func (t *RestyResult) Parse(path string, data interface{}) error {
 	}
 
 	errMsg := fmt.Sprintf("\nResponse not success: %s\n", utils.Json(t.Logs))
-	gj := gjson.Parse(t.String())
-	if gj.Type != gjson.JSON {
-		return errors.New("Response is not json")
-	}
 	if !t.IsSuccess() {
 		return errors.New(errMsg)
+	}
+
+	gj := gjson.Parse(t.String())
+	if gj.Type != gjson.JSON {
+		return errors.New("Response is not json: " + errMsg)
 	}
 
 	for _, f := range t.Handlers {
