@@ -68,7 +68,7 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOpt
 				e.SendMessage(ctx, e.Err(err, "request cache marshal error"))
 			}
 			prefix := fmt.Sprintf("Request-%s", c.Request.URL.Path)
-			cacheInstance = cache.StoreInstance[R](ctx,
+			cacheInstance = cache.StoreInstance[R](
 				cache.Config[R]{
 					Prefix: prefix,
 					Expire: option.CacheExpire,
