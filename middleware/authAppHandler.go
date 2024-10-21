@@ -53,7 +53,7 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 		//检查sign重放
 		var cacheInstance cache.Cache[int64]
 		if conf.CacheStore != nil {
-			cacheInstance = cache.StoreInstance(ctx,
+			cacheInstance = cache.StoreInstance(
 				cache.Config[int64]{
 					Prefix: "AuthSign",
 					Expire: conf.Expire,
