@@ -30,12 +30,11 @@ type Order struct {
 type Paging struct {
 	Page     int  `json:"page" form:"page"`
 	PageSize int  `json:"page_size" form:"page_size"`
-	Export   bool `json:"export" form:"export"`
+	All      bool `json:"all" form:"all"`
 }
 
 type Page struct {
-	Page       int   `json:"page"`
-	PageSize   int   `json:"page_size"`
+	Paging
 	TotalCount int64 `json:"total_count"`
 }
 
@@ -47,8 +46,7 @@ func HandlePage(paging Paging, total int64) Page {
 		paging.PageSize = 20
 	}
 	return Page{
-		Page:       paging.Page,
-		PageSize:   paging.PageSize,
+		Paging:     paging,
 		TotalCount: total,
 	}
 }

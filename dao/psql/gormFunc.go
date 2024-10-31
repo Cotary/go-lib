@@ -165,7 +165,9 @@ func Paging(db *gorm.DB, paging *community.Paging) *gorm.DB {
 	if paging.Page < 1 {
 		paging.Page = 1
 	}
-
+	if paging.All {
+		return db
+	}
 	return db.Limit(paging.PageSize).Offset((paging.Page - 1) * paging.PageSize)
 }
 func Total(db *gorm.DB, count *int64) *gorm.DB {
