@@ -15,7 +15,8 @@ func SetSender(s message.Sender) {
 }
 
 func SendMessage(ctx context.Context, err error) {
-	if sender == nil {
+	errSender := message.GetPrioritySender(sender)
+	if errSender == nil {
 		return
 	}
 	errMsg := GetErrMessage(Err(err))
@@ -34,5 +35,5 @@ func SendMessage(ctx context.Context, err error) {
 		Set("RequestJson:", requestJson).
 		Set("Error:", errMsg)
 
-	sender.Send(ctx, "Running Error", zMap)
+	errSender.Send(ctx, "Running Error", zMap)
 }

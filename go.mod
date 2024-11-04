@@ -24,6 +24,7 @@ require (
 	github.com/shopspring/decimal v1.4.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cast v1.7.0
+	github.com/streadway/amqp v1.1.0
 	github.com/tidwall/gjson v1.18.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c
