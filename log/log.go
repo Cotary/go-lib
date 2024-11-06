@@ -2,6 +2,7 @@ package log
 
 import (
 	"context"
+	"github.com/Cotary/go-lib"
 	"github.com/Cotary/go-lib/common/defined"
 )
 
@@ -62,6 +63,8 @@ func WithContext(ctx context.Context) Logger {
 		GlobalLogger = NewZapLogger(&Config{}).WithContext(ctx)
 	}
 	return GlobalLogger.WithContext(ctx).WithFields(map[string]interface{}{
+		defined.ServerName:      lib.ServerName,
+		defined.ENV:             lib.Env,
 		defined.RequestID:       ctx.Value(defined.RequestID),
 		defined.RequestURI:      ctx.Value(defined.RequestURI),
 		defined.RequestBodyJson: ctx.Value(defined.RequestBodyJson),

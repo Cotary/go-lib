@@ -5,6 +5,7 @@ import (
 	"github.com/Cotary/go-lib"
 	"github.com/Cotary/go-lib/common/defined"
 	"github.com/Cotary/go-lib/common/utils"
+	"github.com/Cotary/go-lib/log"
 	"github.com/Cotary/go-lib/provider/message"
 )
 
@@ -35,5 +36,9 @@ func SendMessage(ctx context.Context, err error) {
 		Set("RequestJson:", requestJson).
 		Set("Error:", errMsg)
 
-	errSender.Send(ctx, "Running Error", zMap)
+	log.WithContext(ctx).Error(errMsg)
+	sendErr := errSender.Send(ctx, "Running Error", zMap)
+	if sendErr != nil {
+		log.WithContext(ctx).Error("err sender:" + sendErr.Error())
+	}
 }

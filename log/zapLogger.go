@@ -6,6 +6,7 @@ import (
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"os"
 	"time"
 )
 
@@ -16,6 +17,7 @@ type ZapLogger struct {
 
 func NewZapLogger(config *Config) *ZapLogger {
 	handleConfig(config)
+
 	writer, err := rotatelogs.New(
 		fmt.Sprintf("%s%s%s", config.Path, config.FileName, config.FileSuffix),
 		rotatelogs.WithRotationTime(time.Duration(config.RotationTime)*time.Hour),
@@ -26,7 +28,10 @@ func NewZapLogger(config *Config) *ZapLogger {
 	if err != nil {
 		panic(err)
 	}
+
 	writeSyncer := zapcore.AddSync(writer)
+	consoleSyncer := zapcore.AddSync(os.Stdout)
+
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.TimeKey = "time"
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
@@ -39,11 +44,12 @@ func NewZapLogger(config *Config) *ZapLogger {
 	if err != nil {
 		panic(err)
 	}
-	core := zapcore.NewCore(
-		zapcore.NewJSONEncoder(encoderConfig),
-		writeSyncer,
-		level,
+
+	core := zapcore.NewTee(
+		zapcore.NewCore(zapcore.NewJSONEncoder(encoderConfig), writeSyncer, level),
+		zapcore.NewCore(zapcore.NewJSONEncoder(encoderConfig), consoleSyncer, level),
 	)
+
 	logger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
 	return &ZapLogger{Logger: logger, Context: context.Background()}
 }
