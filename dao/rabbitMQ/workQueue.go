@@ -7,7 +7,6 @@ import (
 
 type WorkConfig struct {
 	ExchangeName string
-	ExchangeType string
 	RouteKey     string
 	QueueName    string
 	QueueType    string
@@ -28,7 +27,7 @@ func NewWorkCh(conn *Connect, config WorkConfig) (*WorkCh, error) {
 	// 声明交换机
 	err = ch.ExchangeDeclare(
 		config.ExchangeName,
-		config.ExchangeType,
+		amqp.ExchangeDirect,
 		true,
 		false,
 		false,
