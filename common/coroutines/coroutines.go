@@ -12,17 +12,21 @@ import (
 	"runtime/debug"
 )
 
-func SafeGo(ctx context.Context, F func(ctx context.Context)) {
+func SafeGo(ctx context.Context, F func(ctx context.Context), recoverFunc ...func(ctx context.Context)) {
 	go func() {
-		SafeFunc(ctx, F)
+		SafeFunc(ctx, F, recoverFunc...)
 	}()
 }
 
-func SafeFunc(ctx context.Context, F func(ctx context.Context)) {
+func SafeFunc(ctx context.Context, F func(ctx context.Context), recoverFunc ...func(ctx context.Context)) {
 	defer func() {
 		if r := recover(); r != nil {
 			err := errors.New(utils.Json(r) + "\r\n" + string(debug.Stack()))
 			e.SendMessage(ctx, err)
+
+			for _, f := range recoverFunc {
+				f(ctx)
+			}
 		}
 	}()
 	F(ctx)
