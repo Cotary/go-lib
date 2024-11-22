@@ -16,12 +16,7 @@ func SetSender(s message.Sender) {
 }
 
 func SendMessage(ctx context.Context, err error) {
-	errSender := message.GetPrioritySender(sender)
-	if errSender == nil {
-		return
-	}
 	errMsg := GetErrMessage(Err(err))
-
 	env := lib.Env
 	serverName := lib.ServerName
 	requestID, _ := ctx.Value(defined.RequestID).(string)
@@ -37,6 +32,10 @@ func SendMessage(ctx context.Context, err error) {
 		Set("Error:", errMsg)
 
 	log.WithContext(ctx).Error(errMsg)
+	errSender := message.GetPrioritySender(sender)
+	if errSender == nil {
+		return
+	}
 	sendErr := errSender.Send(ctx, "Running Error", zMap)
 	if sendErr != nil {
 		log.WithContext(ctx).Error("err sender:" + sendErr.Error())

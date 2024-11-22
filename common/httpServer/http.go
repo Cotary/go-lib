@@ -15,16 +15,28 @@ import (
 
 type HttpClient struct {
 	*resty.Client
-	Handlers []RequestHandler
+	Handlers     []RequestHandler
+	keepLog      bool
+	sendErrorMsg bool
 }
 
 func NewHttpClient() *HttpClient {
 	restyClient := resty.New()
 	return &HttpClient{
-		Client: restyClient,
+		Client:       restyClient,
+		keepLog:      true,
+		sendErrorMsg: true,
 	}
 }
 
+func (hClient *HttpClient) NoSendErrorMsg() *HttpClient {
+	hClient.sendErrorMsg = false
+	return hClient
+}
+func (hClient *HttpClient) NoKeepLog() *HttpClient {
+	hClient.keepLog = false
+	return hClient
+}
 func (hClient *HttpClient) SetHandlers(handler ...RequestHandler) *HttpClient {
 	hClient.Handlers = handler
 	return hClient
@@ -55,12 +67,15 @@ func (hClient *HttpClient) HttpRequest(ctx context.Context, method string, url s
 
 	resp, err := executeRequest(req, method, url)
 	rr := &RestyResult{
-		Context:  ctx,
-		Client:   hClient.Client,
-		Response: resp,
-		Error:    err,
+		Context:    ctx,
+		HttpClient: hClient,
+		Response:   resp,
+		Error:      err,
 	}
-	rr.Log(log.GlobalLogger)
+	if hClient.keepLog {
+		rr.Log(log.GlobalLogger)
+	}
+
 	return rr
 }
 
@@ -82,7 +97,7 @@ func executeRequest(req *resty.Request, method, url string) (*resty.Response, er
 // RestyResult Response Result
 type RestyResult struct {
 	context.Context
-	*resty.Client
+	*HttpClient
 	*resty.Response
 	Logs     map[string]interface{}
 	Handlers []ResponseHandler
@@ -116,7 +131,10 @@ func (t *RestyResult) Log(logEntry log.Logger) *RestyResult {
 		if logEntry != nil {
 			logEntry.WithContext(ctx).WithFields(logMap).Error("HTTP Request")
 		}
-		e.SendMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
+		if t.sendErrorMsg {
+			e.SendMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
+		}
+
 	} else {
 		if logEntry != nil {
 			logEntry.WithContext(ctx).WithFields(logMap).Info("HTTP Request")
@@ -132,7 +150,12 @@ func (t *RestyResult) Parse(path string, data interface{}) error {
 		return t.Error
 	}
 
-	errMsg := fmt.Sprintf("\nResponse not success: %s\n", utils.Json(t.Logs))
+	logTxt := utils.Json(t.Logs)
+	if t.Logs == nil {
+		logTxt = t.Response.String()
+	}
+
+	errMsg := fmt.Sprintf("Response not success: %s", logTxt)
 	if !t.IsSuccess() {
 		return errors.New(errMsg)
 	}
@@ -165,7 +188,7 @@ func (t *RestyResult) Parse(path string, data interface{}) error {
 
 	err := utils.StringTo(respJson, data)
 	if err != nil {
-		return e.Err(err)
+		return e.Err(err, "response parse error")
 	}
 	return nil
 }
