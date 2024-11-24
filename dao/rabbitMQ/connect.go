@@ -6,11 +6,12 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"os"
+	"time"
+
 	"github.com/Cotary/go-lib/common/coroutines"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/streadway/amqp"
-	"os"
-	"time"
 )
 
 type Config struct {
@@ -24,19 +25,21 @@ type Config struct {
 type Connect struct {
 	Conn *amqp.Connection
 	Config
+	closeCh chan struct{}
 }
 
 func handleConfig(config *Config) {
 	if config.Heartbeat == 0 {
-		config.Heartbeat = 60
+		config.Heartbeat = 30
 	}
 }
 
 func NewRabbitMQ(config Config) (*Connect, error) {
 	handleConfig(&config)
 	mq := &Connect{
-		Conn:   nil,
-		Config: config,
+		Conn:    nil,
+		Config:  config,
+		closeCh: make(chan struct{}),
 	}
 	err := mq.connect()
 	if err != nil {
@@ -52,13 +55,20 @@ func NewRabbitMQ(config Config) (*Connect, error) {
 
 func (c *Connect) checkHealth(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(c.Config.Heartbeat) * time.Second)
+	defer ticker.Stop()
 	for {
-		<-ticker.C
-		if c.Conn.IsClosed() {
-			err := c.connect()
-			if err != nil {
-				e.SendMessage(ctx, err)
+		select {
+		case <-ticker.C:
+			//fmt.Println("Health check...")
+			if c.Conn.IsClosed() {
+				err := c.connect()
+				if err != nil {
+					e.SendMessage(ctx, err)
+				}
 			}
+		case <-c.closeCh:
+			//fmt.Println("Stopping health check...")
+			return
 		}
 	}
 }
@@ -97,4 +107,12 @@ func (c *Connect) connect() error {
 		}
 	}
 	return err
+}
+
+func (c *Connect) Close() {
+	close(c.closeCh)
+	if c.Conn != nil && !c.Conn.IsClosed() {
+		c.Conn.Close()
+	}
+	fmt.Println("RabbitMQ connection closed")
 }
