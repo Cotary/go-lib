@@ -22,7 +22,7 @@ func TestWorkCh(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, pool)
 
-	workChConfig := WorkConfig{
+	workChConfig := QueueConfig{
 		ExchangeName: "test_exchange",
 		ExchangeType: amqp.ExchangeDirect,
 		RouteKey:     "test_route",
@@ -30,7 +30,7 @@ func TestWorkCh(t *testing.T) {
 		QueueType:    "quorum",
 	}
 
-	workCh, err := NewWorkCh(pool, workChConfig)
+	workCh, err := NewQueue(pool, workChConfig)
 	assert.NoError(t, err)
 	assert.NotNil(t, workCh)
 
@@ -74,7 +74,7 @@ func TestWorkCh_SendMessages(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, pool)
 
-	workChConfig := WorkConfig{
+	workChConfig := QueueConfig{
 		ExchangeName: "test_exchange",
 		ExchangeType: amqp.ExchangeDirect,
 		RouteKey:     "test_route",
@@ -82,7 +82,7 @@ func TestWorkCh_SendMessages(t *testing.T) {
 		QueueType:    "quorum",
 	}
 
-	workCh, err := NewWorkCh(pool, workChConfig)
+	workCh, err := NewQueue(pool, workChConfig)
 	assert.NoError(t, err)
 	assert.NotNil(t, workCh)
 

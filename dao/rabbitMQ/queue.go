@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// WorkConfig 包含交换机和队列配置
-type WorkConfig struct {
+// QueueConfig 包含交换机和队列配置
+type QueueConfig struct {
 	ExchangeName string
 	ExchangeType string // 添加交换机类型
 	RouteKey     string
@@ -17,14 +17,14 @@ type WorkConfig struct {
 	QueueType    string
 }
 
-// WorkCh 表示工作通道结构体
-type WorkCh struct {
-	WorkConfig
+// Queue 表示工作通道结构体
+type Queue struct {
+	QueueConfig
 	*ChannelPool
 }
 
-// NewWorkCh 创建工作模式通道，使用通道池获取通道
-func NewWorkCh(pool *ChannelPool, config WorkConfig) (*WorkCh, error) {
+// NewQueue 创建工作模式通道，使用通道池获取通道
+func NewQueue(pool *ChannelPool, config QueueConfig) (*Queue, error) {
 	ch, err := pool.Get() // 从通道池中获取通道
 	if err != nil {
 		return nil, e.Err(err)
@@ -80,14 +80,14 @@ func NewWorkCh(pool *ChannelPool, config WorkConfig) (*WorkCh, error) {
 		return nil, e.Err(err)
 	}
 
-	return &WorkCh{
-		WorkConfig:  config,
+	return &Queue{
+		QueueConfig: config,
 		ChannelPool: pool,
 	}, nil
 }
 
 // SendMessages 发送消息到队列并返回未成功的消息列表
-func (c *WorkCh) SendMessages(ctx context.Context, messages []string) ([]string, error) {
+func (c *Queue) SendMessages(ctx context.Context, messages []string) ([]string, error) {
 	ch, err := c.ChannelPool.Get() // 从通道池中获取通道
 	if err != nil {
 		return nil, e.Err(err)
@@ -140,7 +140,7 @@ func (c *WorkCh) SendMessages(ctx context.Context, messages []string) ([]string,
 }
 
 // SendMessagesEvery 持续发送消息，直到消息发送成功为止
-func (c *WorkCh) SendMessagesEvery(ctx context.Context, messages []string) error {
+func (c *Queue) SendMessagesEvery(ctx context.Context, messages []string) error {
 	var err error
 	failedMessages := messages
 
@@ -166,7 +166,7 @@ func (c *WorkCh) SendMessagesEvery(ctx context.Context, messages []string) error
 }
 
 // ConsumeMessagesEvery 持续消费消息并处理，确保通道在处理完消息后才归还
-func (c *WorkCh) ConsumeMessagesEvery(ctx context.Context, handler func(amqp.Delivery)) error {
+func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(amqp.Delivery)) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -187,7 +187,7 @@ func (c *WorkCh) ConsumeMessagesEvery(ctx context.Context, handler func(amqp.Del
 }
 
 // ConsumeMessages 消费消息并处理，确保通道在处理完消息后才归还
-func (c *WorkCh) ConsumeMessages(handler func(amqp.Delivery)) error {
+func (c *Queue) ConsumeMessages(handler func(amqp.Delivery)) error {
 	ch, err := c.ChannelPool.Get() // 从通道池中获取通道
 	if err != nil {
 		return e.Err(err)
