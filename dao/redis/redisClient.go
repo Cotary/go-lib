@@ -33,6 +33,10 @@ func (t Client) Key(key string) string {
 	return fmt.Sprintf("%s%s", t.Config.Prefix, key)
 }
 
+func (t Client) Close() error {
+	return t.UniversalClient.Close()
+}
+
 func newClient(client redis.UniversalClient, config Config) Client {
 	return Client{
 		UniversalClient: client,
