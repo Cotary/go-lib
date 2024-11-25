@@ -88,11 +88,11 @@ func NewQueue(pool *ChannelPool, config QueueConfig) (*Queue, error) {
 
 // SendMessages 发送消息到队列并返回未成功的消息列表
 func (c *Queue) SendMessages(ctx context.Context, messages []amqp.Publishing) ([]amqp.Publishing, error) {
-	ch, err := c.ChannelPool.Get() // 从通道池中获取通道
+	ch, err := c.ChannelPool.conn.Conn.Channel() //这里因为NotifyPublish了，这个ch不能复用了
 	if err != nil {
 		return nil, e.Err(err)
 	}
-	defer c.ChannelPool.Put(ch) // 确保方法退出时归还通道
+	defer ch.Close()
 
 	// 开启确认模式
 	err = ch.Confirm(false)
