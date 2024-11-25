@@ -37,7 +37,7 @@ func (p *ChannelPool) Get() (*amqp.Channel, error) {
 	}
 	select {
 	case ch := <-p.pool:
-		if _, err := ch.QueueInspect(""); err != nil {
+		if err := ch.Flow(true); err != nil { //这里报错了，这个channel 就自动关闭了
 			return p.Get()
 		}
 		return ch, nil

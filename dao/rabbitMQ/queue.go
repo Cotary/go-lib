@@ -157,8 +157,6 @@ func (c *Queue) SendMessagesEvery(ctx context.Context, messages []string) error 
 			e.SendMessage(ctx, err)
 			// 等待一段时间后重试，避免无限快速重试
 			select {
-			case <-ctx.Done():
-				return ctx.Err()
 			case <-time.After(time.Second * 5): // 重试间隔时间
 			}
 		}
@@ -177,8 +175,6 @@ func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(amqp.Deli
 				e.SendMessage(ctx, err)
 				// 等待一段时间后重试，避免无限快速重试
 				select {
-				case <-ctx.Done():
-					return ctx.Err()
 				case <-time.After(time.Second * 5): // 重试间隔时间
 				}
 			}
