@@ -2,6 +2,7 @@ package rabbitMQ
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -40,21 +41,41 @@ func TestWorkCh(t *testing.T) {
 	// 测试生产者
 	done := make(chan bool)
 	go func() {
-		messages := []string{"message1", "message2", "message3"}
+		messages := []amqp.Publishing{
+			{
+				Body: []byte("message1"),
+			},
+			{
+				Body: []byte("message2"),
+			},
+			{
+				Body: []byte("message3"),
+			},
+		}
 		err := workCh.SendMessagesEvery(ctx, messages)
 		assert.NoError(t, err)
 		done <- true
 	}()
 
 	// 测试消费者
+	failedMessages := make(map[string]int)
 	go func() {
-		handler := func(msg amqp.Delivery) {
+		handler := func(msg amqp.Delivery) error {
 			t.Logf("Received message: %s", msg.Body)
+
+			// 模拟处理失败并回退消息
+			if string(msg.Body) == "message2" && failedMessages[string(msg.Body)] < 1 {
+				failedMessages[string(msg.Body)]++
+				return fmt.Errorf("simulated error for message: %s", msg.Body)
+			}
+
 			assert.Contains(t, []string{"message1", "message2", "message3"}, string(msg.Body))
+			return nil
 		}
 		err := workCh.ConsumeMessagesEvery(ctx, handler)
 		assert.NoError(t, err)
 	}()
+
 	// 等待生产者发送完成
 	<-done
 	// 额外等待以确保消息被消费
@@ -89,7 +110,17 @@ func TestWorkCh_SendMessages(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	messages := []string{"message1", "message2", "message3"}
+	messages := []amqp.Publishing{
+		{
+			Body: []byte("message1"),
+		},
+		{
+			Body: []byte("message2"),
+		},
+		{
+			Body: []byte("message2"),
+		},
+	}
 	failedMessages, err := workCh.SendMessages(ctx, messages)
 	assert.NoError(t, err)
 	assert.Empty(t, failedMessages)

@@ -87,7 +87,7 @@ func NewQueue(pool *ChannelPool, config QueueConfig) (*Queue, error) {
 }
 
 // SendMessages 发送消息到队列并返回未成功的消息列表
-func (c *Queue) SendMessages(ctx context.Context, messages []string) ([]string, error) {
+func (c *Queue) SendMessages(ctx context.Context, messages []amqp.Publishing) ([]amqp.Publishing, error) {
 	ch, err := c.ChannelPool.Get() // 从通道池中获取通道
 	if err != nil {
 		return nil, e.Err(err)
@@ -104,23 +104,21 @@ func (c *Queue) SendMessages(ctx context.Context, messages []string) ([]string, 
 	confirms := ch.NotifyPublish(make(chan amqp.Confirmation, len(messages)))
 
 	// 批量发送消息
-	for _, body := range messages {
+	for _, msg := range messages {
 		err = ch.Publish(
 			c.ExchangeName, // 交换机
 			c.RouteKey,     // 路由键（队列名称）
 			false,          // 是否强制发送
 			false,          // 是否立即发送
-			amqp.Publishing{
-				ContentType: "text/plain",
-				Body:        []byte(body),
-			})
+			msg,
+		)
 		if err != nil {
 			return nil, e.Err(err)
 		}
 	}
 
 	// 等待确认
-	var failedMessages []string
+	var failedMessages []amqp.Publishing
 	for i := 0; i < len(messages); i++ {
 		select {
 		case confirm := <-confirms:
@@ -140,7 +138,7 @@ func (c *Queue) SendMessages(ctx context.Context, messages []string) ([]string, 
 }
 
 // SendMessagesEvery 持续发送消息，直到消息发送成功为止
-func (c *Queue) SendMessagesEvery(ctx context.Context, messages []string) error {
+func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp.Publishing) error {
 	var err error
 	failedMessages := messages
 
@@ -164,7 +162,7 @@ func (c *Queue) SendMessagesEvery(ctx context.Context, messages []string) error 
 }
 
 // ConsumeMessagesEvery 持续消费消息并处理，确保通道在处理完消息后才归还
-func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(amqp.Delivery)) error {
+func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(amqp.Delivery) error) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -183,7 +181,7 @@ func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(amqp.Deli
 }
 
 // ConsumeMessages 消费消息并处理，确保通道在处理完消息后才归还
-func (c *Queue) ConsumeMessages(handler func(amqp.Delivery)) error {
+func (c *Queue) ConsumeMessages(handler func(amqp.Delivery) error) error {
 	ch, err := c.ChannelPool.Get() // 从通道池中获取通道
 	if err != nil {
 		return e.Err(err)
@@ -208,10 +206,17 @@ func (c *Queue) ConsumeMessages(handler func(amqp.Delivery)) error {
 	}
 
 	for msg := range deliveries {
-		handler(msg)
-		if err := msg.Ack(false); err != nil {
-			return err
+		err = handler(msg)
+		if err != nil {
+			if err = msg.Nack(false, true); err != nil {
+				return err
+			}
+		} else {
+			if err = msg.Ack(false); err != nil {
+				return err
+			}
 		}
+
 	}
 
 	return nil
