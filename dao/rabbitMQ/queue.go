@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	e "github.com/Cotary/go-lib/err"
+	"github.com/pkg/errors"
 	"github.com/streadway/amqp"
 	"time"
 )
@@ -162,13 +163,13 @@ func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp.Publishin
 }
 
 // ConsumeMessagesEvery 持续消费消息并处理，确保通道在处理完消息后才归还
-func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(amqp.Delivery) error) error {
+func (c *Queue) ConsumeMessagesEvery(ctx context.Context, model string, handler func(amqp.Delivery) error) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			err := c.ConsumeMessages(handler)
+			err := c.ConsumeMessages(ctx, model, handler)
 			if err != nil {
 				e.SendMessage(ctx, err)
 				// 等待一段时间后重试，避免无限快速重试
@@ -180,15 +181,20 @@ func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(amqp.Deli
 	}
 }
 
+const (
+	MessagePriority = "MessagePriority"
+	ConfirmPriority = "ConfirmPriority"
+)
+
 // ConsumeMessages 消费消息并处理，确保通道在处理完消息后才归还
-func (c *Queue) ConsumeMessages(handler func(amqp.Delivery) error) error {
+func (c *Queue) ConsumeMessages(ctx context.Context, model string, handler func(amqp.Delivery) error) error {
 	ch, err := c.ChannelPool.Get() // 从通道池中获取通道
 	if err != nil {
 		return e.Err(err)
 	}
 	defer c.ChannelPool.Put(ch) // 确保在返回之前归还通道
 
-	err = ch.Qos(1, 0, false)
+	err = ch.Qos(1, 0, false) //这里只会一条一条的取
 	if err != nil {
 		return e.Err(err)
 	}
@@ -206,14 +212,24 @@ func (c *Queue) ConsumeMessages(handler func(amqp.Delivery) error) error {
 	}
 
 	for msg := range deliveries {
-		err = handler(msg)
-		if err != nil {
-			if err = msg.Nack(false, true); err != nil {
-				return err
+		if model == MessagePriority {
+			err = handler(msg)
+			if err != nil {
+				if err = msg.Nack(false, true); err != nil {
+					return err
+				}
+			} else {
+				if err = msg.Ack(false); err != nil {
+					return err
+				}
 			}
 		} else {
-			if err = msg.Ack(false); err != nil {
+			if err = msg.Ack(false); err != nil { //这里确认之后，就会获取下一条记录
 				return err
+			}
+			err = handler(msg) //当消息处理超时，这个for会直接完成，然后重新获取通道等情况，同时会重新发送下一条记录，所以会有Redelivered出现
+			if err != nil {
+				e.SendMessage(ctx, errors.WithMessage(err, fmt.Sprintf("handle error message:%v", string(msg.Body))))
 			}
 		}
 

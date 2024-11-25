@@ -6,6 +6,7 @@ import (
 	"sync"
 )
 
+// ChannelPool todo 这个池子有些地方还不能复用，比如确认消息用来监听了发布后，这个ch就不能用了，是否需要这个pool?
 type ChannelPool struct {
 	conn    *Connect
 	pool    chan *amqp.Channel
