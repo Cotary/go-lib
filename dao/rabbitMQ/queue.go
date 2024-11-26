@@ -152,11 +152,12 @@ func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp.Publishin
 			if err == nil || len(failedMessages) == 0 {
 				return nil
 			}
-
 			e.SendMessage(ctx, err)
 			// 等待一段时间后重试，避免无限快速重试
 			select {
 			case <-time.After(time.Second * 5): // 重试间隔时间
+			case <-ctx.Done():
+				return ctx.Err()
 			}
 		}
 	}
@@ -175,6 +176,8 @@ func (c *Queue) ConsumeMessagesEvery(ctx context.Context, model string, handler 
 				// 等待一段时间后重试，避免无限快速重试
 				select {
 				case <-time.After(time.Second * 5): // 重试间隔时间
+				case <-ctx.Done():
+					return ctx.Err()
 				}
 			}
 		}
@@ -211,28 +214,32 @@ func (c *Queue) ConsumeMessages(ctx context.Context, model string, handler func(
 		return e.Err(err)
 	}
 
-	for msg := range deliveries {
-		if model == MessagePriority {
-			err = handler(msg)
-			if err != nil {
-				if err = msg.Nack(false, true); err != nil {
-					return err
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err() // 上下文取消，退出循环
+		case msg := <-deliveries:
+			if model == MessagePriority {
+				err = handler(msg)
+				if err != nil {
+					if err = msg.Nack(false, true); err != nil {
+						return err
+					}
+				} else {
+					if err = msg.Ack(false); err != nil {
+						return err
+					}
 				}
 			} else {
-				if err = msg.Ack(false); err != nil {
+				if err = msg.Ack(false); err != nil { // 这里确认之后，就会获取下一条记录
 					return err
 				}
-			}
-		} else {
-			if err = msg.Ack(false); err != nil { //这里确认之后，就会获取下一条记录
-				return err
-			}
-			err = handler(msg) //当消息处理超时，这个for会直接完成，然后重新获取通道等情况，同时会重新发送下一条记录，所以会有Redelivered出现
-			if err != nil {
-				e.SendMessage(ctx, errors.WithMessage(err, fmt.Sprintf("handle error message:%v", string(msg.Body))))
+				err = handler(msg) // 当消息处理超时，这个for会直接完成，然后重新获取通道等情况，同时会重新发送下一条记录，所以会有Redelivered出现
+				if err != nil {
+					e.SendMessage(ctx, errors.WithMessage(err, fmt.Sprintf("handle error message:%v", string(msg.Body))))
+				}
 			}
 		}
-
 	}
 
 	return nil
