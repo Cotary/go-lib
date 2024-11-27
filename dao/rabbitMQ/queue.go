@@ -187,7 +187,6 @@ func (c *Queue) ConsumeMessagesEvery(ctx context.Context, model string, handler 
 const (
 	MessagePriorityModel = "MessagePriority"
 	ConfirmPriorityModel = "ConfirmPriority"
-	CustomModel          = "Custom"
 )
 
 // ConsumeMessages 消费消息并处理，确保通道在处理完消息后才归还
@@ -231,16 +230,11 @@ func (c *Queue) ConsumeMessages(ctx context.Context, model string, handler func(
 						return e.Err(err)
 					}
 				}
-			} else if model == ConfirmPriorityModel {
+			} else {
 				if err = msg.Ack(false); err != nil { // 这里确认之后，就会获取下一条记录
 					return e.Err(err)
 				}
 				err = handler(msg) // 当消息处理超时，这个for会直接完成，然后重新获取通道等情况，同时会重新发送下一条记录，所以会有Redelivered出现
-				if err != nil {
-					e.SendMessage(ctx, errors.WithMessage(err, fmt.Sprintf("handle error message:%v", string(msg.Body))))
-				}
-			} else {
-				err = handler(msg)
 				if err != nil {
 					e.SendMessage(ctx, errors.WithMessage(err, fmt.Sprintf("handle error message:%v", string(msg.Body))))
 				}

@@ -12,24 +12,31 @@ import (
 	"runtime/debug"
 )
 
-func SafeGo(ctx context.Context, F func(ctx context.Context), recoverFunc ...func(ctx context.Context)) {
+func SafeGo(ctx context.Context, F func(ctx context.Context)) {
 	go func() {
-		SafeFunc(ctx, F, recoverFunc...)
+		SafeFunc(ctx, F)
 	}()
 }
 
-func SafeFunc(ctx context.Context, F func(ctx context.Context), recoverFunc ...func(ctx context.Context)) {
+func SafeFunc(ctx context.Context, F func(ctx context.Context)) {
 	defer func() {
 		if r := recover(); r != nil {
-			err := errors.New(utils.Json(r) + "\r\n" + string(debug.Stack()))
+			err := errors.New(utils.AnyToString(r) + "\r\n" + string(debug.Stack()))
 			e.SendMessage(ctx, err)
-
-			for _, f := range recoverFunc {
-				f(ctx)
-			}
 		}
 	}()
 	F(ctx)
+}
+
+func Retry(ctx context.Context, F func(ctx context.Context)) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			SafeFunc(ctx, F)
+		}
+	}
 }
 
 func NewContext(contextType string) context.Context {
