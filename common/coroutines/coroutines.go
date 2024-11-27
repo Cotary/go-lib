@@ -28,13 +28,18 @@ func SafeFunc(ctx context.Context, F func(ctx context.Context)) {
 	F(ctx)
 }
 
-func Retry(ctx context.Context, F func(ctx context.Context)) {
+func Retry(ctx context.Context, F func(ctx context.Context) error) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			SafeFunc(ctx, F)
+			err := F(ctx)
+			if err != nil {
+				e.SendMessage(ctx, errors.WithMessage(err, "Retry Error"))
+			} else {
+				return
+			}
 		}
 	}
 }
