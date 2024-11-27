@@ -59,7 +59,6 @@ func (c *Connect) checkHealth(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			//fmt.Println("Health check...")
 			if c.Conn.IsClosed() {
 				err := c.connect()
 				if err != nil {
@@ -67,7 +66,6 @@ func (c *Connect) checkHealth(ctx context.Context) {
 				}
 			}
 		case <-c.closeCh:
-			//fmt.Println("Stopping health check...")
 			return
 		}
 	}
@@ -106,7 +104,7 @@ func (c *Connect) connect() error {
 			err = connErr
 		}
 	}
-	return err
+	return e.Err(err)
 }
 
 func (c *Connect) Close() {

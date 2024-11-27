@@ -72,7 +72,7 @@ func TestWorkCh(t *testing.T) {
 			assert.Contains(t, []string{"message1", "message2", "message3"}, string(msg.Body))
 			return nil
 		}
-		err := workCh.ConsumeMessagesEvery(ctx, handler)
+		err := workCh.ConsumeMessagesEvery(ctx, MessagePriority, handler)
 		assert.NoError(t, err)
 	}()
 

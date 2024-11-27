@@ -1,6 +1,7 @@
 package rabbitMQ
 
 import (
+	e "github.com/Cotary/go-lib/err"
 	"github.com/pkg/errors"
 	"github.com/streadway/amqp"
 	"sync"
@@ -8,7 +9,7 @@ import (
 
 // ChannelPool todo 这个池子有些地方还不能复用，比如确认消息用来监听了发布后，这个ch就不能用了，是否需要这个pool?
 type ChannelPool struct {
-	conn    *Connect
+	Conn    *Connect
 	pool    chan *amqp.Channel
 	mu      sync.Mutex
 	maxSize int
@@ -20,12 +21,12 @@ func NewChannelPool(conn *Connect, maxSize int) (*ChannelPool, error) {
 	for i := 0; i < maxSize; i++ {
 		ch, err := conn.Conn.Channel()
 		if err != nil {
-			return nil, err
+			return nil, e.Err(err)
 		}
 		pool <- ch
 	}
 	return &ChannelPool{
-		conn:    conn,
+		Conn:    conn,
 		pool:    pool,
 		maxSize: maxSize,
 	}, nil
@@ -33,7 +34,7 @@ func NewChannelPool(conn *Connect, maxSize int) (*ChannelPool, error) {
 
 // Get 从通道池中获取一个通道
 func (p *ChannelPool) Get() (*amqp.Channel, error) {
-	if p.conn.Conn.IsClosed() {
+	if p.Conn.Conn.IsClosed() {
 		return nil, errors.New("connection is closed")
 	}
 	select {
@@ -43,7 +44,7 @@ func (p *ChannelPool) Get() (*amqp.Channel, error) {
 		}
 		return ch, nil
 	default:
-		return p.conn.Conn.Channel()
+		return p.Conn.Conn.Channel()
 	}
 }
 
@@ -60,7 +61,7 @@ func (p *ChannelPool) Put(ch *amqp.Channel) {
 
 // Close 关闭通道池中的所有通道
 func (p *ChannelPool) Close() {
-	defer p.conn.Close()
+	defer p.Conn.Close()
 	close(p.pool)
 	for ch := range p.pool {
 		ch.Close()
