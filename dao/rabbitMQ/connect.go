@@ -72,6 +72,9 @@ func (c *Connect) checkHealth(ctx context.Context) {
 }
 
 func (c *Connect) connect() error {
+	if len(c.DSN) == 0 {
+		return errors.New("dsn is empty")
+	}
 	var err error
 	var tlsConfig tls.Config
 	if c.Config.CA != "" {
