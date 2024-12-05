@@ -12,6 +12,10 @@ func Json(data interface{}) string {
 	byteUser, _ := json.Marshal(data)
 	return string(byteUser)
 }
+func IsJson(str string) bool {
+	var js json.RawMessage
+	return json.Unmarshal([]byte(str), &js) == nil
+}
 
 func AnyToInt(value interface{}) int64 {
 	return cast.ToInt64(value)
