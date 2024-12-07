@@ -73,3 +73,16 @@ func GetStructName(i interface{}) string {
 	}
 	return t.Name()
 }
+
+// SafeCloseChan 使用泛型安全地关闭任意类型的通道
+func SafeCloseChan[T any](ch chan T) {
+	select {
+	case _, open := <-ch:
+		if !open {
+			return
+		}
+		close(ch)
+	default:
+		close(ch)
+	}
+}

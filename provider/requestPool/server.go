@@ -317,7 +317,7 @@ func (r routines) adjustGoroutine(success bool) {
 		}
 	} else {
 		if point.failureStreak >= FailureThreshold && len(point.routines) > 1 {
-			safeCloseChan(r.closeChan)
+			coroutines.SafeCloseChan(r.closeChan)
 			point.failureStreak = 0
 			point.lastAdjustTime = time.Now()
 		}
@@ -432,27 +432,9 @@ func (r routines) saveAndNotify(req Request) {
 	}
 	r.pool.resultMap[req.groupID][req.requestID] = req
 	if notifyChan, ok := r.pool.notifyChan[req.groupID]; ok && len(r.pool.resultMap[req.groupID]) == req.groupNum {
-		safeCloseChan(notifyChan)
+		coroutines.SafeCloseChan(notifyChan)
 	}
 	r.pool.mu.Unlock()
-}
-
-// safeCloseChan 使用泛型安全地关闭任意类型的通道
-func safeCloseChan[T any](ch chan T) {
-	select {
-	case _, open := <-ch:
-		if !open {
-			fmt.Println("Channel has closed")
-
-			return
-		}
-		close(ch)
-		fmt.Println("Channel closed 1")
-	default:
-		close(ch)
-		fmt.Println("Channel closed")
-
-	}
 }
 
 type RequestRunInfo struct {
@@ -555,7 +537,7 @@ func (p *Pool) RequestMulti(ctx context.Context, requests map[string]Request) (m
 
 		p.mu.Lock()
 		if notify, ok := p.notifyChan[groupID]; ok {
-			safeCloseChan(notify)
+			coroutines.SafeCloseChan(notify)
 			delete(p.notifyChan, groupID)
 		}
 		delete(p.resultMap, groupID)
