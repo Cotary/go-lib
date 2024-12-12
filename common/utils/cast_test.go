@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"encoding/base64"
 	"fmt"
 	"reflect"
 	"testing"
@@ -26,7 +27,9 @@ func TestStringToAndToString(t *testing.T) {
 		{true, "true"},
 		{"hello", "hello"},
 		{[]int{1, 2, 3}, `[1,2,3]`},
-		{[]byte("hello world"), `"aGVsbG8gd29ybGQ="`}, //[]byte
+		{[]byte("hello world"), "hello world"}, //字符
+		{[]byte{0x01, 0x02, 0x03}, base64.StdEncoding.EncodeToString([]byte{0x01, 0x02, 0x03})},
+		{[]byte(",./"), ",./"},
 		{map[string]string{"key": "value"}, `{"key":"value"}`},
 		{struct{ Key string }{Key: "value"}, `{"Key":"value"}`},
 		{&struct{ Key string }{Key: "value"}, `{"Key":"value"}`},
@@ -37,7 +40,7 @@ func TestStringToAndToString(t *testing.T) {
 		fmt.Println("\n", reflect.TypeOf(tt.input))
 		// 测试ToString方法
 		str, err := ToString(tt.input)
-		fmt.Println("ToString", str)
+		fmt.Println("ToString:", str)
 		if err != nil {
 			t.Errorf("ToString(%v) returned error: %v", tt.input, err)
 		}
@@ -48,7 +51,7 @@ func TestStringToAndToString(t *testing.T) {
 		// 测试StringTo方法
 		target := reflect.New(reflect.TypeOf(tt.input)).Interface()
 		err = StringTo(str, target)
-		fmt.Println("StringTo", reflect.ValueOf(target).Elem().Interface())
+		fmt.Println("StringTo:", reflect.ValueOf(target).Elem().Interface())
 		if reflect.TypeOf(tt.input).Kind() == reflect.Slice && reflect.TypeOf(tt.input).Elem().Kind() == reflect.Uint8 {
 			fmt.Println("Converted value:", string(reflect.ValueOf(target).Elem().Bytes()))
 		}
@@ -58,6 +61,5 @@ func TestStringToAndToString(t *testing.T) {
 		if !reflect.DeepEqual(reflect.ValueOf(target).Elem().Interface(), tt.input) {
 			t.Errorf("StringTo(%v, %T) = %v, want %v", str, target, reflect.ValueOf(target).Elem().Interface(), tt.input)
 		}
-
 	}
 }

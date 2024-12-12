@@ -29,7 +29,6 @@ const (
 
 type Request struct {
 	//todo 增加优先级概率，如果是高优先级的，就先发到高优先级的节点
-	mu        *sync.Mutex
 	Method    string
 	Body      interface{}
 	Params    map[string][]string
@@ -163,17 +162,44 @@ func (p *Pool) CheckStatus(ctx context.Context) {
 
 		}
 
-		//这里打分
+		// 根据节点的协程数、成功率和连续失败次数进行综合排序
 		p.pointSort = make([]*Point, 0, len(p.pointManage))
 		for _, v := range p.pointManage {
 			p.pointSort = append(p.pointSort, v)
 		}
 		sort.Slice(p.pointSort, func(i, j int) bool {
-			return len(p.pointSort[i].routines) > len(p.pointSort[j].routines)
+			// 计算节点i和j的综合评分
+			scoreI := calculateScore(p.pointSort[i])
+			scoreJ := calculateScore(p.pointSort[j])
+			return scoreI > scoreJ
 		})
+
+		fmt.Println(p.pointSort)
+
+		//这里打分排序
+		//todo 如果这里近期发生了错误，比如错误连续failureStreak>10,那么就标记为暂时不可用，优先级排最低，配合下面转发会发生给其他节点
 		fmt.Println(pointInfo)
 		p.mu.Unlock()
 	}
+}
+
+func calculateScore(point *Point) float64 {
+	point.mu.Lock()
+	defer point.mu.Unlock()
+
+	var routinesScore, successRateScore, failureStreakPenalty float64
+	if len(point.routines) > DefaultConcurrency {
+		routinesScore = float64(len(point.routines)) / float64(MaxConcurrency)
+	}
+
+	if point.requestNum > 0 {
+		successRateScore = float64(point.successNum) / float64(point.requestNum)
+	}
+
+	failureStreakPenalty = float64(point.failureStreak) / float64(len(point.routines))
+	allScore := routinesScore + successRateScore - failureStreakPenalty
+
+	return allScore
 }
 
 func (p *Pool) run() {
@@ -273,7 +299,10 @@ func (r routines) handleErrorRequest(req Request, err error) {
 	req.errorNum++
 	req.Error = err
 	req.errorUrls[point.id] = err
-	retry := req.RetryNum > 0 && req.errorNum <= req.RetryNum
+	retry := true
+	if req.RetryNum > 0 && req.errorNum > req.RetryNum {
+		retry = false
+	}
 
 	if req.errorNum > 20 && req.errorNum%100 == 0 {
 		e.SendMessage(coroutines.NewContext("Error Request"),
@@ -378,32 +407,23 @@ func (r routines) redirectRequest2(req Request) {
 	point.requestChan <- req
 }
 
+// 1.遇到错误肯定不能再给自己了
+// 2.如果所有 point 都无法处理请求，则重新放回自身通道
 func (r routines) redirectRequest(req Request) {
-
-	r.pool.mu.Lock()
-	for _, point := range r.pool.pointSort {
-		select {
-		case point.requestChan <- req:
-			r.pool.mu.Unlock()
-			return
-		default:
-			// 如果通道已满，继续尝试下一个逻辑
-		}
-	}
-	r.pool.mu.Unlock()
-
 	point := r.point
-	// 尝试将请求发送到其他没有错误记录的 point
-	for pointIndex, otherPoint := range r.pool.pointManage {
-		if pointIndex != point.id && req.errorUrls[pointIndex] == nil {
+	r.pool.mu.Lock()
+	for _, p := range r.pool.pointSort {
+		if p.id != point.id && req.errorUrls[p.id] == nil { //这里还是不能发给自己，就算是第一也有可能突然挂了，然后自己又转发给自己
 			select {
-			case otherPoint.requestChan <- req:
+			case point.requestChan <- req:
+				r.pool.mu.Unlock()
 				return
 			default:
 				// 如果通道已满，继续尝试下一个 point
 			}
 		}
 	}
+	r.pool.mu.Unlock()
 
 	// 清空错误记录并重新尝试分配
 	req.errorUrls = make(map[int]error)
@@ -510,6 +530,24 @@ func CheckJson(ctx context.Context, t *httpServer.RestyResult) error {
 	return nil
 }
 
+func (p *Pool) Request(ctx context.Context, req Request) (res Request, err error) {
+	requestID := uuid.NewString()
+	requests := map[string]Request{
+		requestID: req,
+	}
+
+	results, err := p.RequestMulti(ctx, requests)
+	if err != nil {
+		return res, err
+	}
+
+	result, exists := results[requestID]
+	if !exists {
+		return res, fmt.Errorf("request result not found for request ID: %s", requestID)
+	}
+
+	return result, result.Error
+}
 func (p *Pool) RequestMulti(ctx context.Context, requests map[string]Request) (map[string]Request, error) {
 	p.mu.Lock()
 	groupID := uuid.NewString()
@@ -553,12 +591,12 @@ func (p *Pool) RequestMulti(ctx context.Context, requests map[string]Request) (m
 	case <-notifyChan:
 		p.mu.Lock()
 		response := p.resultMap[groupID]
-		p.mu.Unlock()
 		for _, v := range response {
 			if v.Error != nil {
 				return response, v.Error
 			}
 		}
+		p.mu.Unlock()
 		return response, nil
 	case <-ctx.Done():
 		return nil, e.Err(ctx.Err())
