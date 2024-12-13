@@ -34,7 +34,7 @@ func (b BatchRequest) String() string {
 }
 
 type BatchPool struct {
-	mu                sync.Mutex
+	mu                *sync.Mutex
 	pool              *Pool
 	requestChan       chan BatchRequest
 	requestSingleChan chan BatchRequest
@@ -46,6 +46,7 @@ type BatchPool struct {
 func NewBatchRequest(pool *Pool) *BatchPool {
 	pool.AddRetryFunc(BatchRetryCheck)
 	instance := &BatchPool{
+		mu:                &sync.Mutex{},
 		pool:              pool,
 		requestChan:       make(chan BatchRequest, 10000),
 		requestSingleChan: make(chan BatchRequest, 10000),

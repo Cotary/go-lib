@@ -99,7 +99,7 @@ func NewPool(points []PointConfig) (*Pool, error) {
 		return nil, errors.New("Pool is empty")
 	}
 	instance := &Pool{
-		mu:          new(sync.Mutex),
+		mu:          &sync.Mutex{},
 		pointManage: make(map[int]*Point),
 		requestChan: make(chan Request, 10000),
 		notifyChan:  make(map[string]chan struct{}),
@@ -108,7 +108,7 @@ func NewPool(points []PointConfig) (*Pool, error) {
 	for k, v := range points {
 		instance.pointManage[k] = &Point{
 			id:          k,
-			mu:          new(sync.Mutex),
+			mu:          &sync.Mutex{},
 			pool:        instance,
 			Url:         v.Url,
 			Headers:     v.Headers,

@@ -218,7 +218,10 @@ func (c *Queue) ConsumeMessages(ctx context.Context, model string, handler func(
 		select {
 		case <-ctx.Done():
 			return e.Err(ctx.Err()) // 上下文取消，退出循环
-		case msg := <-deliveries:
+		case msg, ok := <-deliveries:
+			if !ok {
+				return errors.New("deliveries channel closed")
+			}
 			if model == MessagePriorityModel {
 				err = handler(msg)
 				if err != nil {
