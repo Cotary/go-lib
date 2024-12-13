@@ -3,7 +3,6 @@ package utils
 import (
 	"crypto/rand"
 	"encoding/json"
-	"github.com/spf13/cast"
 	"math/big"
 	"strings"
 )
@@ -17,8 +16,9 @@ func IsJson(str string) bool {
 	return json.Unmarshal([]byte(str), &js) == nil
 }
 
-func AnyToInt(value interface{}) int64 {
-	return cast.ToInt64(value)
+func AnyToInt(value interface{}) (res int64) {
+	_ = AnyToAny(value, &res)
+	return res
 }
 
 func AnyJoinToString(data ...interface{}) string {
@@ -30,7 +30,8 @@ func AnyJoinToString(data ...interface{}) string {
 }
 
 func AnyToString(value interface{}) string {
-	return cast.ToString(value)
+	val, _ := ToString(value)
+	return val
 }
 
 func FirstUpper(s string) string {
