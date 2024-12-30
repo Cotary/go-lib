@@ -410,16 +410,16 @@ func (r routines) redirectRequest2(req Request) {
 // 1.遇到错误肯定不能再给自己了
 // 2.如果所有 point 都无法处理请求，则重新放回自身通道
 func (r routines) redirectRequest(req Request) {
-	point := r.point
+	curPoint := r.point
 	r.pool.mu.Lock()
 	for _, p := range r.pool.pointSort {
-		if p.id != point.id && req.errorUrls[p.id] == nil { //这里还是不能发给自己，就算是第一也有可能突然挂了，然后自己又转发给自己
+		if p.id != curPoint.id && req.errorUrls[p.id] == nil { //这里还是不能发给自己，就算是第一也有可能突然挂了，然后自己又转发给自己
 			select {
-			case point.requestChan <- req:
+			case p.requestChan <- req:
 				r.pool.mu.Unlock()
 				return
 			default:
-				// 如果通道已满，继续尝试下一个 point
+				// 如果通道已满，继续尝试下一个逻辑
 			}
 		}
 	}
@@ -430,7 +430,7 @@ func (r routines) redirectRequest(req Request) {
 
 	// 随机分配到一个其他 point
 	for pointIndex, otherPoint := range r.pool.pointManage {
-		if pointIndex != point.id {
+		if pointIndex != curPoint.id {
 			select {
 			case otherPoint.requestChan <- req:
 				return
@@ -441,7 +441,7 @@ func (r routines) redirectRequest(req Request) {
 	}
 
 	// 如果所有 point 都无法处理请求，则重新放回自身通道
-	point.requestChan <- req
+	curPoint.requestChan <- req
 }
 
 func (r routines) saveAndNotify(req Request) {
