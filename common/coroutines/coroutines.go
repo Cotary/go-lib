@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	"reflect"
 	"runtime/debug"
+	"sync"
 )
 
 func SafeGo(ctx context.Context, F func(ctx context.Context)) {
@@ -85,4 +86,42 @@ func SafeCloseChan[T any](ch chan T) {
 	default:
 		close(ch)
 	}
+}
+
+// ConcurrentProcessor 控制并发数
+func ConcurrentProcessor[T any](ctx context.Context, limit int, items []T, processItem func(ctx context.Context, item T)) {
+	semaphore := make(chan T, limit)
+	var wg sync.WaitGroup
+
+	// 启动并发处理协程
+	for i := 0; i < limit; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case item, ok := <-semaphore:
+					if !ok {
+						return
+					}
+					processItem(ctx, item)
+				}
+			}
+		}()
+	}
+
+	// 将数据发送到通道
+	for _, item := range items {
+		select {
+		case <-ctx.Done():
+			break
+		case semaphore <- item:
+		}
+	}
+
+	// 关闭通道并等待所有协程完成
+	close(semaphore)
+	wg.Wait()
 }
