@@ -591,12 +591,13 @@ func (p *Pool) RequestMulti(ctx context.Context, requests map[string]Request) (m
 	case <-notifyChan:
 		p.mu.Lock()
 		response := p.resultMap[groupID]
+		p.mu.Unlock()
+		//这里测试过，这样赋值之后再读取，不会发生 panic
 		for _, v := range response {
 			if v.Error != nil {
 				return response, v.Error
 			}
 		}
-		p.mu.Unlock()
 		return response, nil
 	case <-ctx.Done():
 		return nil, e.Err(ctx.Err())
