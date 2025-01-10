@@ -172,7 +172,9 @@ func (c *Queue) ConsumeMessagesEvery(ctx context.Context, model string, handler 
 		default:
 			err := c.ConsumeMessages(ctx, model, handler)
 			if err != nil {
-				e.SendMessage(ctx, err)
+				if !errors.Is(err, channelClosedErr) {
+					e.SendMessage(ctx, err)
+				}
 				// 等待一段时间后重试，避免无限快速重试
 				select {
 				case <-time.After(time.Second * 5): // 重试间隔时间
@@ -189,6 +191,7 @@ const (
 	ConfirmPriorityModel = "ConfirmPriority"
 )
 
+var channelClosedErr = errors.New("deliveries channel closed") // 通道关闭的error
 // ConsumeMessages 消费消息并处理，确保通道在处理完消息后才归还
 func (c *Queue) ConsumeMessages(ctx context.Context, model string, handler func(amqp.Delivery) error) error {
 	ch, err := c.ChannelPool.Get() // 从通道池中获取通道
@@ -220,7 +223,7 @@ func (c *Queue) ConsumeMessages(ctx context.Context, model string, handler func(
 			return e.Err(ctx.Err()) // 上下文取消，退出循环
 		case msg, ok := <-deliveries:
 			if !ok {
-				return errors.New("deliveries channel closed")
+				return channelClosedErr
 			}
 			if model == MessagePriorityModel {
 				err = handler(msg)
