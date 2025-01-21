@@ -96,6 +96,7 @@ func StringTo(value string, target any) error {
 	return nil
 }
 
+// ToString 这里不支持String()的方法，因为可能没有StringTo的方法
 func ToString(value any) (string, error) {
 	v := reflect.ValueOf(value)
 	switch v.Kind() {

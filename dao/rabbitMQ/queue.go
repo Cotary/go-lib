@@ -149,7 +149,7 @@ func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp.Publishin
 			return ctx.Err()
 		default:
 			failedMessages, err = c.SendMessages(ctx, failedMessages)
-			if err == nil || len(failedMessages) == 0 {
+			if err == nil && len(failedMessages) == 0 {
 				return nil
 			}
 			e.SendMessage(ctx, err)
