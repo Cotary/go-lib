@@ -19,7 +19,8 @@ type Config struct {
 	CA         string   `yaml:"caPath"`
 	ClientUser string   `yaml:"clientUserPath"`
 	ClientKey  string   `yaml:"clientKeyPath"`
-	Heartbeat  int64    `yaml:"heartbeat"` // heartbeat 心跳检查 秒
+	Heartbeat  int64    `yaml:"heartbeat"`  // heartbeat 心跳检查 秒
+	MaxChannel int64    `yaml:"maxChannel"` // mq单个连接最大支持的channel数量
 }
 
 type Connect struct {
@@ -31,6 +32,9 @@ type Connect struct {
 func handleConfig(config *Config) {
 	if config.Heartbeat == 0 {
 		config.Heartbeat = 30
+	}
+	if config.MaxChannel == 0 {
+		config.MaxChannel = 2000
 	}
 }
 
