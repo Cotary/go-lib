@@ -27,6 +27,8 @@ type Config struct {
 
 type Client struct {
 	redis.UniversalClient
+	*redis.Client
+	*redis.ClusterClient
 	Config
 }
 
@@ -45,14 +47,11 @@ func newClient(client redis.UniversalClient, config Config) Client {
 	}
 }
 
-func NewRedis(config *Config) (Client, error) {
+func NewRedis(config *Config) (client Client, err error) {
 	auth := config.Auth
 	if config.Encryption == 1 {
 		auth = utils.MD5(auth)
 	}
-
-	var client redis.UniversalClient
-	var err error
 
 	if config.Framework == "cluster" {
 		client, err = createClusterClient(config, auth)
@@ -64,10 +63,10 @@ func NewRedis(config *Config) (Client, error) {
 		return Client{}, err
 	}
 
-	return newClient(client, *config), nil
+	return client, nil
 }
 
-func createClusterClient(config *Config, auth string) (redis.UniversalClient, error) {
+func createClusterClient(config *Config, auth string) (Client, error) {
 	clusterOptions := &redis.ClusterOptions{
 		Addrs:       config.Host,
 		PoolSize:    config.PoolSize,
@@ -85,13 +84,17 @@ func createClusterClient(config *Config, auth string) (redis.UniversalClient, er
 
 	clusterClient := redis.NewClusterClient(clusterOptions)
 	if _, err := clusterClient.Ping(context.Background()).Result(); err != nil {
-		return nil, err
+		return Client{}, err
 	}
 
-	return clusterClient, nil
+	return Client{
+		UniversalClient: clusterClient,
+		ClusterClient:   clusterClient,
+		Config:          *config,
+	}, nil
 }
 
-func createStandaloneClient(config *Config, auth string) (redis.UniversalClient, error) {
+func createStandaloneClient(config *Config, auth string) (Client, error) {
 	options := &redis.Options{
 		Addr:     config.Host[0],
 		PoolSize: config.PoolSize,
@@ -109,10 +112,14 @@ func createStandaloneClient(config *Config, auth string) (redis.UniversalClient,
 
 	client := redis.NewClient(options)
 	if _, err := client.Ping(context.Background()).Result(); err != nil {
-		return nil, err
+		return Client{}, err
 	}
 
-	return client, nil
+	return Client{
+		UniversalClient: client,
+		Client:          client,
+		Config:          *config,
+	}, nil
 }
 
 func setTLSConfig(tlsConfig *tls.Config, minVersion uint16) {
