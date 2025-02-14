@@ -27,8 +27,8 @@ type Config struct {
 
 type Client struct {
 	redis.UniversalClient
-	*redis.Client
-	*redis.ClusterClient
+	Client        *redis.Client
+	ClusterClient *redis.ClusterClient
 	Config
 }
 
