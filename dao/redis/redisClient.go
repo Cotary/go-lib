@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Cotary/go-lib/common/utils"
@@ -13,16 +14,17 @@ import (
 const defaultTLSVersion = tls.VersionTLS12
 
 type Config struct {
-	Host       []string `yaml:"host"`
-	Username   string   `yaml:"userName"`
-	Auth       string   `yaml:"auth"`
-	DB         int      `yaml:"db"`
-	PoolSize   int      `yaml:"poolSize"`
-	Encryption uint8    `yaml:"encryption"`
-	Framework  string   `yaml:"framework"`
-	Prefix     string   `yaml:"prefix"`
-	Tls        bool     `yaml:"tls"`
-	MinVersion uint16   `yaml:"minVersion"`
+	Host       string `yaml:"host"`
+	Port       string `yaml:"port"`
+	Username   string `yaml:"userName"`
+	Auth       string `yaml:"auth"`
+	DB         int    `yaml:"db"`
+	PoolSize   int    `yaml:"poolSize"`
+	Encryption uint8  `yaml:"encryption"`
+	Framework  string `yaml:"framework"`
+	Prefix     string `yaml:"prefix"`
+	Tls        bool   `yaml:"tls"`
+	MinVersion uint16 `yaml:"minVersion"`
 }
 
 type Client struct {
@@ -38,13 +40,6 @@ func (t Client) Key(key string) string {
 
 func (t Client) Close() error {
 	return t.UniversalClient.Close()
-}
-
-func newClient(client redis.UniversalClient, config Config) Client {
-	return Client{
-		UniversalClient: client,
-		Config:          config,
-	}
 }
 
 func NewRedis(config *Config) (client Client, err error) {
@@ -67,8 +62,12 @@ func NewRedis(config *Config) (client Client, err error) {
 }
 
 func createClusterClient(config *Config, auth string) (Client, error) {
+	addr := config.Host + config.Port
+	if !strings.Contains(addr, ":") {
+		addr = config.Host + ":" + config.Port
+	}
 	clusterOptions := &redis.ClusterOptions{
-		Addrs:       config.Host,
+		Addrs:       []string{addr},
 		PoolSize:    config.PoolSize,
 		DialTimeout: 10 * time.Second,
 	}
@@ -95,8 +94,12 @@ func createClusterClient(config *Config, auth string) (Client, error) {
 }
 
 func createStandaloneClient(config *Config, auth string) (Client, error) {
+	addr := config.Host + config.Port
+	if !strings.Contains(addr, ":") {
+		addr = config.Host + ":" + config.Port
+	}
 	options := &redis.Options{
-		Addr:     config.Host[0],
+		Addr:     addr,
 		PoolSize: config.PoolSize,
 		DB:       config.DB,
 	}
