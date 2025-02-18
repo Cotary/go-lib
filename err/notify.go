@@ -24,12 +24,12 @@ func SendMessage(ctx context.Context, err error) {
 	requestJson, _ := ctx.Value(defined.RequestBodyJson).(string)
 
 	zMap := utils.NewZMap[string, string]().
-		Set("ServerName:", serverName).
-		Set("Env:", env).
-		Set("RequestID:", requestID).
-		Set("RequestUri:", requestUri).
-		Set("RequestJson:", requestJson).
-		Set("Error:", errMsg)
+		Set("ServerName", serverName).
+		Set("Env", env).
+		Set("RequestID", requestID).
+		Set("RequestUri", requestUri).
+		Set("RequestJson", requestJson).
+		Set("Error", errMsg)
 
 	log.WithContext(ctx).Error(errMsg)
 	errSender := message.GetPrioritySender(sender)
