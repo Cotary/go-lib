@@ -14,9 +14,9 @@ func Init(serverName, env string) {
 }
 
 func InitLog(logger log.Logger) {
-	log.GlobalLogger = logger
+	log.SetGlobalLogger(logger)
 }
 
 func InitGlobalSender(sender message.Sender) {
-	message.GlobalSender = sender
+	message.SetGlobalSender(sender)
 }

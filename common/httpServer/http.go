@@ -11,71 +11,88 @@ import (
 	"github.com/pkg/errors"
 	"github.com/tidwall/gjson"
 	"net/http"
+	"time"
 )
 
-type HttpClient struct {
-	*resty.Client
+var defaultClient = resty.New().SetTransport(&http.Transport{
+	MaxIdleConns:        10000,
+	MaxIdleConnsPerHost: 100,
+})
+
+func Client() *resty.Client {
+	return defaultClient
+}
+
+func Request() *RestyRequest {
+	return &RestyRequest{
+		Request: defaultClient.R(),
+	}
+}
+
+type RestyRequest struct {
+	*resty.Request
+
 	Handlers     []RequestHandler
+	timeout      time.Duration
 	keepLog      bool
 	sendErrorMsg bool
 }
 
-func NewHttpClient() *HttpClient {
-	restyClient := resty.New()
-	return &HttpClient{
-		Client:       restyClient,
-		keepLog:      true,
-		sendErrorMsg: true,
+func (request *RestyRequest) NoSendErrorMsg() *RestyRequest {
+	request.sendErrorMsg = false
+	return request
+}
+func (request *RestyRequest) NoKeepLog() *RestyRequest {
+	request.keepLog = false
+	return request
+}
+func (request *RestyRequest) SetHandlers(handler ...RequestHandler) *RestyRequest {
+	request.Handlers = handler
+	return request
+}
+func (request *RestyRequest) SetTimeout(timeout time.Duration) *RestyRequest {
+	request.timeout = timeout
+	return request
+}
+
+func (request *RestyRequest) HttpRequest(ctx context.Context, method string, url string, query map[string][]string, body interface{}, headers map[string]string) (res *RestyResult) {
+	res = &RestyResult{
+		RestyRequest: request,
 	}
-}
-
-func (hClient *HttpClient) NoSendErrorMsg() *HttpClient {
-	hClient.sendErrorMsg = false
-	return hClient
-}
-func (hClient *HttpClient) NoKeepLog() *HttpClient {
-	hClient.keepLog = false
-	return hClient
-}
-func (hClient *HttpClient) SetHandlers(handler ...RequestHandler) *HttpClient {
-	hClient.Handlers = handler
-	return hClient
-}
-
-func (hClient *HttpClient) HttpRequest(ctx context.Context, method string, url string, query map[string][]string, body interface{}, headers map[string]string) *RestyResult {
 	if query == nil {
 		query = map[string][]string{}
 	}
 	if headers == nil {
 		headers = map[string]string{}
 	}
-	for _, handler := range hClient.Handlers {
+	for _, handler := range request.Handlers {
 		if err := handler(ctx, &method, &url, query, body, headers); err != nil {
-			return &RestyResult{
-				Context: ctx,
-				Error:   err,
-			}
+			res.Error = err
+			return res
 		}
 	}
 
-	req := hClient.Client.R()
-	req.SetQueryParamsFromValues(query)
-	req.SetHeaders(headers)
+	request.SetContext(ctx)
+	if request.timeout > 0 {
+		newCtx, cancel := context.WithTimeout(ctx, request.timeout)
+		defer cancel()
+		request.SetContext(newCtx)
+	}
+
+	request.SetQueryParamsFromValues(query)
+	request.SetHeaders(headers)
 	if body != nil {
-		req.SetBody(body)
+		request.SetBody(body)
 	}
 
-	resp, err := executeRequest(req, method, url)
+	resp, err := executeRequest(request.Request, method, url)
 	rr := &RestyResult{
-		Context:    ctx,
-		HttpClient: hClient,
-		Response:   resp,
-		Error:      err,
+		Response: resp,
+		Error:    err,
 	}
-	if hClient.keepLog {
-		rr.Log(log.GlobalLogger)
+	if request.keepLog {
+		rr.Log(log.WithContext(ctx))
 	}
-
 	return rr
 }
 
@@ -96,8 +113,7 @@ func executeRequest(req *resty.Request, method, url string) (*resty.Response, er
 
 // RestyResult Response Result
 type RestyResult struct {
-	context.Context
-	*HttpClient
+	*RestyRequest
 	*resty.Response
 	Logs     map[string]interface{}
 	Handlers []ResponseHandler
@@ -110,7 +126,7 @@ func (t *RestyResult) SetHandlers(handlers ...ResponseHandler) *RestyResult {
 }
 
 func (t *RestyResult) Log(logEntry log.Logger) *RestyResult {
-	ctx := t.Context
+	ctx := t.Context()
 	logMap := map[string]interface{}{
 		"Context ID": ctx.Value(defined.RequestID),
 	}

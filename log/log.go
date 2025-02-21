@@ -55,13 +55,17 @@ func handleConfig(config *Config) {
 	}
 }
 
-var GlobalLogger Logger
+var globalLogger Logger
+
+func SetGlobalLogger(logger Logger) {
+	globalLogger = logger
+}
 
 func WithContext(ctx context.Context) Logger {
-	if GlobalLogger == nil {
-		GlobalLogger = NewZapLogger(&Config{}).WithContext(ctx)
+	if globalLogger == nil {
+		globalLogger = NewZapLogger(&Config{}).WithContext(ctx)
 	}
-	return GlobalLogger.WithContext(ctx).WithFields(map[string]interface{}{
+	return globalLogger.WithContext(ctx).WithFields(map[string]interface{}{
 		defined.RequestID:       ctx.Value(defined.RequestID),
 		defined.RequestURI:      ctx.Value(defined.RequestURI),
 		defined.RequestBodyJson: ctx.Value(defined.RequestBodyJson),

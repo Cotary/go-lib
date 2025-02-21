@@ -5,11 +5,14 @@ import (
 	"github.com/Cotary/go-lib/common/utils"
 )
 
-var GlobalSender Sender
+var globalSender Sender
 
+func SetGlobalSender(sender Sender) {
+	globalSender = sender
+}
 func GetPrioritySender(sender Sender) Sender {
 	if sender == nil {
-		return GlobalSender
+		return globalSender
 	}
 	return sender
 }

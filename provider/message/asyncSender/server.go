@@ -36,7 +36,8 @@ func (a *AsyncSender) Send(ctx context.Context, title string, zMap *utils.ZMap[s
 	return nil
 }
 func (a *AsyncSender) consumeZMap() {
-	for msg := range a.message {
+	ctx := coroutines.NewContext("messageSender")
+	coroutines.ConcurrentProcessorChan(ctx, 10, a.message, func(ctx context.Context, msg Message) {
 		if a.sender != nil {
 			err := a.sender.Send(msg.Ctx, msg.Title, msg.Content)
 			if err != nil {
@@ -46,5 +47,5 @@ func (a *AsyncSender) consumeZMap() {
 				}).Error(err.Error())
 			}
 		}
-	}
+	})
 }

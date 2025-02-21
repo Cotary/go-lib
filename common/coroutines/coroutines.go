@@ -96,7 +96,7 @@ func ConcurrentProcessor[T any](ctx context.Context, limit int, items []T, proce
 	// 启动并发处理协程
 	for i := 0; i < limit; i++ {
 		wg.Add(1)
-		go func() {
+		SafeGo(ctx, func(ctx context.Context) {
 			defer wg.Done()
 			for {
 				select {
@@ -109,7 +109,7 @@ func ConcurrentProcessor[T any](ctx context.Context, limit int, items []T, proce
 					processItem(ctx, item)
 				}
 			}
-		}()
+		})
 	}
 
 	// 将数据发送到通道
@@ -123,5 +123,29 @@ func ConcurrentProcessor[T any](ctx context.Context, limit int, items []T, proce
 
 	// 关闭通道并等待所有协程完成
 	close(semaphore)
+	wg.Wait()
+}
+
+// ConcurrentProcessorChan 控制并发数
+func ConcurrentProcessorChan[T any](ctx context.Context, limit int, semaphore chan T, processItem func(ctx context.Context, item T)) {
+	var wg sync.WaitGroup
+	// 启动并发处理协程
+	for i := 0; i < limit; i++ {
+		wg.Add(1)
+		SafeGo(ctx, func(ctx context.Context) {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case item, ok := <-semaphore:
+					if !ok {
+						return
+					}
+					processItem(ctx, item)
+				}
+			}
+		})
+	}
 	wg.Wait()
 }

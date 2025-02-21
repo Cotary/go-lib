@@ -1,15 +1,18 @@
 package larkMessage
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/Cotary/go-lib/common/httpServer"
 	"github.com/Cotary/go-lib/common/utils"
 	"github.com/coocood/freecache"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
+	"net/http"
 	"time"
 )
 
@@ -52,13 +55,12 @@ func (t LarkRobot) SendMessage(language string, title string, message []string, 
 		}
 	}
 
-	hClient := resty.New()
-	res, err := hClient.SetBaseURL("https://open.larksuite.com").
-		R().
-		SetHeader("Content-Type", "application/json").
-		SetBody(str).
-		Post(t.RobotPath)
-	return res, err
+	url := fmt.Sprintf("https://open.larksuite.com%s", t.RobotPath)
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+	res := httpServer.Request().HttpRequest(context.Background(), http.MethodPost, url, nil, str, headers)
+	return res.Response, res.Error
 }
 
 type content struct {
