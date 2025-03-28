@@ -17,21 +17,20 @@ func DbErr(err error) error {
 }
 
 // ScanKeys 扫描单机或集群 keys
-func (t Client) ScanKeys(ctx context.Context, prefix string, batchSize int64) ([]string, error) {
+func (t Client) ScanKeys(ctx context.Context, prefix string) ([]string, error) {
 	if t.ClusterClient != nil {
-		return scanClusterKeys(ctx, t.ClusterClient, prefix, batchSize)
+		return scanClusterKeys(ctx, t.ClusterClient, prefix)
 	}
-	return scanStandaloneKeys(ctx, t.Client, prefix, batchSize)
+	return scanStandaloneKeys(ctx, t.Client, prefix)
 }
 
 func scanStandaloneKeys(
 	ctx context.Context,
 	client *redis.Client,
 	matchPattern string,
-	batchSize int64,
 ) ([]string, error) {
 	return scanKeys(ctx, func(cursor uint64) ([]string, uint64, error) {
-		return client.Scan(ctx, cursor, matchPattern, batchSize).Result()
+		return client.Scan(ctx, cursor, matchPattern, 1000).Result()
 	})
 }
 
@@ -39,7 +38,6 @@ func scanClusterKeys(
 	ctx context.Context,
 	cluster *redis.ClusterClient,
 	matchPattern string,
-	batchSize int64,
 ) ([]string, error) {
 	var keys []string
 	var mu sync.Mutex
@@ -67,7 +65,7 @@ func scanClusterKeys(
 
 			var cursor uint64
 			for {
-				keysBatch, nextCursor, err := shard.Scan(ctx, cursor, matchPattern, batchSize).Result()
+				keysBatch, nextCursor, err := shard.Scan(ctx, cursor, matchPattern, 1000).Result()
 				if err != nil {
 					select {
 					case errChan <- fmt.Errorf("shard %s error: %w", shard.String(), err):
