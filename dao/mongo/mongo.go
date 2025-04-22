@@ -9,12 +9,12 @@ import (
 )
 
 type Config struct {
-	AppName     string        `yaml:"appName"`
-	Database    string        `yaml:"database"`
-	Dns         string        `yaml:"dns"`
-	IdleTimeout time.Duration `yaml:"idleTimeout"`
-	MaxOpens    uint64        `yaml:"maxOpens"`
-	MinOpens    uint64        `yaml:"minOpens"`
+	AppName     string `yaml:"appName"`
+	Database    string `yaml:"database"`
+	Dns         string `yaml:"dns"`
+	IdleTimeout int64  `yaml:"idleTimeout"`
+	MaxOpens    uint64 `yaml:"maxOpens"`
+	MinOpens    uint64 `yaml:"minOpens"`
 }
 
 type Drive struct {
@@ -32,7 +32,7 @@ func NewDrive(c *Config) *Drive {
 	client, err := mongo.Connect(ctx, options.Client().
 		ApplyURI(c.Dns).
 		SetAppName(c.AppName).
-		SetMaxConnIdleTime(time.Millisecond*c.IdleTimeout).
+		SetMaxConnIdleTime(time.Millisecond*time.Duration(c.IdleTimeout)).
 		SetMaxPoolSize(c.MaxOpens).
 		SetMinPoolSize(c.MinOpens))
 	if err != nil {
@@ -50,7 +50,7 @@ func NewClient(c *Config) *Client {
 	client, err := mongo.Connect(ctx, options.Client().
 		ApplyURI(c.Dns).
 		SetAppName(c.AppName).
-		SetMaxConnIdleTime(time.Millisecond*c.IdleTimeout).
+		SetMaxConnIdleTime(time.Millisecond*time.Duration(c.IdleTimeout)).
 		SetMaxPoolSize(c.MaxOpens).
 		SetMinPoolSize(c.MinOpens))
 	if err != nil {
