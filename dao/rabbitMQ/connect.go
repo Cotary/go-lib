@@ -11,7 +11,7 @@ import (
 
 	"github.com/Cotary/go-lib/common/coroutines"
 	e "github.com/Cotary/go-lib/err"
-	"github.com/streadway/amqp"
+	"github.com/rabbitmq/amqp091-go"
 )
 
 type Config struct {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/streadway/amqp"
+	"github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
 )
 

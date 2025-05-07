@@ -2,19 +2,9 @@ package utils
 
 import (
 	"crypto/rand"
-	"encoding/json"
 	"math/big"
 	"strings"
 )
-
-func Json(data interface{}) string {
-	byteUser, _ := json.Marshal(data)
-	return string(byteUser)
-}
-func IsJson(str string) bool {
-	var js json.RawMessage
-	return json.Unmarshal([]byte(str), &js) == nil
-}
 
 func AnyToInt(value interface{}) (res int64) {
 	_ = AnyToAny(value, &res)

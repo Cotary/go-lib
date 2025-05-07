@@ -2,7 +2,6 @@ package utils
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -66,13 +65,13 @@ func StringTo(value string, target any) error {
 				v.SetBytes(bytes)
 			}
 		} else {
-			err := json.Unmarshal([]byte(value), target)
+			err := NJson.Unmarshal([]byte(value), target)
 			if err != nil {
 				return err
 			}
 		}
 	case reflect.Map, reflect.Struct:
-		err := json.Unmarshal([]byte(value), target)
+		err := NJson.Unmarshal([]byte(value), target)
 		if err != nil {
 			return err
 		}
@@ -85,7 +84,7 @@ func StringTo(value string, target any) error {
 		v.Set(ptrVal)
 	case reflect.Interface:
 		var ifaceVal any
-		err := json.Unmarshal([]byte(value), &ifaceVal)
+		err := NJson.Unmarshal([]byte(value), &ifaceVal)
 		if err != nil {
 			return err
 		}
@@ -118,14 +117,14 @@ func ToString(value any) (string, error) {
 				return base64.StdEncoding.EncodeToString(v.Bytes()), nil
 			}
 		} else {
-			bytes, err := json.Marshal(value)
+			bytes, err := NJson.Marshal(value)
 			if err != nil {
 				return "", err
 			}
 			return string(bytes), nil
 		}
 	case reflect.Map, reflect.Struct, reflect.Ptr, reflect.Interface:
-		bytes, err := json.Marshal(value)
+		bytes, err := NJson.Marshal(value)
 		if err != nil {
 			return "", err
 		}

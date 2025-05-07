@@ -5,7 +5,7 @@ import (
 	"fmt"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/pkg/errors"
-	"github.com/streadway/amqp"
+	"github.com/rabbitmq/amqp091-go"
 	"time"
 )
 

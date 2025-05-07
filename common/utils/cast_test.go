@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -34,6 +35,7 @@ func TestStringToAndToString(t *testing.T) {
 		{struct{ Key string }{Key: "value"}, `{"Key":"value"}`},
 		{&struct{ Key string }{Key: "value"}, `{"Key":"value"}`},
 		{any(map[string]any{"key": "value"}), `{"key":"value"}`},
+		{any(map[string]any{"key": json.Number("123456789123456789123456789")}), `{"key":123456789123456789123456789}`},
 	}
 
 	for _, tt := range tests {
