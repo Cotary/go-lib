@@ -1,8 +1,71 @@
 package psql
 
 import (
+	"context"
+	"database/sql"
+	"fmt"
 	_ "github.com/lib/pq"
+	"github.com/pkg/errors"
+	"gorm.io/gorm"
+	"sync"
 )
+
+const (
+	DBTransactionKey = "DBTransactionManager"
+)
+
+func (g *GormDrive) CtxTx(ctx context.Context, opts ...*sql.TxOptions) (*gorm.DB, context.Context) {
+	var txMap *sync.Map
+
+	// 从上下文中获取 sync.Map
+	if val := ctx.Value(DBTransactionKey); val != nil {
+		if m, ok := val.(*sync.Map); ok {
+			txMap = m
+		}
+	}
+	// 如果没有，则初始化一个新的 sync.Map 并放入上下文
+	if txMap == nil {
+		txMap = &sync.Map{}
+		ctx = context.WithValue(ctx, DBTransactionKey, txMap)
+	}
+
+	// 尝试从 sync.Map 中加载事务
+	if tx, ok := txMap.Load(g.ID); ok {
+		if db, ok := tx.(*gorm.DB); ok && db != nil {
+			return db, ctx
+		}
+	}
+
+	// 如果还没有事务，开始新事务并存入 sync.Map
+	txBegin := g.Begin(opts...)
+	txMap.Store(g.ID, txBegin)
+	return txBegin, ctx
+}
+
+func (g *GormDrive) CtxCommit(ctx context.Context) error {
+	// 从上下文中获取 sync.Map
+	val := ctx.Value(DBTransactionKey)
+	if val == nil {
+		return nil
+	}
+	txMap, ok := val.(*sync.Map)
+	if !ok {
+		return nil
+	}
+	// 从 sync.Map 中加载对应事务
+	if v, ok := txMap.Load(g.ID); ok {
+		tx, _ := v.(*gorm.DB)
+		// 尝试提交事务
+		if err := tx.Commit().Error; err != nil {
+			// 如果提交失败，则进行回滚，并返回包含两者错误信息的错误
+			rbErr := tx.Rollback().Error
+			return errors.New(fmt.Sprintf("commit error: %v, rollback error: %v", err, rbErr))
+		}
+		// 提交成功后清理事务记录
+		txMap.Delete(g.ID)
+	}
+	return nil
+}
 
 //
 //// DBTransactionManager 用于管理数据库事务的状态和嵌套层级。
