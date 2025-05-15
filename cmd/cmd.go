@@ -15,10 +15,10 @@ func Start(handlers []Handler) *cron.Cron {
 	// 任务计划
 	c := cron.New(cron.WithSeconds())
 	cmdHandlers := handlers
-	for _, v := range cmdHandlers {
+	for i, v := range cmdHandlers {
 		newHandler := v.New()
 		_, err := c.AddFunc(newHandler.Spec(), func() {
-			cmdHandle(newHandler)
+			cmdHandle(i, newHandler)
 		})
 		if err != nil {
 			panic(err)
@@ -30,10 +30,10 @@ func Start(handlers []Handler) *cron.Cron {
 	return c
 }
 
-func cmdHandle(handle Handler) {
+func cmdHandle(index int, handle Handler) {
 	ctx := coroutines.NewContext("CRON")
 	coroutines.SafeFunc(ctx, func(ctx context.Context) {
-		funcName := coroutines.GetStructName(handle)
+		funcName := fmt.Sprintf("%d-%s", index, coroutines.GetStructName(handle))
 		singleRun := utils2.NewSingleRun(funcName)
 		runInfo, err := singleRun.SingleRun(func() error {
 			return handle.Do(ctx)
