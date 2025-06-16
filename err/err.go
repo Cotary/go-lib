@@ -2,6 +2,8 @@ package e
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -83,16 +85,50 @@ func GetErrMessage(err error) string {
 		}); ok {
 			isFirstErr := len(stackList) == i+1
 			for si, sf := range stackErr.StackTrace() {
+				// 对于非最外层错误，跳过第一个栈信息
 				if !isFirstErr && si == 0 {
 					continue
 				}
 				pc := uintptr(sf) - 1
 				fn := runtime.FuncForPC(pc)
 				file, line := fn.FileLine(pc)
-				str.WriteString(fmt.Sprintf("%s:%d\n", file, line))
+				// 调用辅助函数处理路径格式
+				formattedFile := formatFilePath(file)
+				str.WriteString(fmt.Sprintf("%s:%d\n", formattedFile, line))
 			}
 			str.WriteString("\n")
 		}
 	}
 	return str.String()
+}
+
+func formatFilePath(file string) string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return file
+	}
+
+	// 将工作目录和文件路径都转为统一的正斜杠分隔格式
+	normalizedWD := filepath.ToSlash(wd)
+	normalizedFile := filepath.ToSlash(file)
+	// 获取项目目录名称
+	projectDirName := filepath.Base(normalizedWD)
+
+	// 如果文件路径以当前工作目录开头，则返回形如 "项目目录/后续路径"
+	if strings.HasPrefix(normalizedFile, normalizedWD) {
+		relPath := strings.TrimPrefix(normalizedFile, normalizedWD)
+		relPath = strings.TrimLeft(relPath, "/")
+		return fmt.Sprintf("%s/%s", projectDirName, relPath)
+	}
+
+	parts := strings.Split(normalizedFile, "/")
+	n := len(parts)
+	var offset int
+
+	if n >= 8 {
+		offset = 3
+	} else if n >= 1 {
+		offset = 1
+	}
+	return strings.Join(parts[offset:], "/")
 }
