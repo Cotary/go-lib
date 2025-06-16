@@ -1,8 +1,8 @@
 package telegram
 
 import (
-	e "github.com/Cotary/go-lib/err"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	e "go-lib/err"
 )
 
 type Config struct {
@@ -30,7 +30,7 @@ func NewTelegramRobot(conf Config) (*Robot, error) {
 
 func (t *Robot) SendMessage(chatID int64, message string) error {
 	msg := tgbotapi.NewMessage(chatID, message)
-	msg.ParseMode = tgbotapi.ModeMarkdown
+	msg.ParseMode = tgbotapi.ModeMarkdownV2
 	return t.Send(msg)
 
 }

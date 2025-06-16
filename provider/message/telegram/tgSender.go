@@ -3,8 +3,9 @@ package telegram
 import (
 	"context"
 	"fmt"
-	"github.com/Cotary/go-lib/common/utils"
-	e "github.com/Cotary/go-lib/err"
+	"go-lib/common/utils"
+	e "go-lib/err"
+	"strings"
 )
 
 type TGSender struct {
@@ -20,11 +21,12 @@ func (s *TGSender) Send(ctx context.Context, title string, zMap *utils.ZMap[stri
 	if err != nil {
 		return e.Err(err)
 	}
-	msg := fmt.Sprintf("***%s***", title)
+	msg := fmt.Sprintf("***%s***\n\n", escapeMarkdown(title))
+	//msg = msg + "```\n"
 	zMap.Each(func(p utils.Pair[string, string]) {
-		msg = msg + fmt.Sprintf("\n%s: %s", p.Key, p.Value)
+		msg = msg + fmt.Sprintf("%s: %s\n", escapeMarkdown(p.Key), escapeMarkdown(p.Value))
 	})
-
+	//msg = msg + "```"
 	err = robot.SendMessage(s.GroupChatID, msg)
 	if err != nil {
 		return e.Err(err)
@@ -37,4 +39,14 @@ func NewTelegramSender(token string, chatID int64) *TGSender {
 		RobotToken:  token,
 		GroupChatID: chatID,
 	}
+}
+
+// escapeMarkdown 为文本中的 Markdown 特殊字符添加反斜杠转义。
+func escapeMarkdown(text string) string {
+	// 注意：顺序需要注意，先转义反斜杠再转义其他字符。
+	specialCharacters := []string{"\\", "`", "*", "_", "{", "}", "[", "]", "(", ")", "#", "+", "-", ".", "!"}
+	for _, ch := range specialCharacters {
+		text = strings.ReplaceAll(text, ch, "\\"+ch)
+	}
+	return text
 }
