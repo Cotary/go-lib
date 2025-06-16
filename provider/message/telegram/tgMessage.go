@@ -1,8 +1,8 @@
 package telegram
 
 import (
+	e "github.com/Cotary/go-lib/err"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	e "go-lib/err"
 )
 
 type Config struct {

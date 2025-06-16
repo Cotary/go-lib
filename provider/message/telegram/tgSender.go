@@ -3,8 +3,8 @@ package telegram
 import (
 	"context"
 	"fmt"
-	"go-lib/common/utils"
-	e "go-lib/err"
+	"github.com/Cotary/go-lib/common/utils"
+	e "github.com/Cotary/go-lib/err"
 	"strings"
 )
 
