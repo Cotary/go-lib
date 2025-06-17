@@ -1,6 +1,6 @@
 module github.com/Cotary/go-lib
 
-go 1.20
+go 1.23.0
 
 require (
 	github.com/coocood/freecache v1.2.4
