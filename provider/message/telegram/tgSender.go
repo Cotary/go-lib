@@ -22,11 +22,11 @@ func (s *TGSender) Send(ctx context.Context, title string, zMap *utils.ZMap[stri
 		return e.Err(err)
 	}
 	msg := fmt.Sprintf("***%s***\n\n", escapeMarkdown(title))
-	//msg = msg + "```\n"
-	zMap.Each(func(p utils.Pair[string, string]) {
-		msg = msg + fmt.Sprintf("%s: %s\n", escapeMarkdown(p.Key), escapeMarkdown(p.Value))
-	})
-	//msg = msg + "```"
+	if zMap != nil {
+		zMap.Each(func(p utils.Pair[string, string]) {
+			msg = msg + fmt.Sprintf("%s: %s\n", escapeMarkdown(p.Key), escapeMarkdown(p.Value))
+		})
+	}
 	err = robot.SendMessage(s.GroupChatID, msg)
 	if err != nil {
 		return e.Err(err)

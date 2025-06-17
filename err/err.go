@@ -93,8 +93,8 @@ func GetErrMessage(err error) string {
 				fn := runtime.FuncForPC(pc)
 				file, line := fn.FileLine(pc)
 				// 调用辅助函数处理路径格式
-				formattedFile := formatFilePath(file)
-				str.WriteString(fmt.Sprintf("%s:%d\n", formattedFile, line))
+				//formattedFile := formatFilePath(file) //使用 go build -trimpath
+				str.WriteString(fmt.Sprintf("%s:%d\n", file, line))
 			}
 			str.WriteString("\n")
 		}

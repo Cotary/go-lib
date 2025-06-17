@@ -14,9 +14,11 @@ type LarkSender struct {
 
 func (s *LarkSender) Send(ctx context.Context, title string, zMap *utils.ZMap[string, string]) error {
 	var message []string
-	zMap.Each(func(p utils.Pair[string, string]) {
-		message = append(message, p.Key+": ", p.Value)
-	})
+	if zMap != nil {
+		zMap.Each(func(p utils.Pair[string, string]) {
+			message = append(message, p.Key+": ", p.Value)
+		})
+	}
 	larkRobot := NewLarkRobot(s.RobotPath, s.Secret)
 	_, err := larkRobot.SendMessage("en-US", title, message, s.AtList, false)
 	if err != nil {
