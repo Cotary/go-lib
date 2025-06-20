@@ -37,14 +37,21 @@ const (
 	Mixed   = Num + Letters
 )
 
-func GenerateCode(length int, charset string) (string, error) {
+func GenerateCode(length int, charset ...string) string {
 	code := make([]byte, length)
-	for i := range code {
-		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
-		if err != nil {
-			return "", err
-		}
-		code[i] = charset[num.Int64()]
+	char := Mixed
+	if len(charset) > 0 {
+		char = charset[0]
 	}
-	return string(code), nil
+	if char == "" {
+		return ""
+	}
+	for i := range code {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(char))))
+		if err != nil {
+			return ""
+		}
+		code[i] = char[num.Int64()]
+	}
+	return string(code)
 }
