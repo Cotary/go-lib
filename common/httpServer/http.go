@@ -16,7 +16,7 @@ import (
 
 var defaultClient = resty.New().SetTransport(&http.Transport{
 	MaxIdleConns:        10000,
-	MaxIdleConnsPerHost: 100,
+	MaxIdleConnsPerHost: 300,
 })
 
 func Client() *resty.Client {
@@ -36,6 +36,12 @@ type RestyRequest struct {
 	timeout      time.Duration
 	keepLog      bool
 	sendErrorMsg bool
+}
+
+func NewRequest(client *resty.Client) *RestyRequest {
+	return &RestyRequest{
+		Request: client.R(),
+	}
 }
 
 func (request *RestyRequest) NoSendErrorMsg() *RestyRequest {
