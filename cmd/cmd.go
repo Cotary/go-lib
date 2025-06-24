@@ -49,8 +49,25 @@ func (s *Scheduler) Stop() context.Context {
 	//异步做信号监听优雅关闭：<-sched.Stop().Done()
 }
 
-// AddJob 按业务 id 添加一个任务；如果已存在，先移除再新增
+// AddJob 如果同名 id 已存在，则直接返回不做任何操作
 func (s *Scheduler) AddJob(id string, h Handler) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exist := s.entries[id]; exist {
+		// 同名任务已存在，直接跳过
+		return nil
+	}
+	entryID, err := s.c.AddFunc(h.Spec(), func() { cmdHandle(id, h) })
+	if err != nil {
+		return fmt.Errorf("AddJob failed: %w", err)
+	}
+	s.entries[id] = entryID
+	return nil
+}
+
+// ForceAddJob 按业务 id 添加一个任务；如果已存在，先移除再新增
+func (s *Scheduler) ForceAddJob(id string, h Handler) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -63,7 +80,7 @@ func (s *Scheduler) AddJob(id string, h Handler) error {
 		cmdHandle(id, h)
 	})
 	if err != nil {
-		return fmt.Errorf("AddJob failed: %w", err)
+		return fmt.Errorf("ForceAddJob failed: %w", err)
 	}
 	s.entries[id] = entryID
 	return nil
