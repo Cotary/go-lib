@@ -13,7 +13,6 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// Handler 定义不变
 type Handler interface {
 	Spec() string // cron 表达式
 	MaxExecuteTime() time.Duration
@@ -22,9 +21,10 @@ type Handler interface {
 
 // Scheduler 负责调度生命周期管理
 type Scheduler struct {
-	c       *cron.Cron
-	entries map[string]cron.EntryID
-	mu      sync.Mutex
+	c         *cron.Cron
+	entries   map[string]cron.EntryID
+	mu        sync.Mutex
+	startOnce sync.Once
 }
 
 // NewScheduler 创建一个支持秒级的调度器
@@ -35,10 +35,12 @@ func NewScheduler() *Scheduler {
 	}
 }
 
-// Start 启动调度
+// Start 会在第一次调用时启动调度，此后调用无效
 func (s *Scheduler) Start() {
-	s.c.Start()
-	fmt.Println("cron scheduler started")
+	s.startOnce.Do(func() {
+		s.c.Start()
+		fmt.Println("cron scheduler started")
+	})
 }
 
 // Stop 停止调度
@@ -51,6 +53,8 @@ func (s *Scheduler) Stop() context.Context {
 
 // AddJob 如果同名 id 已存在，则直接返回不做任何操作
 func (s *Scheduler) AddJob(id string, h Handler) error {
+	// 确保调度器已启动
+	s.Start()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -68,6 +72,8 @@ func (s *Scheduler) AddJob(id string, h Handler) error {
 
 // ForceAddJob 按业务 id 添加一个任务；如果已存在，先移除再新增
 func (s *Scheduler) ForceAddJob(id string, h Handler) error {
+	// 确保调度器已启动
+	s.Start()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
