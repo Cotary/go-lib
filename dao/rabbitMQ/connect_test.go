@@ -10,7 +10,7 @@ import (
 
 // Mock connection to replace actual RabbitMQ connection
 type MockConnection struct {
-	amqp.Connection
+	amqp091.Connection
 	closed bool
 }
 

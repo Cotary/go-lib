@@ -3,228 +3,260 @@ package rabbitMQ
 import (
 	"context"
 	"fmt"
+	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/pkg/errors"
 	"github.com/rabbitmq/amqp091-go"
 	"time"
 )
 
-// QueueConfig 包含交换机和队列配置
 type QueueConfig struct {
 	ExchangeName string
-	ExchangeType string // 添加交换机类型
+	ExchangeType string
 	RouteKey     string
 	QueueName    string
 	QueueType    string
 }
 
-// Queue 表示工作通道结构体
 type Queue struct {
 	QueueConfig
-	*ChannelPool
+	conn *Connect
 }
 
-// NewQueue 创建工作模式通道，使用通道池获取通道
-func NewQueue(pool *ChannelPool, config QueueConfig) (*Queue, error) {
-	ch, err := pool.Get() // 从通道池中获取通道
+func NewQueue(conn *Connect, cfg QueueConfig) (*Queue, error) {
+	pool := conn.Pool()
+	ch, err := pool.Get()
 	if err != nil {
 		return nil, e.Err(err)
 	}
-	defer pool.Put(ch) // 确保方法退出时归还通道
+	defer pool.Put(ch)
 
-	if config.ExchangeType == "" {
-		config.ExchangeType = amqp.ExchangeDirect // 默认为直连交换机
+	if cfg.ExchangeType == "" {
+		cfg.ExchangeType = amqp091.ExchangeDirect
 	}
-	if config.QueueType == "" {
-		config.QueueType = "quorum" // 默认为持久队列
+	if cfg.QueueType == "" {
+		cfg.QueueType = "quorum"
 	}
-
 	// 声明交换机
-	err = ch.ExchangeDeclare(
-		config.ExchangeName,
-		config.ExchangeType,
+	if err = ch.ExchangeDeclare(
+		cfg.ExchangeName,
+		cfg.ExchangeType,
 		true,
 		false,
 		false,
 		false,
 		nil,
-	)
-	if err != nil {
+	); err != nil {
 		return nil, e.Err(err)
 	}
+	// 声明队列
+	args := amqp091.Table{}
+	if cfg.QueueType != "" {
+		args = amqp091.Table{"x-queue-type": cfg.QueueType}
 
-	queueArgs := amqp.Table{}
-	if config.QueueType != "" {
-		queueArgs = amqp.Table{"x-queue-type": config.QueueType}
 	}
 	_, err = ch.QueueDeclare(
-		config.QueueName,
+		cfg.QueueName,
 		true,
 		false,
 		false,
 		false,
-		queueArgs,
+		args,
 	)
 	if err != nil {
 		return nil, e.Err(err)
 	}
-
-	// 绑定队列到交换机
+	// 绑定
 	err = ch.QueueBind(
-		config.QueueName,
-		config.RouteKey,
-		config.ExchangeName,
+		cfg.QueueName,
+		cfg.RouteKey,
+		cfg.ExchangeName,
 		false,
 		nil,
 	)
 	if err != nil {
 		return nil, e.Err(err)
 	}
-
 	return &Queue{
-		QueueConfig: config,
-		ChannelPool: pool,
+		QueueConfig: cfg,
+		conn:        conn,
 	}, nil
 }
 
-// SendMessages 发送消息到队列并返回未成功的消息列表
-func (c *Queue) SendMessages(ctx context.Context, messages []amqp.Publishing) ([]amqp.Publishing, error) {
-	ch, err := c.ChannelPool.Conn.Conn.Channel() //这里因为NotifyPublish了，这个ch不能复用了
+// SendMessages ：批量发布并收集所有 nack/return
+func (q *Queue) SendMessages(ctx context.Context, messages []amqp091.Publishing) ([]amqp091.Publishing, error) {
+	ch, err := q.conn.Pool().Get()
 	if err != nil {
-		return nil, e.Err(err)
+		return messages, e.Err(err)
 	}
 	defer ch.Close()
 
-	// 开启确认模式
+	// mandatory=true
 	err = ch.Confirm(false)
 	if err != nil {
-		return nil, e.Err(err)
+		return messages, e.Err(err)
 	}
+	returns := ch.NotifyReturn(make(chan amqp091.Return, len(messages)))
+	confirms := ch.NotifyPublish(make(chan amqp091.Confirmation, len(messages)))
 
-	// 确认通道
-	confirms := ch.NotifyPublish(make(chan amqp.Confirmation, len(messages)))
+	// publish loop
+	for i := range messages {
+		if messages[i].Headers == nil {
+			messages[i].Headers = amqp091.Table{}
+		}
+		messages[i].Headers["__idx"] = i
 
-	// 批量发送消息
-	for _, msg := range messages {
+		messages[i].DeliveryMode = amqp091.Persistent
 		err = ch.Publish(
-			c.ExchangeName, // 交换机
-			c.RouteKey,     // 路由键（队列名称）
-			false,          // 是否强制发送
-			false,          // 是否立即发送
-			msg,
+			q.ExchangeName,
+			q.RouteKey,
+			true,  // mandatory
+			false, // immediate
+			messages[i],
 		)
 		if err != nil {
-			return nil, e.Err(err)
+			// 通道层面失败：所有还没发的、已发的直接当失败
+			return messages, e.Err(err)
 		}
 	}
 
-	// 等待确认
-	var failedMessages []amqp.Publishing
+	// 等待并收集
+	failed := make([]amqp091.Publishing, 0, len(messages))
 	for i := 0; i < len(messages); i++ {
 		select {
+		case ret := <-returns:
+			if rawIdx, ok := ret.Headers["__idx"]; ok {
+				failed = append(failed, messages[int(utils.AnyToInt(rawIdx))])
+			} else {
+				failed = append(failed, returnToPublishing(ret))
+			}
 		case confirm := <-confirms:
 			if !confirm.Ack {
-				failedMessages = append(failedMessages, messages[i])
+				failed = append(failed, messages[confirm.DeliveryTag-1])
 			}
 		case <-ctx.Done():
-			return nil, e.Err(ctx.Err())
+			return messages, e.Err(ctx.Err())
 		}
 	}
-
-	if len(failedMessages) > 0 {
-		return failedMessages, fmt.Errorf("some messages failed to deliver")
+	if len(failed) > 0 {
+		return failed, fmt.Errorf("some messages failed to deliver")
 	}
-
 	return nil, nil
 }
 
-// SendMessagesEvery 持续发送消息，直到消息发送成功为止
-func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp.Publishing) error {
-	var err error
-	failedMessages := messages
+// helper：从 amqp.Return 重建一个 Publishing
+func returnToPublishing(ret amqp091.Return) amqp091.Publishing {
+	return amqp091.Publishing{
+		DeliveryMode:    ret.DeliveryMode,
+		ContentType:     ret.ContentType,
+		ContentEncoding: ret.ContentEncoding,
+		Headers:         ret.Headers,
+		CorrelationId:   ret.CorrelationId,
+		ReplyTo:         ret.ReplyTo,
+		Body:            ret.Body,
+		// …其它你关心的字段也可以一并拷贝
+	}
+}
 
+// SendMessagesEvery：永不丢，直到队列端确认
+func (q *Queue) SendMessagesEvery(ctx context.Context, msgs []amqp091.Publishing) error {
+	pending := msgs
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			failedMessages, err = c.SendMessages(ctx, failedMessages)
-			if err == nil && len(failedMessages) == 0 {
-				return nil
-			}
-			e.SendMessage(ctx, err)
-			// 等待一段时间后重试，避免无限快速重试
-			select {
-			case <-time.After(time.Second * 5): // 重试间隔时间
-			case <-ctx.Done():
-				return ctx.Err()
-			}
 		}
+		failed, err := q.SendMessages(ctx, pending)
+		if err == nil && len(failed) == 0 {
+			return nil
+		}
+		// 发送失败（包含重新路由），先报警再重试
+		e.SendMessage(ctx, err)
+		pending = failed // 如果 SendMessages 在 publish 前直接出错，则 failed==orig slice
+		time.Sleep(5 * time.Second)
 	}
 }
 
-// ConsumeMessagesEvery 持续消费消息并处理，确保通道在处理完消息后才归还
-func (c *Queue) ConsumeMessagesEvery(ctx context.Context, model string, handler func(amqp.Delivery) error) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			err := c.ConsumeMessages(ctx, model, handler)
-			if err != nil {
-				if !errors.Is(err, channelClosedErr) {
-					e.SendMessage(ctx, err)
-				}
-				// 等待一段时间后重试，避免无限快速重试
-				select {
-				case <-time.After(time.Second * 5): // 重试间隔时间
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
-		}
-	}
-}
+var (
+	// Deliveries 通道关闭时的标记错误
+	channelClosedErr = errors.New("deliveries channel closed")
+)
 
 const (
 	MessagePriorityModel = "MessagePriority"
 	ConfirmPriorityModel = "ConfirmPriority"
 )
 
-var channelClosedErr = errors.New("deliveries channel closed") // 通道关闭的error
-// ConsumeMessages 消费消息并处理，确保通道在处理完消息后才归还
-func (c *Queue) ConsumeMessages(ctx context.Context, model string, handler func(amqp.Delivery) error) error {
-	ch, err := c.ChannelPool.Get() // 从通道池中获取通道
-	if err != nil {
-		return e.Err(err)
-	}
-	defer c.ChannelPool.Put(ch) // 确保在返回之前归还通道
+// ConsumeMessagesEvery 持续消费消息，遇到通道关闭或错误时自动重试
+func (q *Queue) ConsumeMessagesEvery(
+	ctx context.Context,
+	model string,
+	handler func(amqp091.Delivery) error,
+) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 
-	err = ch.Qos(1, 0, false) //这里只会一条一条的取
+		// 在单次调用中消费，出错就 break 跳到重试逻辑
+		err := q.ConsumeMessages(ctx, model, handler)
+		if err != nil && !errors.Is(err, channelClosedErr) {
+			// 非通道关闭错误发报警
+			e.SendMessage(ctx, err)
+		}
+
+		// 等待再重试
+		select {
+		case <-time.After(5 * time.Second):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// consumeOnce 在一个 channel 上拉一次消息，普通错误或通道断开时返回
+func (q *Queue) ConsumeMessages(ctx context.Context, model string, handler func(amqp091.Delivery) error) error {
+	// 1) 取通道
+	ch, err := q.conn.Pool().Get()
 	if err != nil {
 		return e.Err(err)
 	}
+	defer q.conn.Pool().Put(ch)
+
+	// 2) 批量拉 Prefetch=1
+	err = ch.Qos(1, 0, false)
+	if err != nil {
+		return e.Err(err)
+	}
+
+	// 3) 建立 consume 管道
 	deliveries, err := ch.Consume(
-		c.QueueName,
+		q.QueueName,
 		"",
-		false,
-		false,
-		false,
-		false,
-		nil,
+		false, // noAutoAck
+		false, // exclusive
+		false, // noLocal
+		false, // noWait
+		nil,   // args
 	)
 	if err != nil {
 		return e.Err(err)
 	}
 
+	// 4) 循环读取
 	for {
 		select {
 		case <-ctx.Done():
-			return e.Err(ctx.Err()) // 上下文取消，退出循环
+			return e.Err(ctx.Err())
 		case msg, ok := <-deliveries:
 			if !ok {
+				// 通道被关闭了
 				return channelClosedErr
 			}
+			// 根据模式决定 Ack/Nack 顺序
 			if model == MessagePriorityModel {
 				err = handler(msg)
 				if err != nil {
@@ -247,6 +279,4 @@ func (c *Queue) ConsumeMessages(ctx context.Context, model string, handler func(
 			}
 		}
 	}
-
-	return nil
 }

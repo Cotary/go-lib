@@ -4,9 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
+
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/Cotary/go-lib/common/coroutines"
@@ -19,105 +20,140 @@ type Config struct {
 	CA         string   `yaml:"caPath"`
 	ClientUser string   `yaml:"clientUserPath"`
 	ClientKey  string   `yaml:"clientKeyPath"`
-	Heartbeat  int64    `yaml:"heartbeat"`  // heartbeat 心跳检查 秒
-	MaxChannel int64    `yaml:"maxChannel"` // mq单个连接最大支持的channel数量
+	Heartbeat  int64    `yaml:"heartbeat"`
+	MaxChannel int      `yaml:"maxChannel"`
 }
 
 type Connect struct {
-	Conn *amqp.Connection
-	Config
-	closeCh chan struct{}
+	mu       sync.Mutex
+	Conn     *amqp091.Connection
+	cfg      Config
+	closeCh  chan struct{}
+	chanPool *ChannelPool
 }
 
-func handleConfig(config *Config) {
-	if config.Heartbeat == 0 {
-		config.Heartbeat = 30
+func handleConfig(cfg *Config) {
+	if cfg.Heartbeat == 0 {
+		cfg.Heartbeat = 30
 	}
-	if config.MaxChannel == 0 {
-		config.MaxChannel = 2000
+	if cfg.MaxChannel == 0 {
+		cfg.MaxChannel = 2000
 	}
 }
 
-func NewRabbitMQ(config Config) (*Connect, error) {
-	handleConfig(&config)
-	mq := &Connect{
-		Conn:    nil,
-		Config:  config,
+func NewRabbitMQ(cfg Config) (*Connect, error) {
+	handleConfig(&cfg)
+
+	m := &Connect{
+		cfg:     cfg,
 		closeCh: make(chan struct{}),
 	}
-	err := mq.connect()
-	if err != nil {
+	if err := m.reconnect(); err != nil {
 		return nil, e.Err(err)
 	}
 
-	ctx := coroutines.NewContext("RabbitMQ Health")
+	// health check + auto‐rebuild pool
+	ctx := coroutines.NewContext("rabbitmq-health")
 	coroutines.SafeGo(ctx, func(ctx context.Context) {
-		mq.checkHealth(ctx)
+		m.checkHealth(ctx)
 	})
-	return mq, nil
+	return m, nil
 }
 
-func (c *Connect) checkHealth(ctx context.Context) {
-	ticker := time.NewTicker(time.Duration(c.Config.Heartbeat) * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			if c.Conn.IsClosed() {
-				err := c.connect()
-				if err != nil {
-					e.SendMessage(ctx, err)
+func (m *Connect) checkHealth(ctx context.Context) {
+	coroutines.SafeGo(ctx, func(ctx context.Context) {
+		ticker := time.NewTicker(time.Duration(m.cfg.Heartbeat) * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				m.mu.Lock()
+				closed := m.Conn.IsClosed()
+				m.mu.Unlock()
+				if closed {
+					if err := m.reconnect(); err != nil {
+						e.SendMessage(ctx, err)
+					}
 				}
+			case <-m.closeCh:
+				return
 			}
-		case <-c.closeCh:
-			return
 		}
-	}
+	})
 }
 
-func (c *Connect) connect() error {
-	if len(c.DSN) == 0 {
-		return errors.New("dsn is empty")
+func (m *Connect) reconnect() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// close old
+	if m.chanPool != nil {
+		m.chanPool.Close()
+		m.chanPool = nil
 	}
-	var err error
-	var tlsConfig tls.Config
-	if c.Config.CA != "" {
-		caCert, err := os.ReadFile(c.Config.CA)
-		if err != nil {
-			return errors.New(fmt.Sprintf("read CA file err:%v", err))
-		}
-		tlsConfig.RootCAs = x509.NewCertPool()
-		tlsConfig.RootCAs.AppendCertsFromPEM(caCert)
-	}
-	if c.Config.ClientUser != "" && c.Config.ClientKey != "" {
-		clientCert, err := tls.LoadX509KeyPair(c.Config.ClientUser, c.Config.ClientKey)
-		if err != nil {
-			return errors.New(fmt.Sprintf("Failed to load client certificate: %v", err))
-		}
-		tlsConfig.Certificates = []tls.Certificate{clientCert}
+	if m.Conn != nil && !m.Conn.IsClosed() {
+		m.Conn.Close()
 	}
 
-	amqpConfig := amqp.Config{
-		TLSClientConfig: &tlsConfig,
-		Heartbeat:       time.Duration(c.Config.Heartbeat) * time.Second,
+	// prepare TLS
+	var tlsCfg tls.Config
+	if m.cfg.CA != "" {
+		caPEM, err := os.ReadFile(m.cfg.CA)
+		if err != nil {
+			return fmt.Errorf("read CA file: %w", err)
+		}
+		tlsCfg.RootCAs = x509.NewCertPool()
+		tlsCfg.RootCAs.AppendCertsFromPEM(caPEM)
+	}
+	if m.cfg.ClientUser != "" && m.cfg.ClientKey != "" {
+		cert, err := tls.LoadX509KeyPair(m.cfg.ClientUser, m.cfg.ClientKey)
+		if err != nil {
+			return fmt.Errorf("load client cert: %w", err)
+		}
+		tlsCfg.Certificates = []tls.Certificate{cert}
 	}
 
-	for _, dsn := range c.DSN {
-		conn, connErr := amqp.DialConfig(dsn, amqpConfig)
-		if connErr == nil {
-			c.Conn = conn
+	cfg := amqp091.Config{
+		TLSClientConfig: &tlsCfg,
+		Heartbeat:       time.Duration(m.cfg.Heartbeat) * time.Second,
+	}
+	var lastErr error
+	for _, dsn := range m.cfg.DSN {
+		conn, err := amqp091.DialConfig(dsn, cfg)
+		if err == nil {
+			m.Conn = conn
+			lastErr = nil
 			break
-		} else {
-			err = connErr
 		}
+		lastErr = err
 	}
-	return e.Err(err)
+	if lastErr != nil {
+		return lastErr
+	}
+
+	// build new channel pool
+	pool, err := NewChannelPool(m, m.cfg.MaxChannel)
+	if err != nil {
+		return err
+	}
+	m.chanPool = pool
+	return nil
 }
 
-func (c *Connect) Close() {
-	close(c.closeCh)
-	if c.Conn != nil && !c.Conn.IsClosed() {
-		c.Conn.Close()
+func (m *Connect) Pool() *ChannelPool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.chanPool
+}
+
+func (m *Connect) Close() {
+	close(m.closeCh)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.chanPool != nil {
+		m.chanPool.Close()
 	}
-	fmt.Println("RabbitMQ connection closed")
+	if m.Conn != nil && !m.Conn.IsClosed() {
+		m.Conn.Close()
+	}
 }

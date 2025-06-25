@@ -1,69 +1,97 @@
 package rabbitMQ
 
 import (
+	"sync"
+
 	e "github.com/Cotary/go-lib/err"
 	"github.com/pkg/errors"
 	"github.com/rabbitmq/amqp091-go"
-	"sync"
 )
 
-// ChannelPool todo 这个池子有些地方还不能复用，比如确认消息用来监听了发布后，这个ch就不能用了，是否需要这个pool?
 type ChannelPool struct {
-	Conn    *Connect
-	pool    chan *amqp.Channel
-	mu      sync.Mutex
+	conn    *Connect
+	pool    chan *amqp091.Channel
 	maxSize int
+	mu      sync.Mutex
 }
 
-// NewChannelPool 创建新的通道池
 func NewChannelPool(conn *Connect, maxSize int) (*ChannelPool, error) {
-	pool := make(chan *amqp.Channel, maxSize)
-	for i := 0; i < maxSize; i++ {
-		ch, err := conn.Conn.Channel()
+	pool := &ChannelPool{
+		conn:    conn,
+		pool:    make(chan *amqp091.Channel, maxSize),
+		maxSize: maxSize,
+	}
+	return pool.reset()
+}
+
+// reset 关闭旧 channel 并重建池
+func (p *ChannelPool) reset() (*ChannelPool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// close existing
+	if p.pool != nil {
+		close(p.pool)
+		for ch := range p.pool {
+			ch.Close()
+		}
+	}
+	// new buffered channel
+	buf := make(chan *amqp091.Channel, p.maxSize)
+	for i := 0; i < p.maxSize; i++ {
+		ch, err := p.conn.Conn.Channel()
 		if err != nil {
+			// 失败则全部清理
+			for c := range buf {
+				c.Close()
+			}
 			return nil, e.Err(err)
 		}
-		pool <- ch
+		buf <- ch
 	}
-	return &ChannelPool{
-		Conn:    conn,
-		pool:    pool,
-		maxSize: maxSize,
-	}, nil
+	p.pool = buf
+	return p, nil
 }
 
-// Get 从通道池中获取一个通道
-func (p *ChannelPool) Get() (*amqp.Channel, error) {
-	if p.Conn.Conn.IsClosed() {
+func (p *ChannelPool) Get() (*amqp091.Channel, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.conn.Conn.IsClosed() {
 		return nil, errors.New("connection is closed")
 	}
 	select {
 	case ch := <-p.pool:
-		if err := ch.Flow(true); err != nil { //这里报错了，这个channel 就自动关闭了
-			return p.Get()
-		}
 		return ch, nil
 	default:
-		return p.Conn.Conn.Channel()
+		return p.conn.Conn.Channel()
 	}
 }
 
-// Put 将通道归还到通道池中
-func (p *ChannelPool) Put(ch *amqp.Channel) {
+func (p *ChannelPool) Put(ch *amqp091.Channel) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if len(p.pool) < p.maxSize {
-		p.pool <- ch
-	} else {
+	if ch == nil {
+		return
+	}
+	if p.pool == nil {
+		ch.Close()
+		return
+	}
+	select {
+	case p.pool <- ch:
+	default:
 		ch.Close()
 	}
 }
 
-// Close 关闭通道池中的所有通道
 func (p *ChannelPool) Close() {
-	defer p.Conn.Close()
-	close(p.pool)
-	for ch := range p.pool {
-		ch.Close()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.pool != nil {
+		close(p.pool)
+		for ch := range p.pool {
+			ch.Close()
+		}
+		p.pool = nil
 	}
 }

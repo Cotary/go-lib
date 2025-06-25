@@ -25,13 +25,13 @@ func TestWorkCh(t *testing.T) {
 
 	workChConfig := QueueConfig{
 		ExchangeName: "test_exchange",
-		ExchangeType: amqp.ExchangeDirect,
+		ExchangeType: amqp091.ExchangeDirect,
 		RouteKey:     "test_route",
 		QueueName:    "test_queue",
 		QueueType:    "quorum",
 	}
 
-	workCh, err := NewQueue(pool, workChConfig)
+	workCh, err := NewQueue(conn, workChConfig)
 	assert.NoError(t, err)
 	assert.NotNil(t, workCh)
 
@@ -41,7 +41,7 @@ func TestWorkCh(t *testing.T) {
 	// 测试生产者
 	done := make(chan bool)
 	go func() {
-		messages := []amqp.Publishing{
+		messages := []amqp091.Publishing{
 			{
 				Body: []byte("message1"),
 			},
@@ -60,7 +60,7 @@ func TestWorkCh(t *testing.T) {
 	// 测试消费者
 	failedMessages := make(map[string]int)
 	go func() {
-		handler := func(msg amqp.Delivery) error {
+		handler := func(msg amqp091.Delivery) error {
 			t.Logf("Received message: %s", msg.Body)
 
 			// 模拟处理失败并回退消息
@@ -72,7 +72,7 @@ func TestWorkCh(t *testing.T) {
 			assert.Contains(t, []string{"message1", "message2", "message3"}, string(msg.Body))
 			return nil
 		}
-		err := workCh.ConsumeMessagesEvery(ctx, MessagePriority, handler)
+		err := workCh.ConsumeMessagesEvery(ctx, MessagePriorityModel, handler)
 		assert.NoError(t, err)
 	}()
 
@@ -97,20 +97,20 @@ func TestWorkCh_SendMessages(t *testing.T) {
 
 	workChConfig := QueueConfig{
 		ExchangeName: "test_exchange",
-		ExchangeType: amqp.ExchangeDirect,
+		ExchangeType: amqp091.ExchangeDirect,
 		RouteKey:     "test_route",
 		QueueName:    "test_queue",
 		QueueType:    "quorum",
 	}
 
-	workCh, err := NewQueue(pool, workChConfig)
+	workCh, err := NewQueue(conn, workChConfig)
 	assert.NoError(t, err)
 	assert.NotNil(t, workCh)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	messages := []amqp.Publishing{
+	messages := []amqp091.Publishing{
 		{
 			Body: []byte("message1"),
 		},
@@ -125,5 +125,4 @@ func TestWorkCh_SendMessages(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Empty(t, failedMessages)
 
-	workCh.Close()
 }
