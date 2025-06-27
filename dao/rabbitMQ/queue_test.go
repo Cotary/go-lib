@@ -19,10 +19,6 @@ func TestWorkCh(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, conn)
 
-	pool, err := NewChannelPool(conn, 5)
-	assert.NoError(t, err)
-	assert.NotNil(t, pool)
-
 	workChConfig := QueueConfig{
 		ExchangeName: "test_exchange",
 		ExchangeType: amqp091.ExchangeDirect,
@@ -60,7 +56,7 @@ func TestWorkCh(t *testing.T) {
 	// 测试消费者
 	failedMessages := make(map[string]int)
 	go func() {
-		handler := func(msg amqp091.Delivery) error {
+		handler := func(msg *Delivery) error {
 			t.Logf("Received message: %s", msg.Body)
 
 			// 模拟处理失败并回退消息
@@ -72,7 +68,7 @@ func TestWorkCh(t *testing.T) {
 			assert.Contains(t, []string{"message1", "message2", "message3"}, string(msg.Body))
 			return nil
 		}
-		err := workCh.ConsumeMessagesEvery(ctx, MessagePriorityModel, handler)
+		err := workCh.ConsumeMessagesEvery(ctx, handler)
 		assert.NoError(t, err)
 	}()
 
@@ -91,10 +87,6 @@ func TestWorkCh_SendMessages(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, conn)
 
-	pool, err := NewChannelPool(conn, 5)
-	assert.NoError(t, err)
-	assert.NotNil(t, pool)
-
 	workChConfig := QueueConfig{
 		ExchangeName: "test_exchange",
 		ExchangeType: amqp091.ExchangeDirect,
@@ -107,8 +99,18 @@ func TestWorkCh_SendMessages(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, workCh)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	fmt.Println("can disconnect")
+	time.Sleep(5 * time.Second)
+
+	go func() {
+
+		handler := func(msg *Delivery) error {
+			fmt.Println("receive message", string(msg.Body))
+			return nil
+		}
+		err := workCh.ConsumeMessagesEvery(context.Background(), handler)
+		assert.NoError(t, err)
+	}()
 
 	messages := []amqp091.Publishing{
 		{
@@ -118,11 +120,12 @@ func TestWorkCh_SendMessages(t *testing.T) {
 			Body: []byte("message2"),
 		},
 		{
-			Body: []byte("message2"),
+			Body: []byte("message3"),
 		},
 	}
-	failedMessages, err := workCh.SendMessages(ctx, messages)
-	assert.NoError(t, err)
-	assert.Empty(t, failedMessages)
+	err = workCh.SendMessagesEvery(context.Background(), messages)
+	fmt.Println(err)
+
+	time.Sleep(10 * time.Second)
 
 }

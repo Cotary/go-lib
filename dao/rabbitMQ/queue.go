@@ -3,144 +3,168 @@ package rabbitMQ
 import (
 	"context"
 	"fmt"
-	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/rabbitmq/amqp091-go"
+	"runtime/debug"
 	"time"
 )
 
+// QueueConfig 包含交换机和队列配置
 type QueueConfig struct {
 	ExchangeName string
-	ExchangeType string
+	ExchangeType string // 添加交换机类型
 	RouteKey     string
 	QueueName    string
 	QueueType    string
 }
 
+// Queue 表示工作通道结构体
 type Queue struct {
 	QueueConfig
-	conn *Connect
+	*Connect
 }
 
-func NewQueue(conn *Connect, cfg QueueConfig) (*Queue, error) {
-	pool := conn.Pool()
-	ch, err := pool.Get()
+// NewQueue 创建工作模式通道，使用通道池获取通道
+func NewQueue(conn *Connect, config QueueConfig) (*Queue, error) {
+	ch, err := conn.GetCh() // 从通道池中获取通道
 	if err != nil {
 		return nil, e.Err(err)
 	}
-	defer pool.Put(ch)
+	defer conn.PutCh(ch) // 确保方法退出时归还通道
 
-	if cfg.ExchangeType == "" {
-		cfg.ExchangeType = amqp091.ExchangeDirect
+	if config.ExchangeType == "" {
+		config.ExchangeType = amqp091.ExchangeDirect // 默认为直连交换机
 	}
-	if cfg.QueueType == "" {
-		cfg.QueueType = "quorum"
+	if config.QueueType == "" {
+		config.QueueType = "quorum" // 默认为持久队列
 	}
+
 	// 声明交换机
-	if err = ch.ExchangeDeclare(
-		cfg.ExchangeName,
-		cfg.ExchangeType,
+	err = ch.ExchangeDeclare(
+		config.ExchangeName,
+		config.ExchangeType,
 		true,
 		false,
 		false,
 		false,
 		nil,
-	); err != nil {
+	)
+	if err != nil {
 		return nil, e.Err(err)
 	}
-	// 声明队列
-	args := amqp091.Table{}
-	if cfg.QueueType != "" {
-		args = amqp091.Table{"x-queue-type": cfg.QueueType}
 
+	queueArgs := amqp091.Table{}
+	if config.QueueType != "" {
+		queueArgs = amqp091.Table{"x-queue-type": config.QueueType}
 	}
 	_, err = ch.QueueDeclare(
-		cfg.QueueName,
+		config.QueueName,
 		true,
 		false,
 		false,
 		false,
-		args,
+		queueArgs,
 	)
 	if err != nil {
 		return nil, e.Err(err)
 	}
-	// 绑定
+
+	// 绑定队列到交换机
 	err = ch.QueueBind(
-		cfg.QueueName,
-		cfg.RouteKey,
-		cfg.ExchangeName,
+		config.QueueName,
+		config.RouteKey,
+		config.ExchangeName,
 		false,
 		nil,
 	)
 	if err != nil {
 		return nil, e.Err(err)
 	}
+
 	return &Queue{
-		QueueConfig: cfg,
-		conn:        conn,
+		QueueConfig: config,
+		Connect:     conn,
 	}, nil
 }
 
-// SendMessages ：批量发布并收集所有 nack/return
-func (q *Queue) SendMessages(ctx context.Context, messages []amqp091.Publishing) ([]amqp091.Publishing, error) {
-	ch, err := q.conn.Pool().Get()
+// SendMessages 发送消息到队列并返回未成功的消息列表
+func (c *Queue) SendMessages(ctx context.Context, messages []amqp091.Publishing) ([]amqp091.Publishing, error) {
+	ch, err := c.GetCh()
 	if err != nil {
 		return messages, e.Err(err)
 	}
-	defer ch.Close()
+	defer func() {
+		_ = ch.Close()
+	}()
 
-	// mandatory=true
+	// 开启确认模式
 	err = ch.Confirm(false)
 	if err != nil {
 		return messages, e.Err(err)
 	}
-	returns := ch.NotifyReturn(make(chan amqp091.Return, len(messages)))
+
+	// 确认通道
+	//returns := ch.NotifyReturn(make(chan amqp091.Return, len(messages)))
 	confirms := ch.NotifyPublish(make(chan amqp091.Confirmation, len(messages)))
 
-	// publish loop
+	// 批量发送消息
 	for i := range messages {
-		if messages[i].Headers == nil {
-			messages[i].Headers = amqp091.Table{}
-		}
-		messages[i].Headers["__idx"] = i
+		//if messages[i].Headers == nil {
+		//	messages[i].Headers = amqp091.Table{}
+		//}
+		//messages[i].Headers["__idx"] = i
+		messages[i].DeliveryMode = amqp091.Persistent //消息持久化
 
-		messages[i].DeliveryMode = amqp091.Persistent
 		err = ch.Publish(
-			q.ExchangeName,
-			q.RouteKey,
-			true,  // mandatory
-			false, // immediate
+			c.ExchangeName, // 交换机
+			c.RouteKey,     // 路由键（队列名称）
+			false,          //mandatory 是否强制发送,配合returns
+			false,          //immediate 是否立即发送
 			messages[i],
 		)
 		if err != nil {
-			// 通道层面失败：所有还没发的、已发的直接当失败
 			return messages, e.Err(err)
 		}
 	}
 
-	// 等待并收集
-	failed := make([]amqp091.Publishing, 0, len(messages))
+	timeout := 5 * time.Second
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	// 等待确认
+	var failed []amqp091.Publishing
 	for i := 0; i < len(messages); i++ {
 		select {
-		case ret := <-returns:
-			if rawIdx, ok := ret.Headers["__idx"]; ok {
-				failed = append(failed, messages[int(utils.AnyToInt(rawIdx))])
-			} else {
-				failed = append(failed, returnToPublishing(ret))
-			}
+		//case ret := <-returns:
+		//	if rawIdx, ok := ret.Headers["__idx"]; ok {
+		//		failed = append(failed, messages[int(utils.AnyToInt(rawIdx))])
+		//	} else {
+		//		failed = append(failed, returnToPublishing(ret))
+		//	}
 		case confirm := <-confirms:
 			if !confirm.Ack {
 				failed = append(failed, messages[confirm.DeliveryTag-1])
 			}
+		case <-timer.C:
+			// 超时：剩余所有未确认的都当失败
+			//可以放心这么写，因为 AMQP 的 Publisher‐Confirm 本身就是「严格按发送顺序」来回送 Ack/Nack 的。底层有这么几个保证：
+			//1.每次 ch.Publish 之后，ch.NextPublishSeqNo 单调自增，从 1 开始。
+			//2.服务器端收到消息后，会生成一个对应的 Confirmation，并且「按序」推回客户端。
+			//3.Go 客户端的 NotifyPublish chan 就是把这些按序的 Confirmation 发给你。
+			for j := i; j < len(messages); j++ {
+				failed = append(failed, messages[j])
+			}
+			return failed, fmt.Errorf("publish confirm timeout after %s", timeout)
 		case <-ctx.Done():
 			return messages, e.Err(ctx.Err())
 		}
 	}
+
 	if len(failed) > 0 {
 		return failed, fmt.Errorf("some messages failed to deliver")
 	}
+
 	return nil, nil
 }
 
@@ -158,16 +182,16 @@ func returnToPublishing(ret amqp091.Return) amqp091.Publishing {
 	}
 }
 
-// SendMessagesEvery：永不丢，直到队列端确认
-func (q *Queue) SendMessagesEvery(ctx context.Context, msgs []amqp091.Publishing) error {
-	pending := msgs
+// SendMessagesEvery 持续发送消息，直到消息发送成功为止
+func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp091.Publishing) error {
+	pending := messages
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-		failed, err := q.SendMessages(ctx, pending)
+		failed, err := c.SendMessages(ctx, pending)
 		if err == nil && len(failed) == 0 {
 			return nil
 		}
@@ -178,105 +202,131 @@ func (q *Queue) SendMessagesEvery(ctx context.Context, msgs []amqp091.Publishing
 	}
 }
 
-var (
-	// Deliveries 通道关闭时的标记错误
-	channelClosedErr = errors.New("deliveries channel closed")
-)
+var channelClosedErr = errors.New("deliveries channel closed") // 通道关闭的error
 
-const (
-	MessagePriorityModel = "MessagePriority"
-	ConfirmPriorityModel = "ConfirmPriority"
-)
-
-// ConsumeMessagesEvery 持续消费消息，遇到通道关闭或错误时自动重试
-func (q *Queue) ConsumeMessagesEvery(
-	ctx context.Context,
-	model string,
-	handler func(amqp091.Delivery) error,
-) error {
+// ConsumeMessagesEvery 持续消费消息并处理，确保通道在处理完消息后才归还
+func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(*Delivery) error) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-		}
-
-		// 在单次调用中消费，出错就 break 跳到重试逻辑
-		err := q.ConsumeMessages(ctx, model, handler)
-		if err != nil && !errors.Is(err, channelClosedErr) {
-			// 非通道关闭错误发报警
-			e.SendMessage(ctx, err)
-		}
-
-		// 等待再重试
-		select {
-		case <-time.After(5 * time.Second):
-		case <-ctx.Done():
-			return ctx.Err()
+			err := c.ConsumeMessages(ctx, handler)
+			if err != nil {
+				if !errors.Is(err, channelClosedErr) {
+					e.SendMessage(ctx, err)
+				}
+				// 等待一段时间后重试，避免无限快速重试
+				select {
+				case <-time.After(time.Second * 5): // 重试间隔时间
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
 		}
 	}
 }
 
-// consumeOnce 在一个 channel 上拉一次消息，普通错误或通道断开时返回
-func (q *Queue) ConsumeMessages(ctx context.Context, model string, handler func(amqp091.Delivery) error) error {
-	// 1) 取通道
-	ch, err := q.conn.Pool().Get()
+// ConsumeMessages 消费消息并处理，确保通道在处理完消息后才归还
+func (c *Queue) ConsumeMessages(ctx context.Context, handler func(*Delivery) error) error {
+	ch, err := c.GetCh()
 	if err != nil {
 		return e.Err(err)
 	}
-	defer q.conn.Pool().Put(ch)
+	tag := uuid.New().String()
+	defer func() {
+		ch.Cancel(tag, false)
+		ch.Close() // 关闭通道,没有确认的会重新入队
+	}()
 
-	// 2) 批量拉 Prefetch=1
-	err = ch.Qos(1, 0, false)
+	err = ch.Qos(1, 0, false) // 设置 QoS 1条/次
 	if err != nil {
 		return e.Err(err)
 	}
-
-	// 3) 建立 consume 管道
 	deliveries, err := ch.Consume(
-		q.QueueName,
-		"",
-		false, // noAutoAck
-		false, // exclusive
-		false, // noLocal
-		false, // noWait
-		nil,   // args
+		c.QueueName,
+		tag,
+		false,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
 		return e.Err(err)
 	}
 
-	// 4) 循环读取
 	for {
 		select {
 		case <-ctx.Done():
-			return e.Err(ctx.Err())
-		case msg, ok := <-deliveries:
+			return e.Err(ctx.Err()) // 上下文取消，退出循环
+		case amqpMsg, ok := <-deliveries:
 			if !ok {
-				// 通道被关闭了
 				return channelClosedErr
 			}
-			// 根据模式决定 Ack/Nack 顺序
-			if model == MessagePriorityModel {
-				err = handler(msg)
-				if err != nil {
-					if err = msg.Nack(false, true); err != nil {
-						return e.Err(err)
+			d := NewDelivery(amqpMsg)
+
+			// 用局部 err 保证每条消息都单独判断
+			localErr := func() (err error) {
+				// 捕获 panic，转成 error 回传，并发送报警
+				defer func() {
+					if r := recover(); r != nil {
+						stack := debug.Stack()
+						err = fmt.Errorf("handler panic: %v\n%s", r, stack)
+						e.SendMessage(ctx, err)
 					}
-				} else {
-					if err = msg.Ack(false); err != nil {
-						return e.Err(err)
-					}
-				}
+				}()
+				return handler(d)
+			}()
+
+			// 根据 localErr 做 Ack/Nack，不再复用外层 err
+			if localErr != nil {
+				e.SendMessage(ctx, e.Err(localErr, "mq consume error"))
+				d.Nack()
 			} else {
-				if err = msg.Ack(false); err != nil { // 这里确认之后，就会获取下一条记录
-					return e.Err(err)
-				}
-				err = handler(msg) // 当消息处理超时，这个for会直接完成，然后重新获取通道等情况，同时会重新发送下一条记录，所以会有Redelivered出现
-				if err != nil {
-					e.SendMessage(ctx, errors.WithMessage(err, fmt.Sprintf("handle error message:%v", string(msg.Body))))
-				}
+				d.Ack()
 			}
+			if d.Err != nil {
+				return d.Err
+			}
+
 		}
 	}
+}
+
+type Delivery struct {
+	amqp091.Delivery
+	Acked  bool
+	Nacked bool
+	Err    error
+}
+
+func NewDelivery(d amqp091.Delivery) *Delivery {
+	return &Delivery{Delivery: d}
+}
+
+// Ack 确认消费（multiple=false）
+func (d *Delivery) Ack() {
+	if d.Acked {
+		return
+	}
+	err := d.Delivery.Ack(false)
+	if err != nil {
+		d.Err = err
+	}
+	d.Acked = true
+	return
+}
+
+// Nack 重回队列（multiple=false, requeue=true）
+func (d *Delivery) Nack() {
+	if d.Nacked {
+		return
+	}
+	err := d.Delivery.Nack(false, true)
+	if err != nil {
+		d.Err = err
+	}
+	d.Nacked = true
+	return
 }

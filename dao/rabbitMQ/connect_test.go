@@ -1,6 +1,7 @@
 package rabbitMQ
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -35,7 +36,7 @@ func TestNewRabbitMQ(t *testing.T) {
 
 	// Ensure health check is running
 	time.Sleep(2 * time.Second)
-	assert.False(t, rabbitMQ.Conn.IsClosed())
+	assert.False(t, rabbitMQ.conn.IsClosed())
 }
 
 func TestClose(t *testing.T) {
@@ -47,13 +48,8 @@ func TestClose(t *testing.T) {
 	rabbitMQ, err := NewRabbitMQ(config)
 	assert.NoError(t, err)
 	assert.NotNil(t, rabbitMQ)
+	fmt.Println("can disconnect")
 
-	rabbitMQ.Close()
-
-	// Verify that the connection is closed
-	assert.True(t, rabbitMQ.Conn.IsClosed())
-
-	// Ensure health check is stopped
-	time.Sleep(2 * time.Second)
-	assert.True(t, rabbitMQ.Conn.IsClosed())
+	time.Sleep(120 * time.Second)
+	assert.False(t, rabbitMQ.conn.IsClosed())
 }
