@@ -25,7 +25,9 @@ func Client() *resty.Client {
 
 func Request() *RestyRequest {
 	return &RestyRequest{
-		Request: defaultClient.R(),
+		Request:      defaultClient.R(),
+		keepLog:      true,
+		sendErrorMsg: true,
 	}
 }
 
