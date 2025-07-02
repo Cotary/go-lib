@@ -1,7 +1,6 @@
 package e
 
 import (
-	"context"
 	"runtime"
 
 	"github.com/pkg/errors"
@@ -56,17 +55,10 @@ type CodeErr struct {
 	Code  int    `json:"code"`    //内置的http错误
 	Msg   string `json:"message"` //内置的http错误
 	Level Level  `json:"-"`       //内置的http错误等级
-	*stack
 }
 
 func (e *CodeErr) Error() string {
 	return e.Msg
-}
-func (e *CodeErr) WithStack() *CodeErr {
-	if e.stack == nil {
-		e.stack = callers()
-	}
-	return e
 }
 
 func NewCodeErr(code int, msg string, level Level) *CodeErr {
@@ -84,35 +76,36 @@ type HttpErr struct {
 	Data     interface{} `json:"data"`
 }
 
-func NewHttpErr(codeErr *CodeErr, err error) HttpErr {
+func HErr(codeErr *CodeErr, err ...error) *HttpErr {
+	if len(err) > 0 {
+		return NewHttpErr(codeErr, err[0])
+	}
+	return NewHttpErr(codeErr, nil)
+}
+
+func NewHttpErr(codeErr *CodeErr, err error) *HttpErr {
 	if err == nil {
-		return HttpErr{
-			CodeErr: codeErr.WithStack(),
+		return &HttpErr{
+			CodeErr: codeErr,
+			Err:     errors.New(""),
 		}
 	}
-	return HttpErr{
+	return &HttpErr{
 		CodeErr: codeErr,
 		Err:     Err(err),
 	}
 
 }
 
-func (t HttpErr) Error() string {
+func (t *HttpErr) Error() string {
 	return t.CodeErr.Error()
 }
 
-func (t HttpErr) Unwrap() error {
+func (t *HttpErr) Unwrap() error {
 	return t.Err
 }
 
-func (t HttpErr) SetData(data interface{}) error {
+func (t *HttpErr) SetData(data interface{}) error {
 	t.Data = data
 	return t
-}
-
-func (t HttpErr) SendErrorMsg(ctx context.Context) {
-	if t.Level <= WarnLevel {
-		SendMessage(ctx, t)
-	}
-
 }

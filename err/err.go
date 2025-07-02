@@ -12,13 +12,6 @@ import (
 
 func Err(err error, message ...string) error {
 	str := strings.Join(message, "-")
-	if codeErr, ok := err.(*CodeErr); ok {
-		if str != "" {
-			return NewHttpErr(codeErr, errors.New(str))
-		}
-		return codeErr.WithStack()
-	}
-
 	if err == nil {
 		if str != "" {
 			return errors.New(str)
@@ -27,7 +20,7 @@ func Err(err error, message ...string) error {
 		}
 	}
 
-	hasStack := GetStakeErr(err) != nil
+	hasStack := GetStackErr(err) != nil
 	if hasStack {
 		if len(message) > 0 {
 			return errors.WithMessage(err, str)
@@ -41,7 +34,7 @@ func Err(err error, message ...string) error {
 	return errors.WithStack(err)
 }
 
-func GetStakeErr(err error) error {
+func GetStackErr(err error) error {
 	for unwrapErr := err; unwrapErr != nil; {
 		if _, ok := unwrapErr.(interface {
 			StackTrace() errors.StackTrace

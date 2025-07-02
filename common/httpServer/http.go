@@ -64,6 +64,7 @@ func (request *RestyRequest) SetTimeout(timeout time.Duration) *RestyRequest {
 }
 
 func (request *RestyRequest) HttpRequest(ctx context.Context, method string, url string, query map[string][]string, body interface{}, headers map[string]string) (res *RestyResult) {
+	request.SetContext(ctx)
 	res = &RestyResult{
 		RestyRequest: request,
 	}
@@ -94,14 +95,12 @@ func (request *RestyRequest) HttpRequest(ctx context.Context, method string, url
 	}
 
 	resp, err := executeRequest(request.Request, method, url)
-	rr := &RestyResult{
-		Response: resp,
-		Error:    err,
-	}
+	res.Response = resp
+	res.Error = err
 	if request.keepLog {
-		rr.Log(log.WithContext(ctx))
+		res.Log(log.WithContext(ctx))
 	}
-	return rr
+	return res
 }
 
 func executeRequest(req *resty.Request, method, url string) (*resty.Response, error) {
@@ -135,6 +134,9 @@ func (t *RestyResult) SetHandlers(handlers ...ResponseHandler) *RestyResult {
 
 func (t *RestyResult) Log(logEntry log.Logger) *RestyResult {
 	ctx := t.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	logMap := map[string]interface{}{
 		"Context ID": ctx.Value(defined.RequestID),
 	}
