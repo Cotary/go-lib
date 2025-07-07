@@ -307,7 +307,7 @@ func NewDelivery(d amqp091.Delivery) *Delivery {
 
 // Ack 确认消费（multiple=false）
 func (d *Delivery) Ack() {
-	if d.Acked {
+	if d.Acked || d.Nacked {
 		return
 	}
 	err := d.Delivery.Ack(false)
@@ -320,7 +320,7 @@ func (d *Delivery) Ack() {
 
 // Nack 重回队列（multiple=false, requeue=true）
 func (d *Delivery) Nack() {
-	if d.Nacked {
+	if d.Acked || d.Nacked {
 		return
 	}
 	err := d.Delivery.Nack(false, true)
