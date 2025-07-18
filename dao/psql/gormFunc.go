@@ -3,11 +3,9 @@ package psql
 import (
 	"context"
 	"errors"
-	"github.com/Cotary/go-lib/common/community"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"reflect"
-	"strings"
 	"time"
 )
 
@@ -54,17 +52,31 @@ func DbAffectedErr(db *gorm.DB) error {
 	return db.Error
 }
 
-func MustGet(ctx context.Context, db *gorm.DB, item interface{}, condition map[string]interface{}) error {
-	err := db.WithContext(ctx).Where(condition).First(item).Error
-	return DbErr(err)
+func MustGet[T any](ctx context.Context, db *gorm.DB, opts ...QueryOption) (res T, err error) {
+	q := db.WithContext(ctx).Model(new(T))
+	for _, opt := range opts {
+		q = opt(q)
+	}
+	err = q.First(&res).Error
+	return res, DbErr(err)
 }
 
-func Get(ctx context.Context, db *gorm.DB, item interface{}, condition map[string]interface{}) error {
-	return db.WithContext(ctx).Where(condition).First(item).Error
+func Get[T any](ctx context.Context, db *gorm.DB, opts ...QueryOption) (res T, err error) {
+	q := db.WithContext(ctx).Model(new(T))
+	for _, opt := range opts {
+		q = opt(q)
+	}
+	err = q.First(&res).Error
+	return res, err
 }
 
-func List(ctx context.Context, db *gorm.DB, list interface{}, condition map[string]interface{}) error {
-	return db.WithContext(ctx).Where(condition).Find(list).Error
+func List[T any](ctx context.Context, db *gorm.DB, opts ...QueryOption) (res []T, err error) {
+	q := db.WithContext(ctx).Model(new(T))
+	for _, opt := range opts {
+		q = opt(q)
+	}
+	err = q.Find(&res).Error
+	return res, err
 }
 
 func Insert(ctx context.Context, db *gorm.DB, data interface{}) error {
@@ -158,39 +170,5 @@ func Save(ctx context.Context, db *gorm.DB, data interface{}, updateFields []str
 	return dbModel.Create(data)
 }
 
-func Paging(db *gorm.DB, paging *community.Paging) *gorm.DB {
-	if paging.PageSize < 1 {
-		paging.PageSize = 20
-	}
-	if paging.Page < 1 {
-		paging.Page = 1
-	}
-	if paging.All {
-		return db
-	}
-	return db.Limit(paging.PageSize).Offset((paging.Page - 1) * paging.PageSize)
-}
-func Total(db *gorm.DB, count *int64) *gorm.DB {
-	return db.Limit(-1).Offset(-1).Count(count)
-}
-
-func Order(db *gorm.DB, order community.Order, bind map[string]string) *gorm.DB {
-	if order.OrderField == "" {
-		return db
-	}
-	orderType := "asc"
-	if order.OrderType == "desc" {
-		orderType = "desc"
-	}
-	field, ok := bind[order.OrderField]
-	orderStr := ""
-	if ok {
-		if strings.Contains(field, "{order_type}") {
-			orderStr = strings.Replace(field, "{order_type}", orderType, -1)
-		} else {
-			orderStr = field + " " + orderType
-		}
-		return db.Order(orderStr)
-	}
-	return db
-}
+//整合一个list查询
+//搞一个condition方式

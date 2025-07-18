@@ -11,7 +11,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm/logger"
-	_ "gorm.io/gorm/logger"
 	"gorm.io/gorm/utils"
 	"time"
 )

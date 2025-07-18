@@ -3,7 +3,6 @@ package psql
 import (
 	log2 "github.com/Cotary/go-lib/log"
 	"github.com/google/uuid"
-	_ "github.com/lib/pq"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
