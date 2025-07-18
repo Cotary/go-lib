@@ -94,7 +94,7 @@ type ComboFilter struct {
 	// OR 组合：ge|le
 	RangeOr int64 `filter:"created_at,ge|le"`
 	// 多列 AND：like&eq
-	MultiColAnd int64 `filter:"name|description,like&eq"`
+	MultiColAnd int64 `filter:"name|description,like&eq|<>"`
 	// 多列 OR：like|eq
 	MultiColOr int64 `filter:"name|description,like|eq"`
 }
