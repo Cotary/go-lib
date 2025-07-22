@@ -142,9 +142,18 @@ func (c *Queue) SendMessages(ctx context.Context, messages []amqp091.Publishing)
 		//	} else {
 		//		failed = append(failed, returnToPublishing(ret))
 		//	}
-		case confirm := <-confirms:
+		case confirm, ok := <-confirms:
+			if !ok {
+				// confirms 通道被关闭：把剩余都算失败
+				for j := i; j < len(messages); j++ {
+					failed = append(failed, messages[j])
+				}
+				return failed, fmt.Errorf("confirm channel closed unexpectedly")
+			}
 			if !confirm.Ack {
-				failed = append(failed, messages[confirm.DeliveryTag-1])
+				// ack=false，也算失败
+				idx := int(confirm.DeliveryTag - 1)
+				failed = append(failed, messages[idx])
 			}
 		case <-timer.C:
 			// 超时：剩余所有未确认的都当失败
