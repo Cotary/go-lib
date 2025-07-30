@@ -55,7 +55,9 @@ func DbAffectedErr(db *gorm.DB) error {
 func MustGet[T any](ctx context.Context, db *gorm.DB, opts ...QueryOption) (res T, err error) {
 	q := db.WithContext(ctx).Model(new(T))
 	for _, opt := range opts {
-		q = opt(q)
+		if opt != nil {
+			q = opt(q)
+		}
 	}
 	err = q.First(&res).Error
 	return res, DbErr(err)
@@ -64,7 +66,9 @@ func MustGet[T any](ctx context.Context, db *gorm.DB, opts ...QueryOption) (res 
 func Get[T any](ctx context.Context, db *gorm.DB, opts ...QueryOption) (res T, err error) {
 	q := db.WithContext(ctx).Model(new(T))
 	for _, opt := range opts {
-		q = opt(q)
+		if opt != nil {
+			q = opt(q)
+		}
 	}
 	err = q.First(&res).Error
 	return res, err
@@ -73,7 +77,9 @@ func Get[T any](ctx context.Context, db *gorm.DB, opts ...QueryOption) (res T, e
 func List[T any](ctx context.Context, db *gorm.DB, opts ...QueryOption) (res []T, err error) {
 	q := db.WithContext(ctx).Model(new(T))
 	for _, opt := range opts {
-		q = opt(q)
+		if opt != nil {
+			q = opt(q)
+		}
 	}
 	err = q.Find(&res).Error
 	return res, err
