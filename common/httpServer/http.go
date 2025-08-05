@@ -176,25 +176,19 @@ func (t *RestyResult) Parse(path string, data interface{}) error {
 		return t.Error
 	}
 
-	logTxt := utils.Json(t.Logs)
-	if t.Logs == nil {
-		logTxt = t.Response.String()
-	}
-
-	errMsg := fmt.Sprintf("Response not success: %s", logTxt)
 	if !t.IsSuccess() {
-		return errors.New(errMsg)
+		return errors.New(t.getErrMsg())
 	}
 
-	isJson := utils.IsJson(t.String())
+	isJson := utils.IsJson(t.Response.Body())
 	if !isJson {
-		return errors.New("Response is not json: " + errMsg)
+		return errors.New("Response is not json: " + t.getErrMsg())
 	}
 	gj := gjson.Parse(t.String())
 
 	for _, f := range t.Handlers {
 		if err := f(t, gj); err != nil {
-			return errors.Wrap(err, errMsg)
+			return errors.Wrap(err, t.getErrMsg())
 		}
 	}
 
@@ -218,4 +212,12 @@ func (t *RestyResult) Parse(path string, data interface{}) error {
 		return e.Err(err, "response parse error")
 	}
 	return nil
+}
+
+func (t *RestyResult) getErrMsg() string {
+	logTxt := utils.Json(t.Logs)
+	if t.Logs == nil {
+		logTxt = t.Response.String()
+	}
+	return fmt.Sprintf("Response not success: %s", logTxt)
 }

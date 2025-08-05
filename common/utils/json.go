@@ -20,6 +20,6 @@ func IsJson(data []byte) bool {
 	return NJson.Valid(data)
 }
 
-func GValue(data []byte) any {
-	return json.RawMessage(data)
+func JsonRaw(data []byte) json.RawMessage {
+	return data
 }
