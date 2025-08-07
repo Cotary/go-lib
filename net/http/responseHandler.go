@@ -1,4 +1,4 @@
-package httpServer
+package http
 
 import (
 	"fmt"
@@ -6,10 +6,11 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-type ResponseHandler func(res *RestyResult, gj gjson.Result) error
+type ResponseHandler func(res *Result) error
 
 var CodeCheckHandler = func(code int64, codeStr ...string) ResponseHandler {
-	return func(res *RestyResult, gj gjson.Result) error {
+	return func(res *Result) error {
+		gj := gjson.ParseBytes(res.Response.Body)
 		field := "code"
 		if len(codeStr) > 0 {
 			field = codeStr[0]

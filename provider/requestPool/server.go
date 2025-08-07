@@ -600,7 +600,7 @@ func CheckJson(ctx context.Context, t *resty.Response) error {
 	if !t.IsSuccess() {
 		return errors.New(fmt.Sprintf("Response Status not success: %v", t.StatusCode()))
 	}
-	isJson := utils.IsJson(t.String())
+	isJson := utils.IsJson(t.Body())
 	if !isJson {
 		return errors.New("Response is not json")
 	}

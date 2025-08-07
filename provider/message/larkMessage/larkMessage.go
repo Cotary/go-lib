@@ -7,10 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/Cotary/go-lib/common/httpServer"
 	"github.com/Cotary/go-lib/common/utils"
+	http2 "github.com/Cotary/go-lib/net/http"
 	"github.com/coocood/freecache"
-	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	"net/http"
 	"time"
@@ -35,7 +34,7 @@ type larkMessage struct {
 	Sign      string                         `json:"sign"`
 }
 
-func (t LarkRobot) SendMessage(language string, title string, message []string, atList []string, intercept bool) (*resty.Response, error) {
+func (t LarkRobot) SendMessage(language string, title string, message []string, atList []string, intercept bool) (*http2.Response, error) {
 	m := genMsg(language, title, message, atList)
 
 	//send
@@ -59,7 +58,7 @@ func (t LarkRobot) SendMessage(language string, title string, message []string, 
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
-	res := httpServer.Request().HttpRequest(context.Background(), http.MethodPost, url, nil, str, headers)
+	res := http2.NewRequestBuilder(http2.DefaultFastHTTPClient).Execute(context.Background(), http.MethodPost, url, nil, str, headers)
 	return res.Response, res.Error
 }
 
