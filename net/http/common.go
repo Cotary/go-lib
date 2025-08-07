@@ -3,14 +3,32 @@ package http
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"time"
+
 	"github.com/Cotary/go-lib/common/defined"
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/Cotary/go-lib/log"
 	"github.com/pkg/errors"
 	"github.com/tidwall/gjson"
-	"time"
 )
+
+// 有效的HTTP方法
+var validHTTPMethods = map[string]bool{
+	http.MethodGet:     true,
+	http.MethodPost:    true,
+	http.MethodPut:     true,
+	http.MethodDelete:  true,
+	http.MethodPatch:   true,
+	http.MethodHead:    true,
+	http.MethodOptions: true,
+}
+
+// isValidHTTPMethod 验证HTTP方法是否有效
+func isValidHTTPMethod(method string) bool {
+	return validHTTPMethods[method]
+}
 
 // Request defines the payload for an HTTP request.
 type Request struct {
@@ -88,6 +106,45 @@ func (rb *RequestBuilder[T]) SetTimeout(timeout time.Duration) *RequestBuilder[T
 
 // Execute performs the HTTP request and returns a Result.
 func (rb *RequestBuilder[T]) Execute(ctx context.Context, method string, url string, query map[string][]string, body interface{}, headers map[string]string) *Result {
+	// 验证基本参数
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if url == "" {
+		return &Result{
+			Request: &Request{
+				Ctx:     ctx,
+				Method:  method,
+				URL:     url,
+				Query:   query,
+				Body:    body,
+				Headers: headers,
+				Timeout: rb.timeout,
+			},
+			Error:        errors.New("URL cannot be empty"),
+			KeepLog:      rb.keepLog,
+			SendErrorMsg: rb.sendErrorMsg,
+		}
+	}
+
+	// 验证HTTP方法
+	if !isValidHTTPMethod(method) {
+		return &Result{
+			Request: &Request{
+				Ctx:     ctx,
+				Method:  method,
+				URL:     url,
+				Query:   query,
+				Body:    body,
+				Headers: headers,
+				Timeout: rb.timeout,
+			},
+			Error:        errors.New(fmt.Sprintf("Invalid HTTP method: %s", method)),
+			KeepLog:      rb.keepLog,
+			SendErrorMsg: rb.sendErrorMsg,
+		}
+	}
+
 	req := &Request{
 		Ctx:     ctx,
 		Method:  method,

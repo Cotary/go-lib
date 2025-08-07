@@ -1,6 +1,8 @@
 package http
 
 import (
+	"time"
+
 	"github.com/Cotary/go-lib/common/utils"
 	"github.com/pkg/errors"
 	"github.com/valyala/fasthttp"
@@ -19,7 +21,11 @@ func NewFastHTTPClient(args ...*fasthttp.Client) *FastHTTPClient {
 		}
 	}
 	return &FastHTTPClient{
-		client: &fasthttp.Client{},
+		client: &fasthttp.Client{
+			MaxConnsPerHost: 1000,
+			ReadTimeout:     30 * time.Second,
+			WriteTimeout:    30 * time.Second,
+		},
 	}
 }
 
@@ -28,6 +34,11 @@ func (fc *FastHTTPClient) Do(req *Request) (*Response, error) {
 	fastResp := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseRequest(fastReq)
 	defer fasthttp.ReleaseResponse(fastResp)
+
+	// 验证请求参数
+	if req.URL == "" {
+		return nil, errors.New("URL cannot be empty")
+	}
 
 	fastReq.Header.SetMethod(req.Method)
 	fastReq.SetRequestURI(req.URL)

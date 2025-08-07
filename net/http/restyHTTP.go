@@ -2,10 +2,10 @@ package http
 
 import (
 	"context"
+	"net"
+
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
-	"net"
-	"net/http"
 )
 
 var DefaultRestyClient = NewRestyClient()
@@ -26,6 +26,10 @@ func NewRestyClient(args ...*resty.Client) *RestyClient {
 }
 
 func (rc *RestyClient) Do(req *Request) (*Response, error) {
+	// 验证请求参数
+	if req.URL == "" {
+		return nil, errors.New("URL cannot be empty")
+	}
 
 	restyReq := rc.client.R().SetContext(req.Ctx)
 	restyReq.SetQueryParamsFromValues(req.Query)
@@ -44,19 +48,7 @@ func (rc *RestyClient) Do(req *Request) (*Response, error) {
 	var restyResp *resty.Response
 	var err error
 
-	switch req.Method {
-	case http.MethodGet:
-		restyResp, err = restyReq.Get(req.URL)
-	case http.MethodPost:
-		restyResp, err = restyReq.Post(req.URL)
-	case http.MethodPut:
-		restyResp, err = restyReq.Put(req.URL)
-	case http.MethodDelete:
-		restyResp, err = restyReq.Delete(req.URL)
-	default:
-		restyResp, err = restyReq.Get(req.URL)
-	}
-
+	restyResp, err = restyReq.Execute(req.Method, req.URL)
 	resp := &Response{}
 	if restyResp != nil {
 		resp.StatusCode = restyResp.StatusCode()
