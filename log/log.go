@@ -5,15 +5,19 @@ import (
 	"github.com/Cotary/go-lib/common/defined"
 )
 
+var ISO8601TimeLayout = "2006-01-02T15:04:05.000Z07:00"
+
+// Config 日志配置
+// MaxAge和MaxBackups满足一个即可被清除
 type Config struct {
-	Level         string `yaml:"level"`         // 日志级别
-	Path          string `yaml:"path"`          // 日志文件路径
-	FileSuffix    string `yaml:"fileSuffix"`    // 日志文件后缀
-	MaxAgeHour    int64  `yaml:"maxAgeHour"`    // 日志文件最大保存时间（小时）
-	RotationTime  int64  `yaml:"rotationTime"`  // 日志文件轮转时间
-	RotationCount int64  `yaml:"rotationCount"` // 日志文件最大数量
-	RotationSize  int64  `yaml:"rotationSize"`  // 日志文件大小 MB
-	FileName      string `yaml:"fileName"`      // 日志文件名
+	Level      string `yaml:"level"`      // 日志级别
+	Path       string `yaml:"path"`       // 日志文件路径
+	FileSuffix string `yaml:"fileSuffix"` // 日志文件后缀
+	MaxAge     int64  `yaml:"maxAge"`     // 日志文件最大保存时间（24小时）: 0默认30天,-1不限制
+	MaxBackups int64  `yaml:"maxBackups"` // 日志文件最大数量（备份数），默认不限制
+	MaxSize    int64  `yaml:"maxSize"`    // 日志文件大小 MB,lumberjack默认100MB,不能无限增长
+	FileName   string `yaml:"fileName"`   // 日志文件名
+	Compress   bool   `yaml:"compress"`   // 是否压缩,默认不压缩
 }
 
 func handleConfig(config *Config) {
@@ -26,32 +30,17 @@ func handleConfig(config *Config) {
 	if config.FileSuffix == "" {
 		config.FileSuffix = ".log"
 	}
-
 	if config.FileName == "" {
-		config.FileName = "%Y%m%d"
+		config.FileName = "runtime"
+	}
+	if config.MaxAge == 0 {
+		config.MaxAge = 30
+	} else if config.MaxAge < 0 {
+		config.MaxAge = 0
 	}
 
-	if config.MaxAgeHour == 0 {
-		config.MaxAgeHour = 24 * 30
-	} else if config.MaxAgeHour < 0 {
-		config.MaxAgeHour = 0
-	}
-	if config.RotationTime == 0 {
-		config.RotationTime = 24
-	} else if config.RotationTime < 0 {
-		config.RotationTime = 0
-	}
-
-	if config.MaxAgeHour > 0 {
-		config.RotationCount = 0
-	} else if config.RotationCount < 0 {
-		config.RotationCount = 0
-	}
-
-	if config.RotationSize == 0 {
-		config.RotationSize = 100
-	} else if config.RotationSize < 0 {
-		config.RotationSize = 0
+	if config.MaxSize == 0 {
+		config.MaxSize = 100
 	}
 }
 
@@ -65,9 +54,17 @@ func WithContext(ctx context.Context) Logger {
 	if globalLogger == nil {
 		globalLogger = NewZapLogger(&Config{}).WithContext(ctx)
 	}
-	return globalLogger.WithContext(ctx).WithFields(map[string]interface{}{
-		defined.RequestID:       ctx.Value(defined.RequestID),
-		defined.RequestURI:      ctx.Value(defined.RequestURI),
-		defined.RequestBodyJson: ctx.Value(defined.RequestBodyJson),
-	})
+
+	fields := make(map[string]interface{})
+	if val := ctx.Value(defined.RequestID); val != nil {
+		fields[defined.RequestID] = val
+	}
+	if val := ctx.Value(defined.RequestURI); val != nil {
+		fields[defined.RequestURI] = val
+	}
+	if val := ctx.Value(defined.RequestBodyJson); val != nil {
+		fields[defined.RequestBodyJson] = val
+	}
+
+	return globalLogger.WithContext(ctx).WithFields(fields)
 }

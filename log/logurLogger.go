@@ -3,62 +3,77 @@ package log
 import (
 	"context"
 	"fmt"
-	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
-	"github.com/rifflock/lfshook"
 	"github.com/sirupsen/logrus"
-	"time"
+	"gopkg.in/natefinch/lumberjack.v2"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
 )
 
 type LogrusLogger struct {
 	Entry *logrus.Entry
 }
 
-func NewLogrusLogger(config *Config) *LogrusLogger {
-	handleConfig(config)
-	logger := logrus.New()
-	timeFormat := "2006-01-02T15:04:05.000Z0700"
-	logger.SetFormatter(&logrus.JSONFormatter{TimestampFormat: timeFormat})
+func NewLogrusLogger(cfg *Config) *LogrusLogger {
+	handleConfig(cfg)
 
-	writer, err := rotatelogs.New(
-		fmt.Sprintf("%s%s%s", config.Path, config.FileName, config.FileSuffix),
-		rotatelogs.WithRotationTime(time.Duration(config.RotationTime)*time.Hour),
-		rotatelogs.WithRotationCount(uint(config.RotationCount)),
-		rotatelogs.WithMaxAge(time.Duration(config.MaxAgeHour)*time.Hour),
-		rotatelogs.WithRotationSize(config.RotationSize*1024*1024),
-	)
-	if err != nil {
-		panic(err)
+	writer := &lumberjack.Logger{
+		Filename:   fmt.Sprintf("%s%s%s", cfg.Path, cfg.FileName, cfg.FileSuffix),
+		MaxSize:    int(cfg.MaxSize),
+		MaxBackups: int(cfg.MaxBackups),
+		MaxAge:     int(cfg.MaxAge),
+		Compress:   cfg.Compress,
+		LocalTime:  true,
 	}
 
-	logger.AddHook(lfshook.NewHook(writer, &logrus.JSONFormatter{TimestampFormat: timeFormat}))
-	logger.SetReportCaller(false)
-	logger.SetLevel(parseLogrusLevel(config.Level))
+	logger := logrus.New()
+	formatter := &logrus.JSONFormatter{
+		TimestampFormat: ISO8601TimeLayout,
+		CallerPrettyfier: func(f *runtime.Frame) (string, string) {
+			skip := 8
+			pc := make([]uintptr, 1)
+			n := runtime.Callers(skip, pc)
+			if n == 0 {
+				return "unknown()", "unknown:0"
+			}
+			frame, _ := runtime.CallersFrames(pc).Next()
+			filename := filepath.Base(frame.File)
+			return fmt.Sprintf("%s()", frame.Function), fmt.Sprintf("%s:%d", filename, frame.Line)
+		},
+	}
+
+	logger.SetFormatter(formatter)
+	logger.SetReportCaller(true) // 启用 caller 信息
+	logger.SetOutput(io.MultiWriter(os.Stdout, writer))
+
+	level, err := logrus.ParseLevel(cfg.Level)
+	if err != nil {
+		level = logrus.InfoLevel
+	}
+	logger.SetLevel(level)
+
 	return &LogrusLogger{Entry: logrus.NewEntry(logger)}
 }
 
 func (l *LogrusLogger) Debug(msg string, fields ...map[string]interface{}) {
-	l.Entry.WithFields(convertLogrusFields(fields)).Debug(msg)
+	l.Entry.WithFields(toLogrusFields(fields)).Debug(msg)
 }
-
 func (l *LogrusLogger) Info(msg string, fields ...map[string]interface{}) {
-	l.Entry.WithFields(convertLogrusFields(fields)).Info(msg)
+	l.Entry.WithFields(toLogrusFields(fields)).Info(msg)
 }
-
 func (l *LogrusLogger) Warn(msg string, fields ...map[string]interface{}) {
-	l.Entry.WithFields(convertLogrusFields(fields)).Warn(msg)
+	l.Entry.WithFields(toLogrusFields(fields)).Warn(msg)
 }
-
 func (l *LogrusLogger) Error(msg string, fields ...map[string]interface{}) {
-	l.Entry.WithFields(convertLogrusFields(fields)).Error(msg)
+	l.Entry.WithFields(toLogrusFields(fields)).Error(msg)
 }
-
 func (l *LogrusLogger) Fatal(msg string, fields ...map[string]interface{}) {
-	l.Entry.WithFields(convertLogrusFields(fields)).Fatal(msg)
+	l.Entry.WithFields(toLogrusFields(fields)).Fatal(msg)
 }
 
 func (l *LogrusLogger) WithContext(ctx context.Context) Logger {
-	entry := l.Entry.WithContext(ctx)
-	return &LogrusLogger{Entry: entry}
+	return &LogrusLogger{Entry: l.Entry.WithContext(ctx)}
 }
 
 func (l *LogrusLogger) WithField(key string, value interface{}) Logger {
@@ -69,21 +84,12 @@ func (l *LogrusLogger) WithFields(fields map[string]interface{}) Logger {
 	return &LogrusLogger{Entry: l.Entry.WithFields(fields)}
 }
 
-func convertLogrusFields(fields []map[string]interface{}) logrus.Fields {
-	fieldMap := logrus.Fields{}
-	for _, field := range fields {
-		for key, value := range field {
-			fieldMap[key] = value
+func toLogrusFields(fs []map[string]interface{}) logrus.Fields {
+	fields := logrus.Fields{}
+	for _, m := range fs {
+		for k, v := range m {
+			fields[k] = v
 		}
 	}
-	return fieldMap
-}
-
-// 解析 Logrus 日志级别
-func parseLogrusLevel(level string) logrus.Level {
-	lvl, err := logrus.ParseLevel(level)
-	if err != nil {
-		return logrus.InfoLevel
-	}
-	return lvl
+	return fields
 }

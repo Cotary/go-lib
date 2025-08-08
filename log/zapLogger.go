@@ -3,11 +3,10 @@ package log
 import (
 	"context"
 	"fmt"
-	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"gopkg.in/natefinch/lumberjack.v2"
 	"os"
-	"time"
 )
 
 type ZapLogger struct {
@@ -15,18 +14,16 @@ type ZapLogger struct {
 	Context context.Context
 }
 
-func NewZapLogger(config *Config) *ZapLogger {
-	handleConfig(config)
+func NewZapLogger(cfg *Config) *ZapLogger {
+	handleConfig(cfg)
 
-	writer, err := rotatelogs.New(
-		fmt.Sprintf("%s%s%s", config.Path, config.FileName, config.FileSuffix),
-		rotatelogs.WithRotationTime(time.Duration(config.RotationTime)*time.Hour),
-		rotatelogs.WithRotationCount(uint(config.RotationCount)),
-		rotatelogs.WithMaxAge(time.Duration(config.MaxAgeHour)*time.Hour),
-		rotatelogs.WithRotationSize(config.RotationSize*1024*1024),
-	)
-	if err != nil {
-		panic(err)
+	writer := &lumberjack.Logger{
+		Filename:   fmt.Sprintf("%s%s%s", cfg.Path, cfg.FileName, cfg.FileSuffix),
+		MaxSize:    int(cfg.MaxSize),
+		MaxBackups: int(cfg.MaxBackups),
+		MaxAge:     int(cfg.MaxAge),
+		Compress:   cfg.Compress,
+		LocalTime:  true,
 	}
 
 	writeSyncer := zapcore.AddSync(writer)
@@ -36,42 +33,42 @@ func NewZapLogger(config *Config) *ZapLogger {
 	encoderConfig.TimeKey = "time"
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 	//encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder //把日志级别转换成大写字母
-	encoderConfig.EncodeDuration = zapcore.SecondsDurationEncoder
-	encoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
+	encoderConfig.EncodeDuration = zapcore.SecondsDurationEncoder //将日志中的 Duration 类型字段转换为以秒为单位的数字输出。
+	encoderConfig.EncodeCaller = zapcore.ShortCallerEncoder       //显示日志触发位置的简洁形式：main.go:42
 
-	var level = new(zapcore.Level)
-	err = level.UnmarshalText([]byte(config.Level))
-	if err != nil {
-		panic(err)
+	encoder := zapcore.NewJSONEncoder(encoderConfig)
+
+	var lvl = new(zapcore.Level)
+	if err := lvl.UnmarshalText([]byte(cfg.Level)); err != nil {
+		*lvl = zapcore.InfoLevel
 	}
 
 	core := zapcore.NewTee(
-		zapcore.NewCore(zapcore.NewJSONEncoder(encoderConfig), writeSyncer, level),
-		zapcore.NewCore(zapcore.NewJSONEncoder(encoderConfig), consoleSyncer, level),
+		zapcore.NewCore(encoder, writeSyncer, lvl),
+		zapcore.NewCore(encoder, consoleSyncer, lvl),
 	)
-
-	logger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
+	logger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(2))
 	return &ZapLogger{Logger: logger, Context: context.Background()}
 }
 
+func (z *ZapLogger) log(method func(string, ...zap.Field), msg string, fields ...map[string]interface{}) {
+	method(msg, convertZapFields(fields)...)
+}
+
 func (z *ZapLogger) Debug(msg string, fields ...map[string]interface{}) {
-	z.Logger.Debug(msg, convertZapFields(fields)...)
+	z.log(z.Logger.Debug, msg, fields...)
 }
-
 func (z *ZapLogger) Info(msg string, fields ...map[string]interface{}) {
-	z.Logger.Info(msg, convertZapFields(fields)...)
+	z.log(z.Logger.Info, msg, fields...)
 }
-
 func (z *ZapLogger) Warn(msg string, fields ...map[string]interface{}) {
-	z.Logger.Warn(msg, convertZapFields(fields)...)
+	z.log(z.Logger.Warn, msg, fields...)
 }
-
 func (z *ZapLogger) Error(msg string, fields ...map[string]interface{}) {
-	z.Logger.Error(msg, convertZapFields(fields)...)
+	z.log(z.Logger.Error, msg, fields...)
 }
-
 func (z *ZapLogger) Fatal(msg string, fields ...map[string]interface{}) {
-	z.Logger.Fatal(msg, convertZapFields(fields)...)
+	z.log(z.Logger.Fatal, msg, fields...)
 }
 
 func (z *ZapLogger) WithContext(ctx context.Context) Logger {
@@ -88,9 +85,9 @@ func (z *ZapLogger) WithFields(fields map[string]interface{}) Logger {
 
 func convertZapFields(fields []map[string]interface{}) []zap.Field {
 	var zapFields []zap.Field
-	for _, fieldMap := range fields {
-		for key, value := range fieldMap {
-			zapFields = append(zapFields, zap.Any(key, value))
+	for _, m := range fields {
+		for k, v := range m {
+			zapFields = append(zapFields, zap.Any(k, v))
 		}
 	}
 	return zapFields
