@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"net"
+	"time"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
@@ -31,6 +32,9 @@ func (rc *RestyClient) Do(req *Request) (*Response, error) {
 		return nil, errors.New("URL cannot be empty")
 	}
 
+	// 记录开始时间
+	startTime := time.Now()
+
 	restyReq := rc.client.R().SetContext(req.Ctx)
 	restyReq.SetQueryParamsFromValues(req.Query)
 	restyReq.SetHeaders(req.Headers)
@@ -49,7 +53,18 @@ func (rc *RestyClient) Do(req *Request) (*Response, error) {
 	var err error
 
 	restyResp, err = restyReq.Execute(req.Method, req.URL)
-	resp := &Response{}
+
+	// 记录结束时间
+	endTime := time.Now()
+
+	resp := &Response{
+		Stats: &ResponseStats{
+			StartTime: startTime,
+			EndTime:   endTime,
+			TotalTime: endTime.Sub(startTime),
+		},
+	}
+
 	if restyResp != nil {
 		resp.StatusCode = restyResp.StatusCode()
 		resp.Body = restyResp.Body()

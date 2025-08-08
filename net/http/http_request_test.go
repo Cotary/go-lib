@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -276,4 +277,44 @@ func TestHttpRequest_Concurrent(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestResponseStats_Resty(t *testing.T) {
+	client := NewRestyClient()
+	builder := NewRequestBuilder(client)
+
+	ctx := context.Background()
+	result := builder.Execute(ctx, "GET", "https://httpbin.org/get", nil, nil, nil)
+
+	assert.NoError(t, result.Error)
+	assert.NotNil(t, result.Response)
+	assert.NotNil(t, result.Response.Stats)
+
+	stats := result.Response.Stats
+	assert.True(t, stats.TotalTime > 0)
+	assert.True(t, stats.StartTime.Before(stats.EndTime))
+
+	t.Logf("Total Time: %v", stats.TotalTime)
+	//t.Logf("Local Addr: %s", stats.LocalAddr)
+	//t.Logf("Remote Addr: %s", stats.RemoteAddr)
+}
+
+func TestResponseStats_FastHTTP(t *testing.T) {
+	client := NewFastHTTPClient()
+	builder := NewRequestBuilder(client)
+
+	ctx := context.Background()
+	result := builder.Execute(ctx, "GET", "https://httpbin.org/get", nil, nil, nil)
+
+	assert.NoError(t, result.Error)
+	assert.NotNil(t, result.Response)
+	assert.NotNil(t, result.Response.Stats)
+
+	stats := result.Response.Stats
+	assert.True(t, stats.TotalTime > 0)
+	assert.True(t, stats.StartTime.Before(stats.EndTime))
+
+	t.Logf("Total Time: %v", stats.TotalTime)
+	//t.Logf("Local Addr: %s", stats.LocalAddr)
+	//t.Logf("Remote Addr: %s", stats.RemoteAddr)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Cotary/go-lib/common/defined"
@@ -46,6 +47,24 @@ type Response struct {
 	StatusCode int
 	Header     map[string][]string
 	Body       []byte
+	// 统计数据
+	Stats *ResponseStats
+}
+
+func (r *Response) String() string {
+	if len(r.Body) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(string(r.Body))
+}
+
+// ResponseStats holds statistics about the HTTP response
+type ResponseStats struct {
+	// 执行时间统计
+	TotalTime time.Duration // 总执行时间
+	// 时间戳
+	StartTime time.Time // 请求开始时间
+	EndTime   time.Time // 请求结束时间
 }
 
 // Result encapsulates the outcome of an HTTP request.
@@ -207,6 +226,11 @@ func (r *Result) Log(logEntry log.Logger) *Result {
 		logMap["Response Status Code"] = r.Response.StatusCode
 		logMap["Response Headers"] = r.Response.Header
 		logMap["Response Body"] = string(r.Response.Body)
+
+		// 添加统计信息到日志
+		if r.Response.Stats != nil {
+			logMap["Total Time"] = r.Response.Stats.TotalTime.String()
+		}
 	}
 
 	if r.Error != nil {

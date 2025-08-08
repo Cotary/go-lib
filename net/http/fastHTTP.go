@@ -30,6 +30,9 @@ func NewFastHTTPClient(args ...*fasthttp.Client) *FastHTTPClient {
 }
 
 func (fc *FastHTTPClient) Do(req *Request) (*Response, error) {
+	// 记录开始时间
+	startTime := time.Now()
+
 	fastReq := fasthttp.AcquireRequest()
 	fastResp := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseRequest(fastReq)
@@ -74,8 +77,18 @@ func (fc *FastHTTPClient) Do(req *Request) (*Response, error) {
 
 	err := fc.client.Do(fastReq, fastResp)
 
+	// 记录结束时间
+	endTime := time.Now()
+
 	// 拷贝响应数据到通用结构体
-	resp := &Response{}
+	resp := &Response{
+		Stats: &ResponseStats{
+			StartTime: startTime,
+			EndTime:   endTime,
+			TotalTime: endTime.Sub(startTime),
+		},
+	}
+
 	if err == nil {
 		resp.StatusCode = fastResp.StatusCode()
 		resp.Body = append([]byte(nil), fastResp.Body()...)
@@ -84,6 +97,13 @@ func (fc *FastHTTPClient) Do(req *Request) (*Response, error) {
 			resp.Header[string(key)] = []string{string(value)}
 			return true
 		})
+		// 连接信息
+		//if fastResp.RemoteAddr() != nil {
+		//	resp.Stats.RemoteAddr = fastResp.RemoteAddr().String()
+		//}
+		//if fastResp.LocalAddr() != nil {
+		//	resp.Stats.LocalAddr = fastResp.LocalAddr().String()
+		//}
 	}
 
 	return resp, err

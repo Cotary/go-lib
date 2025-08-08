@@ -75,14 +75,12 @@ func NewGorm(config *GormConfig) *GormDrive {
 	handleConfig(config)
 
 	logConfig := log2.Config{
-		Level:         "info",
-		Path:          config.LogDir,
-		FileSuffix:    ".log",
-		MaxAgeHour:    config.LogSaveDay * 24,
-		RotationTime:  1,
-		RotationCount: -1,
-		RotationSize:  -1,
-		FileName:      "%Y%m%d%H",
+		Level:      "info",
+		Path:       config.LogDir,
+		FileSuffix: ".log",
+		MaxAge:     config.LogSaveDay,
+		FileName:   "%Y%m%d%H",
+		Compress:   false,
 	}
 	glog := log2.NewLogrusLogger(&logConfig)
 	newLogger := New(
