@@ -6,6 +6,7 @@ import (
 	"github.com/Cotary/go-lib/common/coroutines"
 	"github.com/Cotary/go-lib/log"
 	"math/rand"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,8 +23,9 @@ type outMsg struct {
 
 // Client 提供自动重连、异步/同步发送、心跳保活与消息回调的 WS 客户端
 type Client struct {
-	url    string
-	dialer *websocket.Dialer
+	url     string
+	headers http.Header // 新增字段
+	dialer  *websocket.Dialer
 
 	// 连接与状态
 	mu          sync.RWMutex
@@ -66,8 +68,12 @@ func NewClient(url string) *Client {
 		retryMax:     30 * time.Second,
 	}
 }
-
-// 可选回调
+func (c *Client) SetHeader(key, value string) {
+	if c.headers == nil {
+		c.headers = http.Header{}
+	}
+	c.headers.Set(key, value)
+}
 func (c *Client) OnMessage(fn func(context.Context, int, []byte)) { c.onMessage = fn }
 func (c *Client) OnConnect(fn func(context.Context))              { c.onConnect = fn }
 func (c *Client) OnDisconnect(fn func(context.Context, error))    { c.onDisconnect = fn }
@@ -225,7 +231,7 @@ func (c *Client) run() {
 
 // 建立连接并配置 Pong/超时
 func (c *Client) connect() (*websocket.Conn, error) {
-	conn, _, err := c.dialer.Dial(c.url, nil)
+	conn, _, err := c.dialer.Dial(c.url, c.headers)
 	if err != nil {
 		return nil, err
 	}
