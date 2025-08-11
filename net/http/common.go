@@ -181,7 +181,7 @@ func (rb *RequestBuilder[T]) Execute(ctx context.Context, method string, url str
 	}
 
 	for _, handler := range rb.handlers {
-		if err := handler(ctx, &req.Method, &req.URL, req.Query, &req.Body, req.Headers); err != nil {
+		if err := handler(req); err != nil {
 			res.Error = err
 			return res
 		}
