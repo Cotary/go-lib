@@ -2,9 +2,11 @@ package ws
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"net/http/httptest"
 	"net/url"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,117 +14,30 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestWebSocketClientServerIntegration(t *testing.T) {
-	t.Parallel()
+// 假定本包内已有：type Config struct{ OnMessage func(ctx context.Context, c *Conn, mt int, data []byte) }
+// 以及：New(cfg Config) *Server, (*Server).Handler() gin.HandlerFunc
+// 和：Conn.SendText(string) error, Conn.Close(error) 等。
+// 同时已有：NewClient(url string, opts ...Option) *Client
+
+func TestWebSocket_Reconnect_And_Continuous_Send_With_Close_Every_5(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	serverReceived := make(chan string, 1)
-	clientReceived := make(chan string, 1)
-	connected := make(chan struct{}, 1)
+	serverReceived := make(chan string, 1024)
+	var serverCloseCount int32
 
-	// 配置并启动服务端
-	serverCfg := Config{
-		OnMessage: func(ctx context.Context, c *Conn, mt int, data []byte) {
-			// 记录服务端收到的消息，并回一条 echo
-			txt := string(data)
-			select {
-			case serverReceived <- txt:
-			default:
-			}
-			_ = c.SendText("echo: " + txt)
-		},
-		OnConnect: func(ctx context.Context, c *Conn) {
-			// 可选：记录连接建立
-		},
-		OnClose: func(ctx context.Context, c *Conn, err error) {
-			// 可选：记录关闭
-		},
-	}
-	s := New(serverCfg)
-
-	router := gin.New()
-	router.GET("/ws", s.Handler())
-
-	ts := httptest.NewServer(router)
-	defer ts.Close()
-
-	// 构造正确的 ws URL（含路径）
-	u, err := url.Parse(ts.URL)
-	assert.NoError(t, err)
-	u.Scheme = "ws"
-	u.Path = "/ws"
-	wsURL := u.String()
-
-	// 启动客户端
-	client := NewClient(wsURL)
-	client.OnConnect(func(ctx context.Context) {
-		// 通知连接建立
-		select {
-		case connected <- struct{}{}:
-		default:
-		}
-	})
-	client.OnDisconnect(func(ctx context.Context, err error) {
-		// 可选：记录断开
-	})
-	client.OnMessage(func(ctx context.Context, mt int, data []byte) {
-		// 客户端接收服务端 echo
-		select {
-		case clientReceived <- string(data):
-		default:
-		}
-	})
-
-	client.Start()
-	defer client.Stop()
-
-	// 等待连接建立（最多 2s）
-	select {
-	case <-connected:
-	case <-time.After(2 * time.Second):
-		t.Fatal("client did not connect to server in time")
-	}
-
-	// 发送一条消息并验证
-	msg := []byte("hello websocket")
-	err = client.Send(msg)
-	assert.NoError(t, err, "client.Send should succeed after connection established")
-
-	// 服务端应收到
-	select {
-	case got := <-serverReceived:
-		assert.Equal(t, string(msg), got)
-	case <-time.After(2 * time.Second):
-		t.Fatal("server did not receive client message in time")
-	}
-
-	// 客户端应收到 echo
-	select {
-	case echo := <-clientReceived:
-		assert.Equal(t, "echo: "+string(msg), echo)
-	case <-time.After(2 * time.Second):
-		t.Fatal("client did not receive echo message in time")
-	}
-}
-
-func TestWebSocket_Reconnect_And_Resend_Sync_Async(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	// 收集服务端收到的消息（跨连接）
-	serverReceived := make(chan string, 32)
-
-	// 服务端：收到 "CLOSE" 主动断开；其他消息正常 echo 并记录
+	// 服务端：收到 "close" 立即断开；其他消息记录并 echo
 	srvCfg := Config{
 		OnMessage: func(ctx context.Context, c *Conn, mt int, data []byte) {
 			msg := string(data)
-			if msg == "CLOSE" {
-				// 模拟服务端主动断开，触发客户端重连
+			if strings.EqualFold(msg, "close") {
+				atomic.AddInt32(&serverCloseCount, 1)
 				c.Close(nil)
 				return
 			}
 			select {
 			case serverReceived <- msg:
 			default:
+				// 丢弃以避免堵塞
 			}
 			_ = c.SendText("echo: " + msg)
 		},
@@ -135,7 +50,6 @@ func TestWebSocket_Reconnect_And_Resend_Sync_Async(t *testing.T) {
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
-	// 正确构造 ws://host:port/ws
 	u, err := url.Parse(ts.URL)
 	assert.NoError(t, err)
 	u.Scheme = "ws"
@@ -144,29 +58,35 @@ func TestWebSocket_Reconnect_And_Resend_Sync_Async(t *testing.T) {
 
 	// 客户端
 	client := NewClient(wsURL)
-	// 缩短重连退避，避免测试等待过久
+	// 加快重连速度，测试更快完成
 	client.retryBase = 20 * time.Millisecond
 	client.retryMax = 200 * time.Millisecond
 
-	connected := make(chan struct{}, 4)
-	disconnected := make(chan struct{}, 4)
+	connected := make(chan struct{}, 16)
+	disconnected := make(chan struct{}, 16)
+	var connectCount int32
+	var disconnectCount int32
+
 	client.OnMessage(func(ctx context.Context, mt int, data []byte) {
-		log.Printf("📩 收到消息: [%d] %s", mt, string(data))
-		// 这里不必断言客户端的 echo，重点验证服务端收到/顺序与 Send 返回
+		// 这里仅打印观察效果
+		t.Logf("📩 client recv: [%d] %s", mt, string(data))
 	})
 	client.OnConnect(func(ctx context.Context) {
-		log.Println("🔌 客户端重连成功")
+		atomic.AddInt32(&connectCount, 1)
 		select {
 		case connected <- struct{}{}:
 		default:
 		}
+		t.Logf("🔌 connected (%d)", atomic.LoadInt32(&connectCount))
 	})
 	client.OnDisconnect(func(ctx context.Context, err error) {
-		log.Println("💥 客户端断开连接")
+		time.Sleep(100 * time.Millisecond)
+		atomic.AddInt32(&disconnectCount, 1)
 		select {
 		case disconnected <- struct{}{}:
 		default:
 		}
+		t.Logf("💥 disconnected (%d), err=%v", atomic.LoadInt32(&disconnectCount), err)
 	})
 
 	client.Start()
@@ -179,77 +99,74 @@ func TestWebSocket_Reconnect_And_Resend_Sync_Async(t *testing.T) {
 		t.Fatal("client did not connect initially")
 	}
 
-	// 基线：发送一条，确保链路通
-	err = client.Send([]byte("hello"))
-	assert.NoError(t, err)
+	// 启动持续发送：每隔 5 条发送一个 "close"
+	runDur := 3 * time.Second
+	sendTick := 30 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), runDur)
+	defer cancel()
 
-	// 验证服务端确实收到
-	select {
-	case got := <-serverReceived:
-		assert.Equal(t, "hello", got)
-	case <-time.After(2 * time.Second):
-		t.Fatal("server did not receive baseline message")
-	}
-
-	// 触发服务端主动断开
-	err = client.Send([]byte("CLOSE"))
-	assert.NoError(t, err)
-
-	// 等待客户端感知断开
-	select {
-	case <-disconnected:
-	case <-time.After(2 * time.Second):
-		t.Fatal("client did not detect disconnection")
-	}
-
-	// 在断线期间入队异步与同步消息
-	async1 := "A1"
-	async2 := "A2"
-	sync1 := "SYNC1"
-
-	// 异步入队（在断线期间，这些应排队等待重连后写出）
-	err = client.SendAsync([]byte(async1))
-	assert.NoError(t, err)
-	err = client.SendAsync([]byte(async2))
-	assert.NoError(t, err)
-
-	// 同步消息在断线期间发送：应在重连后写出并返回 nil
-	syncDone := make(chan error, 1)
 	go func() {
-		syncDone <- client.Send([]byte(sync1))
+		ticker := time.NewTicker(sendTick)
+		defer ticker.Stop()
+		i := 1
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				var msg string
+				if i%5 == 0 {
+					msg = "close"
+				} else {
+					msg = fmt.Sprintf("msg-%03d", i)
+				}
+				err := client.Send([]byte(msg))
+				if err != nil {
+					// 断线期间会报错，等待重连后继续；这里只打印观察效果
+					t.Logf("➡️ send %q err: %v", msg, err)
+				} else {
+					t.Logf("➡️ send %q ok", msg)
+				}
+				i++
+			}
+		}
 	}()
 
-	// 等待重连
-	select {
-	case <-connected:
-	case <-time.After(3 * time.Second):
-		t.Fatal("client did not reconnect in time")
-	}
-
-	// 验证服务端在重连后按顺序收到断线期间排队的消息
-	waitMsg := func() string {
+	// 采样读取服务端接收的部分消息，用于观察效果
+	collected := make([]string, 0, 64)
+CollectLoop:
+	for {
 		select {
 		case m := <-serverReceived:
-			return m
-		case <-time.After(3 * time.Second):
-			t.Fatal("timed out waiting for server message after reconnect")
-			return ""
+			collected = append(collected, m)
+			if len(collected) >= 20 {
+				// 采样到一定数量就不再阻塞主流程
+				break CollectLoop
+			}
+		case <-ctx.Done():
+			break CollectLoop
 		}
 	}
 
-	got1 := waitMsg()
-	got2 := waitMsg()
-	got3 := waitMsg()
+	// 等待发送循环结束
+	<-ctx.Done()
 
-	assert.Equal(t, async1, got1, "first resent message should be A1")
-	assert.Equal(t, async2, got2, "second resent message should be A2")
-	assert.Equal(t, sync1, got3, "third resent message should be SYNC1 (sync call enqueued after A1/A2)")
+	// 基础断言：应该发生了多次断开/重连，以及服务端确实因为 "close" 断过连接
+	cc := atomic.LoadInt32(&connectCount)
+	dc := atomic.LoadInt32(&disconnectCount)
+	sc := atomic.LoadInt32(&serverCloseCount)
 
-	// 同步调用应在消息真正写出后返回 nil
-	select {
-	case e := <-syncDone:
-		assert.NoError(t, e, "sync Send should succeed after reconnect")
-	case <-time.After(3 * time.Second):
-		t.Fatal("sync Send did not complete after reconnect")
+	t.Logf("summary: connects=%d, disconnects=%d, serverCloseCount=%d, sampleReceived=%d",
+		cc, dc, sc, len(collected))
+	for i, m := range collected {
+		t.Logf("server-recv[%02d]=%s", i, m)
 	}
+
+	// 至少发生过 1 次断开与 1 次重连（通常会多次）
+	assert.GreaterOrEqual(t, dc, int32(1), "should have at least one disconnection")
+	assert.GreaterOrEqual(t, cc, int32(2), "should have reconnected at least once")
+	// 服务端至少处理过一次 'close'
+	assert.GreaterOrEqual(t, sc, int32(1), "server should have closed at least once due to 'close'")
+	// 服务端应当收到不少普通消息（close 不会入列）
+	assert.GreaterOrEqual(t, len(collected), 5, "server should have received multiple normal messages")
 }

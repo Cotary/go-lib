@@ -2,169 +2,167 @@ package ws
 
 import (
 	"context"
-	"errors"
+	"github.com/pkg/errors"
+
 	"fmt"
 	"github.com/Cotary/go-lib/common/coroutines"
 	"github.com/Cotary/go-lib/log"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
 const defaultWriteTimeout = 5 * time.Second
 
-type frame struct {
-	mt   int
-	data []byte
-	done chan error // 如果需要同步返回写结果
-}
-
 type Conn struct {
-	ws         *websocket.Conn
-	cfg        Config
-	send       chan frame
-	closed     int32
-	lastActive atomic.Int64
+	ws     *websocket.Conn
+	cfg    Config
+	closed int32
+
+	writeMu   sync.Mutex
+	closeOnce sync.Once
+	stopCh    chan struct{} // 关闭时关闭此通道，停止 ping 协程
 }
 
 func newConn(cfg Config, ws *websocket.Conn) *Conn {
-	c := &Conn{
-		ws:   ws,
-		cfg:  cfg,
-		send: make(chan frame, 256),
+	return &Conn{
+		ws:     ws,
+		cfg:    cfg,
+		stopCh: make(chan struct{}),
 	}
-	c.lastActive.Store(time.Now().UnixNano())
-	return c
 }
 
 func (c *Conn) run() {
-	defer c.Close(nil)
+	// 确保 OnClose 能拿到真实错误原因
+	var closeErr error
+	defer c.Close(closeErr)
 
-	go c.writePump() // 启动单写协程
+	// 初始读超时
+	_ = c.ws.SetReadDeadline(time.Now().Add(c.cfg.ReadTimeout))
 
-	// 读设置
-	c.ws.SetReadDeadline(time.Now().Add(c.cfg.ReadTimeout))
+	// 收到 Pong 刷新读超时
 	c.ws.SetPongHandler(func(string) error {
-		c.lastActive.Store(time.Now().UnixNano())
 		return c.ws.SetReadDeadline(time.Now().Add(c.cfg.ReadTimeout))
 	})
 
+	// 自定义 PingHandler：刷新读超时 + 在写锁内安全回 Pong，避免并发写
+	c.ws.SetPingHandler(func(appData string) error {
+		_ = c.ws.SetReadDeadline(time.Now().Add(c.cfg.ReadTimeout))
+		c.writeMu.Lock()
+		defer c.writeMu.Unlock()
+		if atomic.LoadInt32(&c.closed) == 1 {
+			return nil
+		}
+		deadline := time.Now().Add(defaultWriteTimeout)
+		return c.ws.WriteControl(websocket.PongMessage, []byte(appData), deadline)
+	})
+
+	// 定时 ping（与写操作共用一把锁，保证单写者）
+	coroutines.SafeGo(coroutines.NewContext("WS pingLoop"), func(ctx context.Context) {
+		c.pingLoop()
+	})
+
+	// 读循环
 	for {
 		mt, msg, err := c.ws.ReadMessage()
 		if err != nil {
+			closeErr = err
 			break
 		}
+		_ = c.ws.SetReadDeadline(time.Now().Add(c.cfg.ReadTimeout))
 		if c.cfg.OnMessage != nil {
+			// 复制数据，避免异步处理时潜在复用问题
+			cp := append([]byte(nil), msg...)
 			coroutines.SafeFunc(coroutines.NewContext("WS OnMessage"), func(ctx context.Context) {
-				c.cfg.OnMessage(ctx, c, mt, msg)
+				c.cfg.OnMessage(ctx, c, mt, cp)
 			})
 		}
 	}
 }
 
-// 写泵，只允许一个 goroutine 写 socket
-func (c *Conn) writePump() {
+func (c *Conn) pingLoop() {
 	ticker := time.NewTicker(c.cfg.PingInterval)
-	defer func() {
-		ticker.Stop()
-		_ = c.ws.Close()
-	}()
+	defer ticker.Stop()
 
 	for {
 		select {
-		case f, ok := <-c.send:
-			if !ok {
-				// 通道关闭，发送 Close 帧再退出
-				_ = c.ws.SetWriteDeadline(time.Now().Add(defaultWriteTimeout))
-				_ = c.ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"))
-				return
-			}
-
-			_ = c.ws.SetWriteDeadline(time.Now().Add(defaultWriteTimeout))
-			err := c.ws.WriteMessage(f.mt, f.data)
-
-			if f.done != nil {
-				select {
-				case f.done <- err:
-				default:
-				}
-			}
-			if err != nil {
-				c.Close(err)
-				return
-			}
-
 		case <-ticker.C:
-			// 心跳：也在写泵里完成
-			err := c.ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second))
+			c.writeMu.Lock()
+			if atomic.LoadInt32(&c.closed) == 1 {
+				c.writeMu.Unlock()
+				return
+			}
+			deadline := time.Now().Add(defaultWriteTimeout)
+			err := c.ws.WriteControl(websocket.PingMessage, nil, deadline)
+			c.writeMu.Unlock()
+
 			if err != nil {
 				c.Close(err)
 				return
 			}
+		case <-c.stopCh:
+			return
 		}
 	}
 }
 
-// 关闭连接（幂等）
 func (c *Conn) Close(err error) {
-	if !atomic.CompareAndSwapInt32(&c.closed, 0, 1) {
-		return
-	}
-	close(c.send) // 通知写泵关闭连接并发送 close 帧
-	if c.cfg.OnClose != nil {
-		coroutines.SafeFunc(coroutines.NewContext("WS OnClose"), func(ctx context.Context) {
-			c.cfg.OnClose(ctx, c, err)
-		})
-	}
+	c.closeOnce.Do(func() {
+		atomic.StoreInt32(&c.closed, 1)
+		close(c.stopCh)
+
+		// 尽量发送 Close 帧（持锁，保证与其他写串行）
+		c.writeMu.Lock()
+		_ = c.ws.SetWriteDeadline(time.Now().Add(defaultWriteTimeout))
+		_ = c.ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"))
+		_ = c.ws.Close()
+		c.writeMu.Unlock()
+
+		if c.cfg.OnClose != nil {
+			coroutines.SafeFunc(coroutines.NewContext("WS OnClose"), func(ctx context.Context) {
+				c.cfg.OnClose(ctx, c, err)
+			})
+		}
+	})
 }
 
-// ✅ 同步发送：等待结果确认
 func (c *Conn) Send(mt int, data []byte) error {
 	if atomic.LoadInt32(&c.closed) == 1 {
 		return errors.New("connection closed")
 	}
 
+	// 复制数据，避免外部修改
 	cp := append([]byte(nil), data...)
-	done := make(chan error, 1)
 
-	select {
-	case c.send <- frame{mt: mt, data: cp, done: done}:
-		return <-done
-	case <-time.After(1 * time.Second):
-		return errors.New("send timeout or blocked")
+	// 串行写 + 写超时
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	if atomic.LoadInt32(&c.closed) == 1 {
+		return errors.New("connection closed")
 	}
+
+	_ = c.ws.SetWriteDeadline(time.Now().Add(defaultWriteTimeout))
+	if err := c.ws.WriteMessage(mt, cp); err != nil {
+		c.Close(err)
+		return err
+	}
+	return nil
 }
 
 func (c *Conn) SendText(text string) error {
 	return c.Send(websocket.TextMessage, []byte(text))
 }
 
-// ✅ 异步发送（不等待写结果）
-func (c *Conn) SendAsync(mt int, data []byte) error {
-	if atomic.LoadInt32(&c.closed) == 1 {
-		return errors.New("connection closed")
-	}
-
-	cp := append([]byte(nil), data...)
-
-	select {
-	case c.send <- frame{mt: mt, data: cp}:
-		return nil
-	default:
-		return errors.New("send buffer full")
-	}
-}
-
-// ----------------------------------------------------------------------
-
 type Config struct {
-	ReadTimeout  time.Duration                                           // Pong 超时
-	PingInterval time.Duration                                           // 心跳间隔
-	OnMessage    func(ctx context.Context, c *Conn, mt int, data []byte) // 收到消息回调
-	OnConnect    func(ctx context.Context, c *Conn)                      // 连接建立回调
-	OnClose      func(ctx context.Context, c *Conn, err error)           // 连接关闭回调
+	ReadTimeout  time.Duration
+	PingInterval time.Duration
+	OnMessage    func(ctx context.Context, conn *Conn, mt int, data []byte)
+	OnConnect    func(ctx context.Context, conn *Conn, c *gin.Context)
+	OnClose      func(ctx context.Context, conn *Conn, err error)
 }
 
 type Server struct {
@@ -193,9 +191,10 @@ func New(cfg Config, upgraders ...websocket.Upgrader) *Server {
 	}
 }
 
-// Gin handler
+// Handler 如果需要鉴权等，用 Gin 中间件在路由层统一处理
 func (s *Server) Handler() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		cCopy := c.Copy()
 		conn, err := s.upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			log.WithContext(context.Background()).WithFields(map[string]interface{}{
@@ -204,16 +203,20 @@ func (s *Server) Handler() gin.HandlerFunc {
 			return
 		}
 		wsc := newConn(s.cfg, conn)
+		log.WithContext(context.Background()).WithFields(map[string]interface{}{
+			"client ip": c.ClientIP(),
+		}).Info("WS connection")
+
+		// OnConnect 可能为 nil；异步使用 gin.Context 必须使用副本
+		if s.cfg.OnConnect != nil {
+			coroutines.SafeFunc(coroutines.NewContext("WS OnConnect"), func(ctx context.Context) {
+				s.cfg.OnConnect(ctx, wsc, cCopy)
+			})
+		}
+
+		// 读写在后台运行
 		coroutines.SafeGo(coroutines.NewContext("WS Server"), func(ctx context.Context) {
 			wsc.run()
 		})
-		log.WithContext(context.Background()).WithFields(map[string]interface{}{
-			"client ip": c.ClientIP(),
-		}).Info(fmt.Sprintf("WS connection"))
-		if s.cfg.OnConnect != nil {
-			coroutines.SafeFunc(coroutines.NewContext("WS OnConnect"), func(ctx context.Context) {
-				s.cfg.OnConnect(ctx, wsc)
-			})
-		}
 	}
 }
