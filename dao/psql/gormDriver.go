@@ -79,7 +79,7 @@ func NewGorm(config *GormConfig) *GormDrive {
 		Path:       config.LogDir,
 		FileSuffix: ".log",
 		MaxAge:     config.LogSaveDay,
-		FileName:   "%Y%m%d%H",
+		FileName:   "gorm-log",
 		Compress:   false,
 	}
 	glog := log2.NewLogrusLogger(&logConfig)

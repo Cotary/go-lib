@@ -24,7 +24,7 @@ type outMsg struct {
 // Client 提供自动重连、异步/同步发送、心跳保活与消息回调的 WS 客户端
 type Client struct {
 	url     string
-	headers http.Header // 新增字段
+	headers http.Header
 	dialer  *websocket.Dialer
 
 	// 连接与状态
