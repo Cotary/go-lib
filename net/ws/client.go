@@ -45,10 +45,8 @@ type Client struct {
 	onDisconnect func(ctx context.Context, err error)
 }
 
-// 新增：Option 类型定义
 type Option func(*Client)
 
-// 修改后的 NewClient，支持 Option 列表
 func NewClient(url string, opts ...Option) *Client {
 	c := &Client{
 		url:          url,
