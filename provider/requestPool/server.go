@@ -1,4 +1,4 @@
-package requestPool
+package main
 
 import (
 	"context"
@@ -6,15 +6,21 @@ import (
 	"github.com/Cotary/go-lib/common/coroutines"
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
-	"github.com/go-resty/resty/v2"
+	http2 "github.com/Cotary/go-lib/net/http"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"net"
+	"github.com/tidwall/gjson"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
+
+type PointConfig struct {
+	Url     string            `json:"url"`
+	Headers map[string]string `json:"headers"`
+}
 
 const (
 	DefaultConcurrency = 10
@@ -26,13 +32,17 @@ const (
 	MaxFailureCount    = 5
 )
 
+const (
+	PoolTypeRpc = "RPC"
+)
+
 type Request struct {
 	Method    string
 	Path      string
 	Body      interface{}
 	Params    map[string][]string
 	Headers   map[string]string
-	Result    *resty.Response
+	Result    *http2.Result
 	Error     error
 	RetryNum  int64
 	requestID string
@@ -43,7 +53,7 @@ type Request struct {
 }
 
 func (t Request) ResponseString() string {
-	return string(t.Result.Body())
+	return t.Result.Response.String()
 }
 
 type routines struct {
@@ -51,7 +61,6 @@ type routines struct {
 	closeChan chan struct{}
 	pool      *Pool
 	point     *Point
-	client    *resty.Client
 }
 
 type Point struct {
@@ -78,15 +87,19 @@ type Point struct {
 func (p *Point) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.needClose {
+		return
+	}
 	p.needClose = true
 	close(p.requestChan)
 }
 
-type ReTryFunc func(ctx context.Context, point *Point, req Request, t *resty.Response) error
+type ReTryFunc func(ctx context.Context, point *Point, req Request, t *http2.Response) error
 
 type Pool struct {
+	name        string
 	mu          *sync.Mutex
-	poolData    any
+	poolType    string
 	requestChan chan Request
 	notifyChan  map[string]chan struct{}
 	pointManage map[string]*Point //只读不需要加锁
@@ -95,8 +108,12 @@ type Pool struct {
 	pointSort   []*Point
 }
 
-func (p *Pool) SetPoolData(data any) {
-	p.poolData = data
+func (p *Pool) SetName(name string) *Pool {
+	if p == nil {
+		return nil
+	}
+	p.name = name
+	return p
 }
 func (p *Pool) SetRetryFunc(fs []ReTryFunc) {
 	p.retryFunc = fs
@@ -105,11 +122,14 @@ func (p *Pool) AddRetryFunc(f ReTryFunc) {
 	p.retryFunc = append(p.retryFunc, f)
 }
 
-type PointConfig struct {
-	Url     string            `json:"url"`
-	Headers map[string]string `json:"headers"`
+func NewRPCPool(points []PointConfig) (*Pool, error) {
+	instance, err := NewPool(points)
+	if err != nil {
+		return nil, err
+	}
+	instance.poolType = PoolTypeRpc
+	return instance, nil
 }
-
 func NewPool(points []PointConfig) (*Pool, error) {
 	if len(points) == 0 {
 		return nil, errors.New("Pool is empty")
@@ -229,28 +249,9 @@ func (p *Pool) CheckStatus(ctx context.Context) {
 		case <-printTicker.C:
 			p.mu.Lock()
 			noSuccess := true
-			pointInfo := ""
+			pointInfoStr := ""
 			for _, info := range p.pointManage {
-				msg := fmt.Sprintf("now: %s, url: %s,\n"+
-					" Concurrency: %d, RequestNum: %d, SuccessNum: %d, ErrorNum: %d, AvgTime: %s, "+
-					" PointChanLen: %d, SuccessStreak: %d, FailureStreak: %d, "+
-					" LastAdjustTime: %s, FailureCount: %d, BackoffTime: %s",
-					time.Now().Format("2006-01-02 15:04:05"),
-					info.Url,
-					len(info.routines),
-					info.requestNum,
-					info.successNum,
-					info.errorNum,
-					info.avgTime.String(),
-					len(info.requestChan),
-					info.successStreak,
-					info.failureStreak,
-					info.lastAdjustTime.Format("2006-01-02 15:04:05"),
-					info.failureCount,
-					info.backoffTime.Format("2006-01-02 15:04:05"))
-				pointInfo += msg + "\n"
-
-				if info.failureStreak < DefaultConcurrency {
+				if info.failureStreak < DefaultConcurrency || len(info.routines) >= DefaultConcurrency {
 					noSuccess = false
 				} else if prev, exists := lastFailure[info.Url]; exists && info.failureStreak == prev {
 					noSuccess = false
@@ -260,9 +261,9 @@ func (p *Pool) CheckStatus(ctx context.Context) {
 			}
 
 			if noSuccess {
-				e.SendMessage(ctx, errors.New("all url no success: "+pointInfo))
+				e.SendMessage(ctx, errors.New("all url no success: "+pointInfoStr))
 			}
-			fmt.Println(pointInfo)
+			fmt.Println(pointInfoStr)
 			p.mu.Unlock()
 
 		case <-ctx.Done():
@@ -315,7 +316,7 @@ func (p *Point) startWorker(ctx context.Context) {
 		closeChan: closeChan,
 		pool:      p.pool,
 		point:     point,
-		client:    resty.New(),
+		//client:    resty.New(),
 	}
 	point.routines[gID] = pointRoutines
 	point.mu.Unlock()
@@ -362,8 +363,8 @@ LOOP:
 func (p *Point) handleRequestWithBackoff(ctx context.Context, pointRoutines routines, req Request) {
 	if time.Now().Before(p.backoffTime) {
 		pointRoutines.redirectRequest(req)
-		for time.Now().Before(p.backoffTime) {
-			time.Sleep(100 * time.Millisecond)
+		if d := time.Until(p.backoffTime); d > 0 {
+			time.Sleep(d)
 		}
 	} else {
 		pointRoutines.handleRequest(ctx, req)
@@ -387,7 +388,7 @@ func (r routines) handleRequest(ctx context.Context, req Request) {
 	}
 }
 
-func (r routines) handleSuccessRequest(req Request, runInfo RequestRunInfo, result *resty.Response) {
+func (r routines) handleSuccessRequest(req Request, runInfo RequestRunInfo, result *http2.Result) {
 	point := r.point
 	req.Result = result
 	req.Error = nil
@@ -470,7 +471,7 @@ func (r routines) redirectRequest(req Request) {
 	curPoint := r.point
 	r.pool.mu.Lock()
 	for _, p := range r.pool.pointSort {
-		if p.id != curPoint.id && req.errorUrls[p.id] == nil && len(p.requestChan) < len(p.routines) { //这里还是不能发给自己，就算是第一也有可能突然挂了，然后自己又转发给自己
+		if p.id != curPoint.id && req.errorUrls[p.id] == nil && len(p.requestChan) < len(p.routines) && !p.needClose { //这里还是不能发给自己，就算是第一也有可能突然挂了，然后自己又转发给自己
 			select {
 			case p.requestChan <- req:
 				r.pool.mu.Unlock()
@@ -485,20 +486,17 @@ func (r routines) redirectRequest(req Request) {
 	r.pool.mu.Unlock()
 	// 清空错误记录并重新尝试分配
 	req.errorUrls = make(map[string]error)
-	// 随机分配到一个其他 point
-	//for pointIndex, otherPoint := range r.pool.pointManage {
-	//	if pointIndex != curPoint.id && otherPoint.backoffTime.Before(time.Now()) {
-	//		select {
-	//		case otherPoint.requestChan <- req:
-	//			return
-	//		default:
-	//			// 如果通道已满，继续尝试下一个 point
-	//		}
-	//	}
-	//}
-
 	// 如果所有 point 都无法处理请求，则重新放回自身通道
-	curPoint.requestChan <- req
+	curPoint.mu.Lock()
+	if curPoint.needClose {
+		r.pool.requestChan <- req
+		curPoint.mu.Unlock()
+		return
+	} else {
+		curPoint.requestChan <- req
+		curPoint.mu.Unlock()
+		return
+	}
 }
 
 func (r routines) saveAndNotify(req Request) {
@@ -533,8 +531,8 @@ type RequestRunInfo struct {
 	ExecTime time.Duration
 }
 
-// DoRequest 执行请求
-func (r routines) DoRequest(ctx context.Context, req Request) (runInfo RequestRunInfo, result *resty.Response, err error) {
+// DoRequest TODO 之后支持不同的client request
+func (r routines) DoRequest(ctx context.Context, req Request) (runInfo RequestRunInfo, result *http2.Result, err error) {
 	point := r.point
 
 	method := req.Method
@@ -546,65 +544,89 @@ func (r routines) DoRequest(ctx context.Context, req Request) (runInfo RequestRu
 	}
 	body := req.Body
 
-	client := r.client
-
+	clientRequest := http2.NewRequestBuilder(http2.DefaultFastHTTPClient)
+	clientRequest.NoKeepLog()
 	// 动态设置超时时间
 	minTimeout := 5 * time.Second
-	client.SetTimeout(60 * time.Second)
+	clientRequest.SetTimeout(60 * time.Second)
 
 	point.mu.Lock()
 	url := point.Url + req.Path
 
 	lastErrIsTimeout := false
-	var netErr net.Error
-	if errors.As(req.Error, &netErr) && netErr.Timeout() {
+	if errors.Is(req.Error, context.DeadlineExceeded) {
 		lastErrIsTimeout = true
 	}
 	if !lastErrIsTimeout && point.avgTime > 0 && point.successNum > 0 {
-		client.SetTimeout(point.avgTime + minTimeout)
+		clientRequest.SetTimeout(point.avgTime + minTimeout)
 	}
 	point.mu.Unlock()
 
-	httpReq := client.R()
-	httpReq.SetQueryParamsFromValues(params)
-	httpReq.SetHeaders(headers)
-	if body != nil {
-		httpReq.SetBody(body)
-	}
-	httpResponse, err := executeRequest(httpReq, method, url)
+	res := clientRequest.Execute(ctx, method, url, params, body, headers)
+	httpResult, err := res, res.Error
+
 	if err != nil {
 		return runInfo, result, errors.Wrap(err, fmt.Sprintf("url:%s ,body:%v", r.point.Url, req.Body))
 	}
-	httpResponse.RawResponse.Body.Close()
-	err = CheckJson(ctx, httpResponse)
+	err = CheckJson(ctx, httpResult.Response)
 	if err != nil {
-		return runInfo, result, errors.Wrap(err, fmt.Sprintf("url:%s ,body:%v,response:%s", r.point.Url, req.Body, httpResponse.String()))
+		return runInfo, result, errors.Wrap(err, fmt.Sprintf("url:%s ,body:%v,response:%s", r.point.Url, req.Body, httpResult.Response.String()))
 	}
-
+	err = RetryCheckFunc(ctx, point, req, httpResult.Response)
+	if err != nil {
+		return runInfo, result, errors.Wrap(err, fmt.Sprintf("url:%s ,body:%v,response:%s", r.point.Url, req.Body, httpResult.Response.String()))
+	}
+	//todo 业务重试(业务重试不应该添加到error里面)
 	for _, f := range r.pool.retryFunc {
 		point.mu.Lock()
-		err = f(ctx, point, req, httpResponse)
+		err = f(ctx, point, req, httpResult.Response)
 		point.mu.Unlock()
 		if err != nil {
 			return runInfo, result, e.Err(err)
 		}
 	}
-
-	runInfo.ExecTime = httpResponse.Time()
-	result = httpResponse
+	runInfo.ExecTime = httpResult.Response.Stats.TotalTime
+	result = httpResult
 	return
 }
 
-// CheckJson 保证http请求正常，状态值正常，是个json，这里不正常就重试,业务的检测放在外面去做
-func CheckJson(ctx context.Context, t *resty.Response) error {
-	if !t.IsSuccess() {
-		return errors.New(fmt.Sprintf("Response Status not success: %v", t.StatusCode()))
+// cleanManual 去除控制字符 getassetissuebyid 1004153 1003406
+func cleanManual(data []byte) []byte {
+	out := make([]byte, 0, len(data))
+	for _, b := range data {
+		if b >= 0x20 {
+			out = append(out, b)
+		} else {
+			out = append(out, ' ')
+		}
 	}
-	isJson := utils.IsJson(t.Body())
+	return out
+}
+
+// CheckJson 保证http请求正常，状态值正常，是个json，这里不正常就重试,业务的检测放在外面去做
+func CheckJson(ctx context.Context, t *http2.Response) error {
+	if t.StatusCode < 200 || t.StatusCode >= 300 {
+		return errors.New(fmt.Sprintf("Response Status not success: %v", t.StatusCode))
+	}
+
+	cleanStr := cleanManual(t.Body)
+	isJson := utils.IsJson(cleanStr)
 	if !isJson {
 		return errors.New("Response is not json")
 	}
 	return nil
+}
+
+func (p *Pool) RpcRequest(ctx context.Context, rpcMethod string, params ...interface{}) (res Request, err error) {
+	return p.Request(ctx, Request{
+		Method: http.MethodPost,
+		Body: map[string]interface{}{
+			"jsonrpc": "2.0",
+			"method":  rpcMethod,
+			"id":      1,
+			"params":  params,
+		},
+	})
 }
 
 func (p *Pool) Request(ctx context.Context, req Request) (res Request, err error) {
@@ -688,17 +710,36 @@ func (p *Pool) RequestMulti(ctx context.Context, requests map[string]Request) (m
 		return nil, e.Err(ctx.Err())
 	}
 }
-func executeRequest(req *resty.Request, method, url string) (*resty.Response, error) {
-	switch method {
-	case http.MethodGet:
-		return req.Get(url)
-	case http.MethodPost:
-		return req.Post(url)
-	case http.MethodPut:
-		return req.Put(url)
-	case http.MethodDelete:
-		return req.Delete(url)
-	default:
-		return req.Get(url)
+func RetryCheckFunc(ctx context.Context, point *Point, req Request, t *http2.Response) error {
+	if point.pool.poolType == PoolTypeRpc {
+		gj := gjson.ParseBytes(t.Body)
+		if !gj.Get("result").Exists() && !gj.Get("error").Exists() {
+			return errors.New("not jsonrpc response:" + gj.String())
+		}
+		if gj.Get("result").Exists() && gj.Get("result").Type == gjson.Null { //某些节点数据不存在
+			if strings.Contains(point.Url, "put.com") { //如果是put返回result为null，不报错
+				return nil
+			}
+			return errors.New("result is null:" + gj.String())
+		}
+		if gj.Get("error.code").Exists() {
+			code := gj.Get("error.code").Int()
+			message := gj.Get("error.message").String()
+			if code == -28 { //btc 的服务内部错误
+				return errors.New("node error: " + gj.Get("error.message").String())
+			}
+			if code == -32090 { // -32090: btc Too many requests
+				return errors.New("node error: " + gj.Get("error.message").String())
+			}
+			if code == -32001 && message == "Exceeded the quota usage" {
+				return errors.New("node error: " + gj.Get("error.message").String())
+			}
+			if strings.Contains(strings.ToLower(message), "limit") || strings.Contains(strings.ToLower(message), "exceeded") {
+				return errors.New("node error: " + gj.Get("error.message").String())
+			}
+
+		}
 	}
+
+	return nil
 }
