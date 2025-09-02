@@ -9,12 +9,12 @@ import (
 )
 
 type Config struct {
-	AppName     string `yaml:"appName"`
-	Database    string `yaml:"database"`
-	Dns         string `yaml:"dns"`
-	IdleTimeout int64  `yaml:"idleTimeout"`
-	MaxOpens    uint64 `yaml:"maxOpens"`
-	MinOpens    uint64 `yaml:"minOpens"`
+	AppName     string `mapstructure:"appName"`
+	Database    string `mapstructure:"database"`
+	Dns         string `mapstructure:"dns"`
+	IdleTimeout int64  `mapstructure:"idleTimeout"`
+	MaxOpens    uint64 `mapstructure:"maxOpens"`
+	MinOpens    uint64 `mapstructure:"minOpens"`
 }
 
 type Drive struct {

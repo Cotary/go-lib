@@ -18,10 +18,14 @@ func DbErr(err error) error {
 
 // ScanKeys 扫描单机或集群 keys
 func (t Client) ScanKeys(ctx context.Context, prefix string) ([]string, error) {
-	if t.ClusterClient != nil {
-		return scanClusterKeys(ctx, t.ClusterClient, prefix)
+	switch c := t.UniversalClient.(type) {
+	case *redis.ClusterClient:
+		return scanClusterKeys(ctx, c, prefix)
+	case *redis.Client:
+		return scanStandaloneKeys(ctx, c, prefix)
+	default:
+		return nil, fmt.Errorf("unsupported redis client type: %T", c)
 	}
-	return scanStandaloneKeys(ctx, t.Client, prefix)
 }
 
 func scanStandaloneKeys(
@@ -45,15 +49,13 @@ func scanClusterKeys(
 	errChan := make(chan error, 1)
 
 	sem := make(chan struct{}, 10)
-	//就算只配置一个，也是可以识别到其他节点的
 	err := cluster.ForEachShard(ctx, func(ctx context.Context, shard *redis.Client) error {
 		// 只扫描主节点
 		info, err := shard.Info(ctx, "replication").Result()
 		if err != nil {
 			return err
 		}
-
-		if strings.Contains(info, "role:slave") { // master/slave
+		if strings.Contains(info, "role:slave") {
 			return nil
 		}
 
@@ -86,7 +88,6 @@ func scanClusterKeys(
 		return nil
 	})
 
-	// 等待所有协程完成
 	wg.Wait()
 
 	if err != nil {

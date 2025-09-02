@@ -16,12 +16,12 @@ import (
 )
 
 type Config struct {
-	DSN        []string `yaml:"dsn"`
-	CA         string   `yaml:"caPath"`
-	ClientUser string   `yaml:"clientUserPath"`
-	ClientKey  string   `yaml:"clientKeyPath"`
-	Heartbeat  int64    `yaml:"heartbeat"`
-	MaxChannel int      `yaml:"maxChannel"`
+	DSN        []string `mapstructure:"dsn"`
+	CA         string   `mapstructure:"caPath"`
+	ClientUser string   `mapstructure:"clientUserPath"`
+	ClientKey  string   `mapstructure:"clientKeyPath"`
+	Heartbeat  int64    `mapstructure:"heartbeat"`
+	MaxChannel int      `mapstructure:"maxChannel"`
 }
 
 func (cfg *Config) ensureDefaults() {

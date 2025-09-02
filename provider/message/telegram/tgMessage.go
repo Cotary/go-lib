@@ -6,8 +6,8 @@ import (
 )
 
 type Config struct {
-	Token string `yaml:"token"`
-	Debug bool   `yaml:"debug"`
+	Token string `mapstructure:"token"`
+	Debug bool   `mapstructure:"debug"`
 }
 
 type Robot struct {
