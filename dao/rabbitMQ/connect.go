@@ -16,12 +16,12 @@ import (
 )
 
 type Config struct {
-	DSN        []string `mapstructure:"dsn"`
-	CA         string   `mapstructure:"caPath"`
-	ClientUser string   `mapstructure:"clientUserPath"`
-	ClientKey  string   `mapstructure:"clientKeyPath"`
-	Heartbeat  int64    `mapstructure:"heartbeat"`
-	MaxChannel int      `mapstructure:"maxChannel"`
+	DSN        []string `mapstructure:"dsn" yaml:"dsn"`
+	CA         string   `mapstructure:"ca" yaml:"ca"`
+	CertFile   string   `mapstructure:"certFile" yaml:"certFile"`
+	KeyFile    string   `mapstructure:"keyFile" yaml:"keyFile"`
+	Heartbeat  int64    `mapstructure:"heartbeat" yaml:"heartbeat"`
+	MaxChannel int      `mapstructure:"maxChannel" yaml:"maxChannel"`
 }
 
 func (cfg *Config) ensureDefaults() {
@@ -133,8 +133,8 @@ func (c *Connect) reconnect() error {
 		tlsCfg.RootCAs = x509.NewCertPool()
 		tlsCfg.RootCAs.AppendCertsFromPEM(caPEM)
 	}
-	if c.cfg.ClientUser != "" && c.cfg.ClientKey != "" {
-		cert, err := tls.LoadX509KeyPair(c.cfg.ClientUser, c.cfg.ClientKey)
+	if c.cfg.CertFile != "" && c.cfg.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(c.cfg.CertFile, c.cfg.KeyFile)
 		if err != nil {
 			return fmt.Errorf("load client cert: %w", err)
 		}

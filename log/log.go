@@ -10,14 +10,14 @@ var ISO8601TimeLayout = "2006-01-02T15:04:05.000Z07:00"
 // Config 日志配置
 // MaxAge和MaxBackups满足一个即可被清除
 type Config struct {
-	Level      string `mapstructure:"level"`      // 日志级别
-	Path       string `mapstructure:"path"`       // 日志文件路径
-	FileSuffix string `mapstructure:"fileSuffix"` // 日志文件后缀
-	MaxAge     int64  `mapstructure:"maxAge"`     // 日志文件最大保存时间（24小时）: 0默认30天,-1不限制
-	MaxBackups int64  `mapstructure:"maxBackups"` // 日志文件最大数量（备份数），默认不限制
-	MaxSize    int64  `mapstructure:"maxSize"`    // 日志文件大小 MB,lumberjack默认100MB,不能无限增长
-	FileName   string `mapstructure:"fileName"`   // 日志文件名
-	Compress   bool   `mapstructure:"compress"`   // 是否压缩,默认不压缩
+	Level      string `mapstructure:"level" yaml:"level"`           // 日志级别
+	Path       string `mapstructure:"path" yaml:"path"`             // 日志文件路径
+	FileSuffix string `mapstructure:"fileSuffix" yaml:"fileSuffix"` // 日志文件后缀
+	MaxAge     int64  `mapstructure:"maxAge" yaml:"maxAge"`         // 日志文件最大保存时间（24小时）: 0默认30天,-1不限制
+	MaxBackups int64  `mapstructure:"maxBackups" yaml:"maxBackups"` // 日志文件最大数量（备份数），默认不限制
+	MaxSize    int64  `mapstructure:"maxSize" yaml:"maxSize"`       // 日志文件大小 MB,lumberjack默认100MB,不能无限增长
+	FileName   string `mapstructure:"fileName" yaml:"fileName"`     // 日志文件名
+	Compress   bool   `mapstructure:"compress" yaml:"compress"`     // 是否压缩,默认不压缩
 }
 
 func handleConfig(config *Config) {

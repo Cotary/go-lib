@@ -125,12 +125,11 @@ func cmdHandle(id string, handle Handler) {
 	ctx := coroutines.NewContext("CRON:" + id)
 	coroutines.SafeFunc(ctx, func(ctx context.Context) {
 		funcName := fmt.Sprintf("%s-%T", id, handle)
-		singleRun := utils2.NewSingleRun(funcName)
-		runInfo, err := singleRun.SingleRun(func() error {
+		runInfo, err := utils2.SingleRun(funcName, func() error {
 			return handle.Do(ctx)
 		})
 		if err != nil {
-			if errors.Is(err, utils2.ErrProcessIsRunning) {
+			if errors.Is(err, utils2.ErrRunning) {
 				// 当前还在运行，则判断是否超时
 				if time.Since(runInfo.StartTime) < handle.MaxExecuteTime() {
 					return

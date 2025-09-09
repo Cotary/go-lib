@@ -8,15 +8,15 @@ import (
 )
 
 type Config struct {
-	Identity           string `mapstructure:"identity"`
-	UserName           string `mapstructure:"userName"`
-	Password           string `mapstructure:"password"`
-	Smtp               string `mapstructure:"smtp"`
-	Port               int    `mapstructure:"port"`
-	TlsModel           int    `mapstructure:"tlsModel"` // 0不使用，1 tls, 2 starttls
-	InsecureSkipVerify bool   `mapstructure:"insecureSkipVerify"`
-	CertFile           string `mapstructure:"certFile"`
-	KeyFile            string `mapstructure:"keyFile"`
+	Identity           string `mapstructure:"identity" yaml:"identity"`
+	UserName           string `mapstructure:"userName" yaml:"userName"`
+	Password           string `mapstructure:"password" yaml:"password"`
+	Smtp               string `mapstructure:"smtp" yaml:"smtp"`
+	Port               int    `mapstructure:"port" yaml:"port"`
+	TlsModel           int    `mapstructure:"tlsModel" yaml:"tlsModel"` // 0不使用，1 tls, 2 starttls
+	InsecureSkipVerify bool   `mapstructure:"insecureSkipVerify" yaml:"insecureSkipVerify"`
+	CertFile           string `mapstructure:"certFile" yaml:"certFile"`
+	KeyFile            string `mapstructure:"keyFile" yaml:"keyFile"`
 }
 
 type Email struct {
