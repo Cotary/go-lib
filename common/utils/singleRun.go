@@ -20,7 +20,10 @@ type RunInfo struct {
 
 var ErrRunning = errors.New("process is running")
 
-const MustWait = -1
+const (
+	MustWait = -1
+	NoWait   = 0
+)
 
 // waitTime < 0: 一直等
 // waitTime = 0: 不等
