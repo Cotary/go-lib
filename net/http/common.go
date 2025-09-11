@@ -124,44 +124,15 @@ func (rb *RequestBuilder[T]) SetTimeout(timeout time.Duration) *RequestBuilder[T
 }
 
 // Execute performs the HTTP request and returns a Result.
-func (rb *RequestBuilder[T]) Execute(ctx context.Context, method string, url string, query map[string][]string, body interface{}, headers map[string]string) *Result {
-	// 验证基本参数
+func (rb *RequestBuilder[T]) Execute(
+	ctx context.Context,
+	method, url string,
+	query map[string][]string,
+	body interface{},
+	headers map[string]string,
+) *Result {
 	if ctx == nil {
 		ctx = context.Background()
-	}
-	if url == "" {
-		return &Result{
-			Request: &Request{
-				Ctx:     ctx,
-				Method:  method,
-				URL:     url,
-				Query:   query,
-				Body:    body,
-				Headers: headers,
-				Timeout: rb.timeout,
-			},
-			Error:        errors.New("URL cannot be empty"),
-			KeepLog:      rb.keepLog,
-			SendErrorMsg: rb.sendErrorMsg,
-		}
-	}
-
-	// 验证HTTP方法
-	if !isValidHTTPMethod(method) {
-		return &Result{
-			Request: &Request{
-				Ctx:     ctx,
-				Method:  method,
-				URL:     url,
-				Query:   query,
-				Body:    body,
-				Headers: headers,
-				Timeout: rb.timeout,
-			},
-			Error:        errors.New(fmt.Sprintf("Invalid HTTP method: %s", method)),
-			KeepLog:      rb.keepLog,
-			SendErrorMsg: rb.sendErrorMsg,
-		}
 	}
 
 	req := &Request{
@@ -180,6 +151,17 @@ func (rb *RequestBuilder[T]) Execute(ctx context.Context, method string, url str
 		SendErrorMsg: rb.sendErrorMsg,
 	}
 
+	// 参数校验
+	switch {
+	case url == "":
+		res.Error = errors.New("URL cannot be empty")
+		return res
+	case !isValidHTTPMethod(method):
+		res.Error = fmt.Errorf("invalid HTTP method: %s", method)
+		return res
+	}
+
+	// 执行 handler
 	for _, handler := range rb.handlers {
 		if err := handler(req); err != nil {
 			res.Error = err
@@ -187,9 +169,8 @@ func (rb *RequestBuilder[T]) Execute(ctx context.Context, method string, url str
 		}
 	}
 
-	resp, err := rb.client.Do(req)
-	res.Response = resp
-	res.Error = err
+	// 发起请求
+	res.Response, res.Error = rb.client.Do(req)
 
 	if res.KeepLog {
 		res.Log(log.WithContext(ctx))
@@ -208,6 +189,73 @@ func (r *Result) Log(logEntry log.Logger) *Result {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
+	logMap := r.getLogMap(ctx)
+	if r.Error != nil {
+		if logEntry != nil {
+			logEntry.WithContext(ctx).WithFields(logMap).Error("HTTP Request")
+		}
+		if r.SendErrorMsg {
+			e.SendMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
+		}
+	} else {
+		if logEntry != nil {
+			logEntry.WithContext(ctx).WithFields(logMap).Info("HTTP Request")
+		}
+	}
+	return r
+}
+
+func (r *Result) Parse(path string, data interface{}) error {
+	ctx := r.Request.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if r.Error != nil {
+		return r.Error
+	}
+	logMap := r.getLogMap(ctx)
+	if r.Response.StatusCode < 200 || r.Response.StatusCode >= 300 {
+		return errors.New("response status code error: " + utils.Json(logMap))
+	}
+
+	isJson := utils.IsJson(r.Response.Body)
+	if !isJson {
+		return errors.New("response is not json: " + utils.Json(logMap))
+	}
+
+	// Execute response handlers before parsing
+	for _, f := range r.Handlers {
+		if err := f(r); err != nil {
+			return errors.Wrap(err, utils.Json(logMap))
+		}
+	}
+
+	if data == nil {
+		return nil
+	}
+
+	// Handle parsing with gjson
+	var respJson string
+	if path != "" {
+		gj := gjson.ParseBytes(r.Response.Body)
+		value := gj.Get(path)
+		if !value.Exists() {
+			return errors.New(fmt.Sprintf("path not found: %s , response: %s", path, utils.Json(logMap)))
+		}
+		respJson = value.String()
+	} else {
+		respJson = string(r.Response.Body)
+	}
+
+	if err := utils.StringTo(respJson, data); err != nil {
+		return e.Err(err, fmt.Sprintf("response parse error, response: %s", utils.Json(logMap)))
+	}
+	return nil
+}
+
+func (r *Result) getLogMap(ctx context.Context) map[string]interface{} {
 	logMap := map[string]interface{}{
 		"Context ID": ctx.Value(defined.RequestID),
 	}
@@ -235,70 +283,6 @@ func (r *Result) Log(logEntry log.Logger) *Result {
 
 	if r.Error != nil {
 		logMap["Request Error"] = r.Error.Error()
-		if logEntry != nil {
-			logEntry.WithContext(ctx).WithFields(logMap).Error("HTTP Request")
-		}
-		if r.SendErrorMsg {
-			e.SendMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
-		}
-	} else {
-		if logEntry != nil {
-			logEntry.WithContext(ctx).WithFields(logMap).Info("HTTP Request")
-		}
 	}
-	return r
-}
-
-func (r *Result) Parse(path string, data interface{}) error {
-	if r.Error != nil {
-		return r.Error
-	}
-
-	if r.Response.StatusCode < 200 || r.Response.StatusCode >= 300 {
-		return errors.New(r.getErrMsg())
-	}
-
-	isJson := utils.IsJson(r.Response.Body)
-	if !isJson {
-		return errors.New("response is not json: " + r.getErrMsg())
-	}
-
-	// Execute response handlers before parsing
-	for _, f := range r.Handlers {
-		if err := f(r); err != nil {
-			return errors.Wrap(err, r.getErrMsg())
-		}
-	}
-
-	if data == nil {
-		return nil
-	}
-
-	// Handle parsing with gjson
-	var respJson string
-	if path != "" {
-		gj := gjson.ParseBytes(r.Response.Body)
-		value := gj.Get(path)
-		if !value.Exists() {
-			return errors.New(fmt.Sprintf("path not found: %s", path))
-		}
-		respJson = value.String()
-	} else {
-		respJson = string(r.Response.Body)
-	}
-
-	if err := utils.StringTo(respJson, data); err != nil {
-		return e.Err(err, "response parse error")
-	}
-	return nil
-}
-
-func (r *Result) getErrMsg() string {
-	var body string
-	if r.Response != nil {
-		body = string(r.Response.Body)
-	} else {
-		body = "no response body"
-	}
-	return fmt.Sprintf("Response not success. Status: %d, Body: %s", r.Response.StatusCode, body)
+	return logMap
 }
