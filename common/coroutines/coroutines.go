@@ -2,9 +2,9 @@ package coroutines
 
 import (
 	"context"
+	"fmt"
 	"github.com/Cotary/go-lib"
 	"github.com/Cotary/go-lib/common/defined"
-	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -22,7 +22,8 @@ func SafeGo(ctx context.Context, F func(ctx context.Context)) {
 func SafeFunc(ctx context.Context, F func(ctx context.Context)) {
 	defer func() {
 		if r := recover(); r != nil {
-			err := errors.New(utils.AnyToString(r) + "\r\n" + string(debug.Stack()))
+			msg := fmt.Sprintf("Recover: %v \n Stack: %s", r, string(debug.Stack()))
+			err := errors.New(msg)
 			e.SendMessage(ctx, err)
 		}
 	}()
