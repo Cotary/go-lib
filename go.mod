@@ -3,6 +3,7 @@ module github.com/Cotary/go-lib
 go 1.23.0
 
 require (
+	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/coocood/freecache v1.2.4
 	github.com/eko/gocache/lib/v4 v4.1.6
 	github.com/eko/gocache/store/go_cache/v4 v4.2.2
@@ -17,6 +18,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/json-iterator/go v1.1.12
+	github.com/mr-tron/base58 v1.2.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pkg/errors v0.9.1
 	github.com/rabbitmq/amqp091-go v1.10.0

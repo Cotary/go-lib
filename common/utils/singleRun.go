@@ -60,7 +60,7 @@ func SingleRun(key string, waitTime time.Duration, f func() error) (RunInfo, err
 		}
 
 		// 已在运行
-		if waitTime == 0 {
+		if waitTime == NoWait {
 			mu.Unlock()
 			return info, ErrRunning
 		}
