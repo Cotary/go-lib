@@ -1,4 +1,4 @@
-package psql
+package pgsql
 
 import (
 	log2 "github.com/Cotary/go-lib/log"

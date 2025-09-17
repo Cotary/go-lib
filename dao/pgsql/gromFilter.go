@@ -1,4 +1,4 @@
-package psql
+package pgsql
 
 import (
 	"fmt"
@@ -9,8 +9,22 @@ import (
 	"github.com/Cotary/go-lib/common/community"
 )
 
-// isZeroValue 跳过空字符串、零值、nil、空 slice 等
+type isZeroer interface {
+	IsZero() bool
+}
+
 func isZeroValue(v reflect.Value) bool {
+	if !v.IsValid() {
+		return true
+	}
+
+	// 如果是实现了 IsZero() 的类型，优先调用它
+	if v.CanInterface() {
+		if z, ok := v.Interface().(isZeroer); ok {
+			return z.IsZero()
+		}
+	}
+
 	switch v.Kind() {
 	case reflect.String:
 		return v.Len() == 0
@@ -26,6 +40,14 @@ func isZeroValue(v reflect.Value) bool {
 		return v.Len() == 0
 	case reflect.Ptr, reflect.Interface:
 		return v.IsNil()
+	case reflect.Struct:
+		// 对结构体递归判断所有字段是否都是零值
+		for i := 0; i < v.NumField(); i++ {
+			if !isZeroValue(v.Field(i)) {
+				return false
+			}
+		}
+		return true
 	}
 	return false
 }

@@ -1,9 +1,10 @@
-package psql
+package pgsql
 
 import (
 	"fmt"
 	"github.com/Cotary/go-lib/common/community"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"strings"
 )
 
@@ -141,5 +142,19 @@ func WithOffset(n int) QueryOption {
 func WithID(id int64) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Where("id = ?", id)
+	}
+}
+
+// WithForUpdate 在查询中加 FOR UPDATE
+func WithForUpdate() QueryOption {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+}
+
+// WithShare 在查询中加 FOR SHARE（共享锁）
+func WithShare() QueryOption {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Clauses(clause.Locking{Strength: "SHARE"})
 	}
 }
