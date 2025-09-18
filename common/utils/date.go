@@ -5,43 +5,50 @@ import (
 	"time"
 )
 
+// Time 在 time.Time 基础上扩展了秒/毫秒转换与区间计算等方法
 type Time struct {
-	*time.Location
 	time.Time
 }
 
+// TimeType 支持的构造类型
 type TimeType interface {
 	~int64 | time.Time
 }
 
-func NewTime[T TimeType](t T, Location ...*time.Location) *Time {
+// NewTime 创建 Time 对象
+// t 可以是秒级或毫秒级时间戳，也可以是 time.Time
+// loc 可选，默认使用本地时区
+func NewTime[T TimeType](t T, loc ...*time.Location) *Time {
+	location := time.Local
+	if len(loc) > 0 && loc[0] != nil {
+		location = loc[0]
+	}
+
 	switch v := any(t).(type) {
 	case time.Time:
-		if len(Location) > 0 {
-			return &Time{Location[0], v}
-		}
-		return &Time{time.Local, v}
+		return &Time{v.In(location)}
 	case int64:
-		if len(Location) > 0 {
-			return &Time{Location[0], time.UnixMilli(GetMillTime(v))}
-		}
-		return &Time{time.Local, time.UnixMilli(GetMillTime(v))}
+		return &Time{time.UnixMilli(GetMillTime(v)).In(location)}
 	default:
-		return nil
+		panic("unsupported time type for NewTime")
 	}
 }
 
+// NewUTC 返回当前 UTC 时间
 func NewUTC() *Time {
-	return &Time{time.UTC, time.Now()}
+	return &Time{time.Now().UTC()}
 }
 
-func NewLocal(Location ...*time.Location) *Time {
-	if len(Location) > 0 {
-		return &Time{Location[0], time.Now()}
+// NewLocal 返回当前本地时间（可指定时区）
+func NewLocal(loc ...*time.Location) *Time {
+	location := time.Local
+	if len(loc) > 0 && loc[0] != nil {
+		location = loc[0]
 	}
-	return &Time{time.Local, time.Now()}
+	return &Time{time.Now().In(location)}
 }
 
+// GetSecTime 将毫秒级时间戳转换为秒级
 func GetSecTime(t int64) int64 {
 	if t > 1e12 {
 		return t / 1000
@@ -49,6 +56,8 @@ func GetSecTime(t int64) int64 {
 	return t
 }
 
+// GetMillTime 将秒级时间戳转换为毫秒级
+// end=true 时返回该秒的最后一毫秒
 func GetMillTime(t int64, end ...bool) int64 {
 	if t == 0 || t > 1e12 {
 		return t
@@ -59,114 +68,118 @@ func GetMillTime(t int64, end ...bool) int64 {
 	return t * 1000
 }
 
+// StrToTime 将字符串解析为秒级时间戳
 func (t *Time) StrToTime(str string, layout string) (int64, error) {
-	tm, err := time.ParseInLocation(layout, str, t.Location)
+	tm, err := time.ParseInLocation(layout, str, t.Location())
 	if err != nil {
 		return 0, err
 	}
 	return tm.Unix(), nil
 }
 
-func (t *Time) TimeFormat(layout string) string {
-	return t.In(t.Location).Format(layout)
+// FormatString 格式化为字符串
+func (t *Time) FormatString(layout string) string {
+	return t.Format(layout)
 }
 
-func (t *Time) TimeFormatTime(layout string) (int64, error) {
-	str := t.TimeFormat(layout)
+// FormatToUnix 格式化后再解析为秒级时间戳（会丢失秒以下精度）
+func (t *Time) FormatToUnix(layout string) (int64, error) {
+	str := t.FormatString(layout)
 	return t.StrToTime(str, layout)
 }
 
-func (t *Time) GetHourTimes(h int) (int64, int64) {
-	now := t.In(t.Location).Add(time.Duration(h) * time.Hour)
+// GetHourRange 获取当前时间偏移 h 小时所在的整点区间（秒级时间戳）
+func (t *Time) GetHourRange(h int) (int64, int64) {
+	now := t.Add(time.Duration(h) * time.Hour)
 	year, month, day := now.Date()
 	hour := now.Hour()
-	startOfDay := time.Date(year, month, day, hour, 0, 0, 0, t.Location)
-	endOfDay := time.Date(year, month, day, hour, 59, 59, 999999, t.Location)
-	startTime := startOfDay.Unix()
-	endTime := endOfDay.Unix()
-	return startTime, endTime
+	start := time.Date(year, month, day, hour, 0, 0, 0, t.Location())
+	end := start.Add(time.Hour).Add(-time.Nanosecond)
+	return start.Unix(), end.Unix()
 }
 
-func (t *Time) GetDayTimes(d int) (int64, int64) {
-	now := t.In(t.Location).AddDate(0, 0, d)
+// GetDayRange 获取当前时间偏移 d 天所在的日期区间（秒级时间戳）
+func (t *Time) GetDayRange(d int) (int64, int64) {
+	now := t.AddDate(0, 0, d)
 	year, month, day := now.Date()
-	startOfDay := time.Date(year, month, day, 0, 0, 0, 0, t.Location)
-	endOfDay := time.Date(year, month, day, 23, 59, 59, 999999, t.Location)
-	startTime := startOfDay.Unix()
-	endTime := endOfDay.Unix()
-	return startTime, endTime
+	start := time.Date(year, month, day, 0, 0, 0, 0, t.Location())
+	end := start.AddDate(0, 0, 1).Add(-time.Nanosecond)
+	return start.Unix(), end.Unix()
 }
 
-// GetWeekTimes 周日到周六为一周
-func (t *Time) GetWeekTimes(d int) (int64, int64) {
-	now := t.In(t.Location).AddDate(0, 0, d*7)
+// GetWeekRangeSunday 周日到周六为一周
+func (t *Time) GetWeekRangeSunday(weekOffset int) (int64, int64) {
+	now := t.AddDate(0, 0, weekOffset*7)
 	year, month, day := now.Date()
 	weekday := now.Weekday()
-	startOfWeek := time.Date(year, month, day-int(weekday), 0, 0, 0, 0, t.Location)
-	endOfWeek := time.Date(year, month, day+(6-int(weekday)), 23, 59, 59, 999999, t.Location)
-	startTime := startOfWeek.Unix()
-	endTime := endOfWeek.Unix()
-	return startTime, endTime
+	start := time.Date(year, month, day-int(weekday), 0, 0, 0, 0, t.Location())
+	end := start.AddDate(0, 0, 7).Add(-time.Nanosecond)
+	return start.Unix(), end.Unix()
 }
 
-// GetCWeekTimes 周一到周日为一周
-func (t *Time) GetCWeekTimes(d int) (int64, int64) {
-	now := t.In(t.Location).AddDate(0, 0, d*7)
+// GetWeekRangeMonday 周一到周日为一周
+func (t *Time) GetWeekRangeMonday(weekOffset int) (int64, int64) {
+	now := t.AddDate(0, 0, weekOffset*7)
 	year, month, day := now.Date()
 	weekday := int(now.Weekday())
 	if weekday == 0 {
 		weekday = 7
 	}
-	startOfWeek := time.Date(year, month, day-(weekday-1), 0, 0, 0, 0, t.Location)
-	endOfWeek := time.Date(year, month, day+(7-weekday), 23, 59, 59, 999999, t.Location)
-	startTime := startOfWeek.Unix()
-	endTime := endOfWeek.Unix()
-	return startTime, endTime
+	start := time.Date(year, month, day-(weekday-1), 0, 0, 0, 0, t.Location())
+	end := start.AddDate(0, 0, 7).Add(-time.Nanosecond)
+	return start.Unix(), end.Unix()
 }
 
-func (t *Time) GetMonthTimes(d int) (int64, int64) {
-	now := t.In(t.Location).AddDate(0, d, 1)
+// GetMonthRange 获取当前时间偏移 monthOffset 个月所在的月份区间（秒级时间戳）
+func (t *Time) GetMonthRange(monthOffset int) (int64, int64) {
+	now := t.AddDate(0, monthOffset, 0)
 	year, month, _ := now.Date()
-	startOfDay := time.Date(year, month, 1, 0, 0, 0, 0, t.Location)
-	startTime := startOfDay.Unix()
-	endOfDay := startOfDay.AddDate(0, 1, 0)
-	endTime := endOfDay.Unix() - 1
-	return startTime, endTime
+	start := time.Date(year, month, 1, 0, 0, 0, 0, t.Location())
+	end := start.AddDate(0, 1, 0).Add(-time.Nanosecond)
+	return start.Unix(), end.Unix()
 }
 
+// CalculateMonthAndDayItem 月日差结果
 type CalculateMonthAndDayItem struct {
 	Month int
 	Day   int
 }
 
-func (t *Time) CalculateMonthAndDayList(start int64, end int64, targetDate string) (list []CalculateMonthAndDayItem) {
-	for i := GetSecTime(start); i < GetSecTime(end); i += 86400 {
-		month, day := t.CalculateMonthAndDay(i, targetDate)
-		list = append(list, CalculateMonthAndDayItem{
-			Month: month,
-			Day:   day,
-		})
+// CalculateMonthAndDayList 计算时间区间内每一天与目标日期的月差和日
+func (t *Time) CalculateMonthAndDayList(start, end int64, targetDate string) ([]CalculateMonthAndDayItem, error) {
+	var list []CalculateMonthAndDayItem
+	for ts := GetSecTime(start); ts < GetSecTime(end); ts += 86400 {
+		month, day, err := t.CalculateMonthAndDay(ts, targetDate)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, CalculateMonthAndDayItem{Month: month, Day: day})
 	}
-	return list
+	return list, nil
 }
 
-func (t *Time) CalculateMonthAndDay(timestamp int64, targetDateStr string) (int, int) {
-	targetDate, _ := time.ParseInLocation(defined.YearMonthDayLayout, targetDateStr, t.Location)
-	inputDate := time.Unix(GetSecTime(timestamp), 0).In(t.Location)
+// CalculateMonthAndDay 计算与目标日期的月差和日
+func (t *Time) CalculateMonthAndDay(timestamp int64, targetDateStr string) (int, int, error) {
+	targetDate, err := time.ParseInLocation(defined.YearMonthDayLayout, targetDateStr, t.Location())
+	if err != nil {
+		return 0, 0, err
+	}
+	inputDate := time.Unix(GetSecTime(timestamp), 0).In(t.Location())
 	months := (inputDate.Year()-targetDate.Year())*12 + int(inputDate.Month()) - int(targetDate.Month()) + 1
-	return months, inputDate.Day()
+	return months, inputDate.Day(), nil
 }
 
-func (t *Time) GetDayTimesBetween(start, end int64) []int64 {
-	start, _ = NewTime(start, t.Location).TimeFormatTime(defined.YearMonthDayLayout)
-	end, _ = NewTime(end, t.Location).TimeFormatTime(defined.YearMonthDayLayout)
-	var dayTimes []int64
+// GetDayListBetween 获取两个时间戳之间的所有日期（秒级时间戳，按天对齐）
+func (t *Time) GetDayListBetween(start, end int64) []int64 {
+	start, _ = NewTime(start, t.Location()).FormatToUnix(defined.YearMonthDayLayout)
+	end, _ = NewTime(end, t.Location()).FormatToUnix(defined.YearMonthDayLayout)
+	var days []int64
 	if start > end {
-		return dayTimes
+		return days
 	}
-	for i := start; i <= end; i += 86400 {
-		dayTime, _ := NewTime(i, t.Location).TimeFormatTime(defined.YearMonthDayLayout)
-		dayTimes = append(dayTimes, dayTime)
+	for ts := start; ts <= end; ts += 86400 {
+		day, _ := NewTime(ts, t.Location()).FormatToUnix(defined.YearMonthDayLayout)
+		days = append(days, day)
 	}
-	return dayTimes
+	return days
 }

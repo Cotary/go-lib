@@ -2,27 +2,27 @@ package utils
 
 import "reflect"
 
-// ListFields 提取结构体切片中的某个字段，返回字段值的切片
-func ListFields[T any, U any](s []T, f func(T) U) []U {
-	result := make([]U, len(s))
-	for i, v := range s {
-		result[i] = f(v)
+// MapSlice 提取结构体切片中的某个字段，返回字段值的切片
+func MapSlice[T any, U any](src []T, mapper func(T) U) []U {
+	result := make([]U, len(src))
+	for i, v := range src {
+		result[i] = mapper(v)
 	}
 	return result
 }
 
-// ArrayColumn 将结构体切片中的某个字段作为键，返回键值对的映射
-func ArrayColumn[T any, U comparable](s []T, f func(T) U) map[U]T {
-	result := make(map[U]T, len(s))
-	for _, v := range s {
-		result[f(v)] = v
+// KeyBy 将结构体切片按某个字段作为键，返回键值对映射
+func KeyBy[T any, K comparable](src []T, keySelector func(T) K) map[K]T {
+	result := make(map[K]T, len(src))
+	for _, v := range src {
+		result[keySelector(v)] = v
 	}
 	return result
 }
 
 // InArray 判断某个值是否在切片中
-func InArray[T comparable](val T, array []T) bool {
-	for _, item := range array {
+func InArray[T comparable](val T, arr []T) bool {
+	for _, item := range arr {
 		if item == val {
 			return true
 		}
@@ -30,25 +30,24 @@ func InArray[T comparable](val T, array []T) bool {
 	return false
 }
 
-// ToSlice 将单个值转换为切片
-func ToSlice[T any](item ...T) []T {
-	return item
+// ToSlice 将一个或多个值转换为切片
+func ToSlice[T any](items ...T) []T {
+	return items
 }
 
-// DefaultIfEmpty 如果值为空，则返回默认值
-func DefaultIfEmpty[T any](value, defaultValue T) T {
+// DefaultIfZero 如果值为零值，则返回默认值
+func DefaultIfZero[T any](value, defaultValue T) T {
 	if reflect.DeepEqual(value, reflect.Zero(reflect.TypeOf(value)).Interface()) {
 		return defaultValue
 	}
 	return value
 }
 
-// SplitSlice 将切片按指定大小分割
-func SplitSlice[T any](slice []T, size int) [][]T {
+// Chunk 将切片按指定大小分割
+func Chunk[T any](slice []T, size int) [][]T {
 	if size <= 0 {
 		return nil
 	}
-
 	result := make([][]T, 0, (len(slice)+size-1)/size)
 	for i := 0; i < len(slice); i += size {
 		end := i + size
@@ -60,14 +59,14 @@ func SplitSlice[T any](slice []T, size int) [][]T {
 	return result
 }
 
-// SafeSliceAdd 安全地向切片中添加元素
-func SafeSliceAdd[T any](s *[]T, key int, value T) {
-	ExtendSlice(s, key+1)
-	(*s)[key] = value
+// SafeSet 安全地向切片指定索引赋值（自动扩容）
+func SafeSet[T any](s *[]T, index int, value T) {
+	EnsureLen(s, index+1)
+	(*s)[index] = value
 }
 
-// ExtendSlice 扩展切片到指定长度
-func ExtendSlice[T any](s *[]T, length int) {
+// EnsureLen 扩展切片到指定长度
+func EnsureLen[T any](s *[]T, length int) {
 	if cap(*s) < length {
 		newSlice := make([]T, length)
 		copy(newSlice, *s)
@@ -77,8 +76,8 @@ func ExtendSlice[T any](s *[]T, length int) {
 	}
 }
 
-// ListUnique 去重
-func ListUnique[T comparable](s []T) []T {
+// Unique 去重
+func Unique[T comparable](s []T) []T {
 	seen := make(map[T]struct{}, len(s))
 	result := make([]T, 0, len(s))
 	for _, v := range s {
@@ -90,13 +89,13 @@ func ListUnique[T comparable](s []T) []T {
 	return result
 }
 
-// Intersection 交集
-func Intersection[T comparable](a, b []T) []T {
+// Intersect 交集
+func Intersect[T comparable](a, b []T) []T {
 	m := make(map[T]struct{}, len(a))
 	for _, item := range a {
 		m[item] = struct{}{}
 	}
-	var out []T
+	out := make([]T, 0)
 	for _, item := range b {
 		if _, ok := m[item]; ok {
 			out = append(out, item)
@@ -121,13 +120,13 @@ func Union[T comparable](a, b []T) []T {
 	return out
 }
 
-// Difference 差集
+// Difference 差集（a - b）
 func Difference[T comparable](a, b []T) []T {
 	m := make(map[T]struct{}, len(b))
 	for _, item := range b {
 		m[item] = struct{}{}
 	}
-	var out []T
+	out := make([]T, 0)
 	for _, item := range a {
 		if _, ok := m[item]; !ok {
 			out = append(out, item)

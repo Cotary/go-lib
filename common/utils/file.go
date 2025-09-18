@@ -1,78 +1,56 @@
 package utils
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 )
 
-func WriteLog(files string, data map[string]string) error {
-	text := "\n" + time.Now().String() + ":\n"
+// AppendLog 追加日志到指定文件（自动创建目录和文件）
+func AppendLog(filePath string, data map[string]string) error {
+	logEntry := fmt.Sprintf("\n%s:\n", time.Now().Format(time.DateTime))
 	for key, val := range data {
-		text += key + ": " + val + "\n"
+		logEntry += fmt.Sprintf("%s: %s\n", key, val)
 	}
-	return WriteFileAppend(files, text)
+	return AppendToFile(filePath, logEntry)
 }
 
-// WriteFileAppend 向文件追加内容，文件自动创建
-func WriteFileAppend(files string, val string) error {
-	err := CreateFile(files)
-	if err != nil {
+// AppendToFile 向文件追加内容（自动创建目录和文件）
+func AppendToFile(filePath, content string) error {
+	if err := EnsureFileExists(filePath); err != nil {
 		return err
 	}
-	myFile, err := os.OpenFile(files, os.O_APPEND|os.O_WRONLY, os.ModePerm)
-	if err != nil {
-		return err
-	}
-	defer myFile.Close()
 
-	// Write the string to the file
-	_, err = myFile.WriteString(val + "\n")
+	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
-	return nil
+	defer f.Close()
 
+	_, err = f.WriteString(content + "\n")
+	return err
 }
 
-func CreateFile(files string) error {
-	//创建文件夹
-	paths, _ := filepath.Split(files)
-	err := CreateMultiDir(paths)
-	if err != nil {
+// EnsureFileExists 确保文件及其目录存在
+func EnsureFileExists(filePath string) error {
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return err
 	}
-	//判断文件是否存在
-	if !isExist(files) {
-		dstFile, err := os.Create(files)
+
+	if !PathExists(filePath) {
+		f, err := os.Create(filePath)
 		if err != nil {
 			return err
 		}
-		defer dstFile.Close()
+		defer f.Close()
 	}
 	return nil
 }
 
-// CreateMultiDir  调用os.MkdirAll递归创建文件夹
-func CreateMultiDir(filePath string) error {
-	if !isExist(filePath) {
-		err := os.MkdirAll(filePath, os.ModePerm)
-		if err != nil {
-			return err
-		}
-		return err
-	}
-	return nil
-}
-
-// isExist 判断所给路径文件/文件夹是否存在(返回true是存在)
-func isExist(path string) bool {
-	_, err := os.Stat(path) //os.Stat获取文件信息
-	if err != nil {
-		if os.IsExist(err) {
-			return true
-		}
-		return false
-	}
-	return true
+// PathExists 判断路径是否存在
+func PathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil || !os.IsNotExist(err)
 }

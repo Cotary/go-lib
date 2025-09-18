@@ -10,76 +10,77 @@ import (
 	"net/url"
 )
 
-func GetParam(c *gin.Context, paramName string) string {
-	// try to get the parameter from the URL
-	paramValue := c.Param(paramName)
-
-	// if the parameter is not in the URL, try to get it from the form data
-	if paramValue == "" {
-		paramValue = c.PostForm(paramName)
+// GetParam 从 URL 参数、表单或 JSON 请求体中获取指定参数值
+func GetParam(ctx *gin.Context, paramName string) string {
+	// 1. URL 参数
+	if val := ctx.Param(paramName); val != "" {
+		return val
 	}
 
-	// if the parameter is still not found, try to get it from the request body
-	if paramValue == "" {
-		requestBody, err := io.ReadAll(c.Request.Body)
-		if err != nil {
-			return ""
-		}
-		//再把数据装回去
-		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
-		// unmarshal the request body into a map[string]interface{}
-		var requestBodyMap map[string]interface{}
-		if err = json.Unmarshal(requestBody, &requestBodyMap); err != nil {
-			return ""
-		}
-
-		// try to get the parameter from the request body
-		if value, ok := requestBodyMap[paramName]; ok {
-			paramValue = value.(string)
-		}
-
+	// 2. 表单参数
+	if val := ctx.PostForm(paramName); val != "" {
+		return val
 	}
 
-	return paramValue
+	// 3. JSON 请求体
+	bodyBytes, err := GetRequestBody(ctx)
+	if err != nil || len(bodyBytes) == 0 {
+		return ""
+	}
+
+	var bodyMap map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &bodyMap); err != nil {
+		return ""
+	}
+
+	if val, ok := bodyMap[paramName]; ok {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
+	return ""
 }
 
-// ClientIP 获取客户端ip
-func ClientIP(c *gin.Context) string {
-	ip := c.ClientIP()
-	return ip
+// ClientIP 获取客户端 IP
+func ClientIP(ctx *gin.Context) string {
+	return ctx.ClientIP()
 }
 
-func FormatUrl(params map[string]string) string {
+// EncodeQueryParams 将 map 转换为 URL 查询字符串
+func EncodeQueryParams(params map[string]string) string {
 	values := url.Values{}
 	for key, value := range params {
 		values.Set(key, value)
 	}
-
-	queryString := values.Encode()
-	return queryString
+	return values.Encode()
 }
 
-func GetFullURL(c *gin.Context) string {
-	req := c.Request
+// FullRequestURL 获取完整请求 URL（含协议、主机、路径和查询参数）
+func FullRequestURL(ctx *gin.Context) string {
+	req := ctx.Request
 	scheme := "http"
 	if req.TLS != nil {
 		scheme = "https"
 	}
-	host := req.Host
-	fullURL := scheme + "://" + host + req.RequestURI
-	return fullURL
+	return scheme + "://" + req.Host + req.RequestURI
 }
 
-func GetRequestBody(c *gin.Context) ([]byte, error) {
-	contextBody, ok := c.Value(defined.RequestBody).([]byte)
-	if !ok || contextBody == nil {
-		bodyBytes, err := c.GetRawData()
-		if err != nil {
-			return nil, err
-		}
-		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), defined.RequestBody, bodyBytes))
-		return bodyBytes, nil
+// GetRequestBody 获取请求体字节数据（缓存到 Context，避免多次读取）
+func GetRequestBody(ctx *gin.Context) ([]byte, error) {
+	if cached, ok := ctx.Value(defined.RequestBody).([]byte); ok && cached != nil {
+		return cached, nil
 	}
-	return contextBody, nil
+
+	bodyBytes, err := ctx.GetRawData()
+	if err != nil {
+		return nil, err
+	}
+
+	// 重新放回 Body，保证后续还能读取
+	ctx.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+	// 缓存到 Context
+	ctx.Request = ctx.Request.WithContext(
+		context.WithValue(ctx.Request.Context(), defined.RequestBody, bodyBytes),
+	)
+	return bodyBytes, nil
 }

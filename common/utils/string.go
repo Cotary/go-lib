@@ -6,24 +6,29 @@ import (
 	"strings"
 )
 
-func AnyToInt(value interface{}) (res int64) {
+// AnyToInt 将任意类型转换为 int64（依赖 AnyToAny）
+func AnyToInt(value interface{}) int64 {
+	var res int64
 	_ = AnyToAny(value, &res)
 	return res
 }
 
-func AnyJoinToString(data ...interface{}) string {
-	var str string
-	for _, v := range data {
-		str = str + AnyToString(v)
+// AnyJoinToString 将多个值拼接成一个字符串
+func AnyJoinToString(parts ...interface{}) string {
+	var sb strings.Builder
+	for _, v := range parts {
+		sb.WriteString(AnyToString(v))
 	}
-	return str
+	return sb.String()
 }
 
+// AnyToString 将任意类型转换为字符串（依赖 ToString）
 func AnyToString(value interface{}) string {
 	val, _ := ToString(value)
 	return val
 }
 
+// FirstUpper 将字符串首字母转为大写
 func FirstUpper(s string) string {
 	if s == "" {
 		return ""
@@ -37,15 +42,21 @@ const (
 	Mixed   = Num + Letters
 )
 
+// GenerateCode 生成指定长度的随机码，可自定义字符集
 func GenerateCode(length int, charset ...string) string {
-	code := make([]byte, length)
+	if length <= 0 {
+		return ""
+	}
+
 	char := Mixed
-	if len(charset) > 0 {
+	if len(charset) > 0 && charset[0] != "" {
 		char = charset[0]
 	}
 	if char == "" {
 		return ""
 	}
+
+	code := make([]byte, length)
 	for i := range code {
 		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(char))))
 		if err != nil {

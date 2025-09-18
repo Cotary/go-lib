@@ -1,21 +1,16 @@
 package utils
 
 import (
-	"github.com/gagliardetto/binary"
+	bin "github.com/gagliardetto/binary"
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
 	"golang.org/x/exp/constraints"
 	"math/big"
-	"strings"
 )
 
-func HexToString(hex string) (string, bool) {
-	n := new(big.Int)
-	n, ok := n.SetString(strings.Replace(hex, "0x", "", 1), 16)
-	return n.String(), ok
-}
-
-func DecimalSymbol(val decimal.Decimal, symbol string) string {
+// FormatDecimalWithSign 格式化 decimal.Decimal，按符号规则输出
+// symbol: "+" 强制正号, "-" 强制负号, 其他值则正数加 "+"
+func FormatDecimalWithSign(val decimal.Decimal, symbol string) string {
 	if val.IsZero() {
 		return val.String()
 	}
@@ -33,33 +28,45 @@ func DecimalSymbol(val decimal.Decimal, symbol string) string {
 	}
 }
 
-func NumberTruncate(num string, decimalPlaces int32) string {
-	data, _ := decimal.NewFromString(num)
+// TruncateDecimalString 将字符串形式的数字截断到指定小数位
+func TruncateDecimalString(num string, decimalPlaces int32) string {
+	data, err := decimal.NewFromString(num)
+	if err != nil {
+		return "0"
+	}
 	return data.Truncate(decimalPlaces).String()
 }
 
-func NumberRatio(n, d interface{}, decimalPlaces int32) string {
-	nd, _ := decimal.NewFromString(AnyToString(n))
-	dd, _ := decimal.NewFromString(AnyToString(d))
-	if dd.IsZero() {
-		return "0"
-	}
-	return nd.Div(dd).Truncate(decimalPlaces).String()
+// DecimalRatio 计算两个数的比值（截断到指定小数位）
+func DecimalRatio(numerator, denominator interface{}, decimalPlaces int32) string {
+	return decimalRatioInternal(numerator, denominator, decimalPlaces, false)
 }
 
-func NumberRatioPercent(n, d interface{}, decimalPlaces int32) string {
-	nd, _ := decimal.NewFromString(AnyToString(n))
-	dd, _ := decimal.NewFromString(AnyToString(d))
-	if dd.IsZero() {
-		return "0"
-	}
-	return nd.Div(dd).Truncate(decimalPlaces).Mul(decimal.NewFromInt(100)).String()
+// DecimalRatioPercent 计算两个数的百分比（截断到指定小数位）
+func DecimalRatioPercent(numerator, denominator interface{}, decimalPlaces int32) string {
+	return decimalRatioInternal(numerator, denominator, decimalPlaces, true)
 }
 
-func BigInt2Uint128(i *big.Int) (u bin.Uint128, err error) {
+// decimalRatioInternal 公共逻辑
+func decimalRatioInternal(numerator, denominator interface{}, decimalPlaces int32, percent bool) string {
+	numDec, err1 := decimal.NewFromString(AnyToString(numerator))
+	denDec, err2 := decimal.NewFromString(AnyToString(denominator))
+	if err1 != nil || err2 != nil || denDec.IsZero() {
+		return "0"
+	}
+	result := numDec.Div(denDec).Truncate(decimalPlaces)
+	if percent {
+		result = result.Mul(decimal.NewFromInt(100))
+	}
+	return result.String()
+}
+
+// BigIntToUint128 将 *big.Int 转换为 Uint128（限制非负且不超过 128 位）
+func BigIntToUint128(i *big.Int) (u bin.Uint128, err error) {
 	if i.Sign() < 0 {
 		return u, errors.New("value cannot be negative")
-	} else if i.BitLen() > 128 {
+	}
+	if i.BitLen() > 128 {
 		return u, errors.New("value overflows Uint128")
 	}
 	u.Lo = i.Uint64()
@@ -67,19 +74,20 @@ func BigInt2Uint128(i *big.Int) (u bin.Uint128, err error) {
 	return u, nil
 }
 
-func AvgList[T constraints.Integer](data []T, filter bool, decimalPlaces int32) decimal.Decimal {
-	var all decimal.Decimal
+// AverageIntList 计算整数切片的平均值（可过滤零值）
+func AverageIntList[T constraints.Integer](data []T, filterZero bool, decimalPlaces int32) decimal.Decimal {
+	var sum decimal.Decimal
 	var count int64
 	for _, v := range data {
 		val := decimal.NewFromInt(int64(v))
-		if filter && val.IsZero() {
+		if filterZero && val.IsZero() {
 			continue
 		}
 		count++
-		all = all.Add(val)
+		sum = sum.Add(val)
 	}
 	if count == 0 {
 		return decimal.Decimal{}
 	}
-	return all.Div(decimal.NewFromInt(count)).Truncate(decimalPlaces)
+	return sum.Div(decimal.NewFromInt(count)).Truncate(decimalPlaces)
 }

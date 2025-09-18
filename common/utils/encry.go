@@ -1,177 +1,486 @@
 package utils
 
 import (
-	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/hmac"
-	"crypto/md5"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/subtle"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
+
+	"github.com/dromara/dongle"
+	"github.com/dromara/dongle/crypto/cipher"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/scrypt"
 )
 
-func Sha256(text []byte) []byte {
-	hash := sha256.New()
-	hash.Write(text)
-	return hash.Sum(nil)
+//
+// Hash 摘要
+// 这一部分提供了多种哈希算法，用于生成数据的“指纹”，可用于校验数据完整性。
+//
+
+// SHA256Sum computes the SHA256 hash of a byte slice and returns the result as a hexadecimal string.
+func SHA256Sum(data []byte) string {
+	return dongle.Hash.FromBytes(data).BySha2(256).ToHexString()
 }
 
-type Aes struct {
-	key     []byte
-	vector  []byte
-	block   cipher.Block
-	mode    *CBCMode
-	padding *PKCS7Padding
+// SHA256SumString computes the SHA256 hash of a string and returns the result as a hexadecimal string.
+func SHA256SumString(plainText string) string {
+	return dongle.Hash.FromString(plainText).BySha2(256).ToHexString()
 }
 
-func NewAes(key []byte) *Aes {
-	length := len(key)
-	if length >= 16 {
-		key = key[:16]
-	} else {
-		arr := make([]byte, 16)
-		copy(arr, key)
-		key = arr
+// MD5Sum computes the MD5 hash of a string and returns the result as a hexadecimal string.
+// Note: MD5 is considered insecure for sensitive data.
+func MD5Sum(plainText string) string {
+	return dongle.Hash.FromString(plainText).ByMd5().ToHexString()
+}
+
+// SHA1Sum computes the SHA1 hash of a string and returns the result as a hexadecimal string.
+// Note: SHA1 is considered insecure for sensitive data.
+func SHA1Sum(plainText string) string {
+	return dongle.Hash.FromString(plainText).BySha1().ToHexString()
+}
+
+// SHA512Sum computes the SHA512 hash of a string and returns the result as a hexadecimal string.
+func SHA512Sum(plainText string) string {
+	return dongle.Hash.FromString(plainText).BySha2(512).ToHexString()
+}
+
+//
+// AES 对称加密
+// 此部分提供了 AES 加密和解密的封装，包括常用的 CBC 和更安全的 GCM 模式。
+//
+
+// AESHelper encapsulates an AES cipher with a specific mode and padding.
+type AESHelper struct {
+	c *cipher.AesCipher
+}
+
+// NewAESHelper creates a new AESHelper for CBC mode. The key must be 16, 24, or 32 bytes, and the IV must be 16 bytes.
+func NewAESHelper(key, iv []byte) (*AESHelper, error) {
+	if len(key) != 16 && len(key) != 24 && len(key) != 32 {
+		return nil, errors.New("AES key must be 16, 24, or 32 bytes")
 	}
-	block, err := aes.NewCipher(key)
+	if len(iv) != 16 {
+		return nil, errors.New("AES IV must be 16 bytes")
+	}
+	c := cipher.NewAesCipher(cipher.CBC)
+	c.SetKey(key)
+	c.SetIV(iv)
+	c.SetPadding(cipher.PKCS7)
+	return &AESHelper{c: c}, nil
+}
+
+// NewAESHelperGCM creates a new AESHelper for GCM mode.
+// WARNING: Not recommended for multiple encryptions. Use EncryptGCM/DecryptGCM functions instead.
+func NewAESHelperGCM(key []byte) (*AESHelper, error) {
+	if len(key) != 16 && len(key) != 24 && len(key) != 32 {
+		return nil, errors.New("AES key must be 16, 24, or 32 bytes")
+	}
+	c := cipher.NewAesCipher(cipher.GCM)
+	c.SetKey(key)
+	return &AESHelper{c: c}, nil
+}
+
+// EncryptBase64 encrypts a string and returns a base64-encoded string. Works for AES CBC mode.
+func (a *AESHelper) EncryptBase64(plainText string) (string, error) {
+	res := dongle.Encrypt.FromString(plainText).ByAes(a.c)
+	if res.Error != nil {
+		return "", res.Error
+	}
+	return res.ToBase64String(), nil
+}
+
+// EncryptHex encrypts a string and returns a hex-encoded string. Works for AES CBC mode.
+func (a *AESHelper) EncryptHex(plainText string) (string, error) {
+	res := dongle.Encrypt.FromString(plainText).ByAes(a.c)
+	if res.Error != nil {
+		return "", res.Error
+	}
+	return res.ToHexString(), nil
+}
+
+// DecryptBase64 decrypts a base64-encoded string. Works for AES CBC mode.
+func (a *AESHelper) DecryptBase64(cipherText string) (string, error) {
+	res := dongle.Decrypt.FromBase64String(cipherText).ByAes(a.c)
+	if res.Error != nil {
+		return "", res.Error
+	}
+	return res.ToString(), nil
+}
+
+// DecryptHex decrypts a hex-encoded string. Works for AES CBC mode.
+func (a *AESHelper) DecryptHex(cipherText string) (string, error) {
+	res := dongle.Decrypt.FromHexString(cipherText).ByAes(a.c)
+	if res.Error != nil {
+		return "", res.Error
+	}
+	return res.ToString(), nil
+}
+
+// GenerateAESNonceGCM generates a 12-byte nonce for AES-GCM.
+func GenerateAESNonceGCM() ([]byte, error) {
+	return GenerateRandomBytes(12)
+}
+
+// EncryptGCM encrypts plaintext using AES GCM. A unique nonce is generated for each call.
+func EncryptGCM(key []byte, plainText string) (string, []byte, error) {
+	nonce, err := GenerateAESNonceGCM()
 	if err != nil {
-		return nil
+		return "", nil, err
 	}
-	return &Aes{
-		key:     key,
-		block:   block,
-		vector:  key[:block.BlockSize()],
-		mode:    &CBCMode{},
-		padding: &PKCS7Padding{},
+	aesCipher := cipher.NewAesCipher(cipher.GCM)
+	aesCipher.SetKey(key)
+	aesCipher.SetNonce(nonce)
+	aesCipher.SetPadding(cipher.No)
+	res := dongle.Encrypt.FromString(plainText).ByAes(aesCipher)
+	if res.Error != nil {
+		return "", nil, res.Error
 	}
+	return res.ToHexString(), nonce, nil
 }
 
-// Encrypt aes
-func (aes *Aes) Encrypt(origData string) (string, error) {
-	data := []byte(origData)
-	data = aes.padding.Padding(data, aes.block.BlockSize())
-	ciphertext, err := aes.mode.Encrypt(aes.block, data, aes.key, aes.vector)
+// DecryptGCM decrypts a hex-encoded ciphertext generated by EncryptGCM.
+func DecryptGCM(key, nonce []byte, cipherTextHex string) (string, error) {
+	aesCipher := cipher.NewAesCipher(cipher.GCM)
+	aesCipher.SetKey(key)
+	aesCipher.SetNonce(nonce)
+	aesCipher.SetPadding(cipher.No)
+	res := dongle.Decrypt.FromHexString(cipherTextHex).ByAes(aesCipher)
+	if res.Error != nil {
+		return "", res.Error
+	}
+	return res.ToString(), nil
+}
+
+//
+// RSA 非对称加密
+// 这部分提供了 RSA 公钥和私钥的封装，用于非对称加密和解密操作。
+//
+
+// RSAHelper encapsulates a private and/or public RSA key.
+type RSAHelper struct {
+	privateKey *rsa.PrivateKey
+	publicKey  *rsa.PublicKey
+}
+
+// NewRSAHelper creates a new RSAHelper from PEM encoded keys.
+func NewRSAHelper(privateKeyPEM, publicKeyPEM string) (*RSAHelper, error) {
+	helper := &RSAHelper{}
+
+	if privateKeyPEM != "" {
+		block, _ := pem.Decode([]byte(privateKeyPEM))
+		if block == nil {
+			return nil, errors.New("failed to decode private key PEM")
+		}
+		var priv interface{}
+		var err error
+		switch block.Type {
+		case "RSA PRIVATE KEY":
+			priv, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse PKCS#1 private key: %w", err)
+			}
+		case "PRIVATE KEY":
+			priv, err = x509.ParsePKCS8PrivateKey(block.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse PKCS#8 private key: %w", err)
+			}
+		default:
+			return nil, fmt.Errorf("unsupported private key type: %s", block.Type)
+		}
+		var ok bool
+		helper.privateKey, ok = priv.(*rsa.PrivateKey)
+		if !ok {
+			return nil, errors.New("provided key is not an RSA private key")
+		}
+		helper.publicKey = &helper.privateKey.PublicKey
+		return helper, nil
+	}
+
+	if publicKeyPEM != "" {
+		block, _ := pem.Decode([]byte(publicKeyPEM))
+		if block == nil {
+			return nil, errors.New("failed to decode public key PEM")
+		}
+		var pub interface{}
+		var err error
+		switch block.Type {
+		case "PUBLIC KEY":
+			pub, err = x509.ParsePKIXPublicKey(block.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse PKIX public key: %w", err)
+			}
+		case "RSA PUBLIC KEY":
+			pub, err = x509.ParsePKCS1PublicKey(block.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse RSAPublicKey: %w", err)
+			}
+		default:
+			return nil, fmt.Errorf("unsupported public key type: %s", block.Type)
+		}
+		var ok bool
+		helper.publicKey, ok = pub.(*rsa.PublicKey)
+		if !ok {
+			return nil, errors.New("provided key is not an RSA public key")
+		}
+		return helper, nil
+	}
+
+	return nil, errors.New("at least one key must be provided")
+}
+
+// GenerateRSAKeyPair generates a new RSA key pair.
+func GenerateRSAKeyPair(bits int) (*rsa.PrivateKey, *rsa.PublicKey, error) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, bits)
+	if err != nil {
+		return nil, nil, err
+	}
+	return privateKey, &privateKey.PublicKey, nil
+}
+
+// RSAKeyPairToPEM converts an RSA private key to PEM strings for both private and public keys.
+func RSAKeyPairToPEM(privateKey *rsa.PrivateKey) (string, string, error) {
+	privDER := x509.MarshalPKCS1PrivateKey(privateKey)
+	privPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: privDER,
+	})
+	pubDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return "", "", err
+	}
+	pubPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubDER,
+	})
+	return string(privPEM), string(pubPEM), nil
+}
+
+// Encrypt encrypts a byte slice using RSA OAEP. Requires a public key.
+func (r *RSAHelper) Encrypt(plaintext []byte) ([]byte, error) {
+	if r.publicKey == nil {
+		return nil, errors.New("public key not available for encryption")
+	}
+	return rsa.EncryptOAEP(sha256.New(), rand.Reader, r.publicKey, plaintext, nil)
+}
+
+// Decrypt decrypts a byte slice using RSA OAEP. Requires a private key.
+func (r *RSAHelper) Decrypt(ciphertext []byte) ([]byte, error) {
+	if r.privateKey == nil {
+		return nil, errors.New("private key not available for decryption")
+	}
+	return rsa.DecryptOAEP(sha256.New(), rand.Reader, r.privateKey, ciphertext, nil)
+}
+
+//
+// HMAC 消息认证
+// 此部分提供了 HMAC-SHA256 的操作，用于验证消息的完整性和真实性。
+//
+
+// HMACHelper provides HMAC-SHA256 operations.
+type HMACHelper struct {
+	key []byte
+}
+
+// NewHMACHelper creates a new HMACHelper.
+func NewHMACHelper(key []byte) *HMACHelper {
+	return &HMACHelper{key: key}
+}
+
+// HMAC256 computes the HMAC-SHA256 of a byte slice and returns the result as a byte slice.
+func (h *HMACHelper) HMAC256(data []byte) []byte {
+	return dongle.Hash.FromBytes(data).WithKey(h.key).BySha2(256).ToRawBytes()
+}
+
+// HMAC256Hex computes the HMAC-SHA256 of a byte slice and returns the result as a hex string.
+func (h *HMACHelper) HMAC256Hex(data []byte) string {
+	return dongle.Hash.FromBytes(data).WithKey(h.key).BySha2(256).ToHexString()
+}
+
+// HMAC256Base64 computes the HMAC-SHA256 of a byte slice and returns the result as a base64 string.
+func (h *HMACHelper) HMAC256Base64(data []byte) string {
+	return dongle.Hash.FromBytes(data).WithKey(h.key).BySha2(256).ToBase64String()
+}
+
+// VerifyHMAC256 verifies the MAC of a given data slice using the internal key.
+// It uses constant-time comparison to prevent timing attacks.
+func (h *HMACHelper) VerifyHMAC256(data []byte, expectedMAC []byte) bool {
+	mac := hmac.New(sha256.New, h.key)
+	_, _ = mac.Write(data)
+	actualMAC := mac.Sum(nil)
+	return hmac.Equal(actualMAC, expectedMAC)
+}
+
+//
+// 密码哈希
+// 这一部分提供了安全哈希密码的函数，包括 bcrypt 和 scrypt，用于存储用户密码。
+//
+
+// HashPassword generates a bcrypt hash of the password.
+func HashPassword(password string) (string, error) {
+	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(ciphertext), nil
+	return string(hashedBytes), nil
 }
 
-// Decrypt URLEncoding
-func (aes *Aes) DecryptRawURLEncoding(data string) (string, error) {
-	ciphertext, err := base64.RawURLEncoding.DecodeString(data)
+// VerifyPassword compares a bcrypt hashed password with a plaintext password.
+func VerifyPassword(hashedPassword, password string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)) == nil
+}
+
+// ScryptHash generates an scrypt hash of a password, returning a base64-encoded string.
+// A new salt is generated if the provided salt is nil.
+func ScryptHash(password string, salt []byte) (string, error) {
+	if salt == nil {
+		salt = make([]byte, 32)
+		if _, err := rand.Read(salt); err != nil {
+			return "", err
+		}
+	}
+	hash, err := scrypt.Key([]byte(password), salt, 32768, 8, 1, 32)
 	if err != nil {
 		return "", err
 	}
-	origData, err := aes.mode.Decrypt(aes.block, ciphertext, aes.key, aes.vector)
+	out := make([]byte, 64)
+	copy(out[:32], salt)
+	copy(out[32:], hash)
+	return base64.StdEncoding.EncodeToString(out), nil
+}
+
+// ScryptVerify verifies a password against an scrypt hash.
+func ScryptVerify(hashedPassword, password string) bool {
+	decoded, err := base64.StdEncoding.DecodeString(hashedPassword)
+	if err != nil || len(decoded) != 64 {
+		return false
+	}
+	salt := decoded[:32]
+	want := decoded[32:]
+	got, err := scrypt.Key([]byte(password), salt, 32768, 8, 1, 32)
 	if err != nil {
-		return "", err
+		return false
 	}
-	return string(aes.padding.UnPadding(origData)), nil
+	return subtle.ConstantTimeCompare(want, got) == 1
 }
 
-// Decrypt
-func (aes *Aes) Decrypt(data string) (string, error) {
-	ciphertext, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		return "", err
-	}
-	origData, err := aes.mode.Decrypt(aes.block, ciphertext, aes.key, aes.vector)
-	if err != nil {
-		return "", err
-	}
-	return string(aes.padding.UnPadding(origData)), nil
+//
+// JWT
+// 这一部分提供了 JSON Web Token (JWT) 的生成和验证功能，常用于身份认证。
+//
+
+// JWTClaims represents custom claims for a JWT.
+type JWTClaims struct {
+	UserID   string            `json:"user_id"`
+	Username string            `json:"username"`
+	Roles    []string          `json:"roles"`
+	Extra    map[string]string `json:"extra,omitempty"`
+	jwt.RegisteredClaims
 }
 
-type PKCS7Padding struct{}
+// GenerateJWT generates a new JWT token signed with a secret key.
+func GenerateJWT(claims JWTClaims, secretKey string, expiration time.Duration) (string, error) {
+	now := time.Now()
+	claims.IssuedAt = jwt.NewNumericDate(now)
+	claims.NotBefore = jwt.NewNumericDate(now)
+	claims.ExpiresAt = jwt.NewNumericDate(now.Add(expiration))
 
-func (PKCS7Padding) Padding(ciphertext []byte, blockSize int) []byte {
-	padding := blockSize - len(ciphertext)%blockSize
-	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
-	return append(ciphertext, padtext...)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secretKey))
 }
 
-func (PKCS7Padding) UnPadding(origData []byte) []byte {
-	length := len(origData)
-	unpadding := int(origData[length-1])
-	return origData[:(length - unpadding)]
-}
-
-type CBCMode struct{}
-
-func (CBCMode) Encrypt(block cipher.Block, data, key, iv []byte) ([]byte, error) {
-	bs := block.BlockSize()
-	if len(data)%bs != 0 {
-		return nil, errors.New("Need a multiple of the blocksize")
-	}
-	ciphertext := make([]byte, len(data))
-	blockMode := cipher.NewCBCEncrypter(block, iv)
-	blockMode.CryptBlocks(ciphertext, data)
-	return ciphertext, nil
-}
-
-func (CBCMode) Decrypt(block cipher.Block, data, key, iv []byte) ([]byte, error) {
-	bs := block.BlockSize()
-	if len(data)%bs != 0 {
-		return nil, errors.New("input not full blocks")
-	}
-	plaintext := make([]byte, len(data))
-	blockMode := cipher.NewCBCDecrypter(block, iv)
-	blockMode.CryptBlocks(plaintext, data)
-	return plaintext, nil
-}
-
-func MD5(plainText string) string {
-	h := md5.New()
-	_, err := h.Write([]byte(plainText))
-	if err != nil {
-		return ""
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-type Cover struct {
-	Timestamp string
-	Body      string
-	Sign      string
-	AppKey    string
-}
-
-func NewCover(appKey string, body interface{}) (*Cover, error) {
-	jsonStr, err := json.Marshal(body)
+// VerifyJWT parses and validates a JWT token string.
+func VerifyJWT(tokenString, secretKey string) (*JWTClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(secretKey), nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	return &Cover{
-		Timestamp: fmt.Sprintf("%d", time.Now().Unix()),
-		AppKey:    appKey,
-		Body:      string(jsonStr),
-	}, nil
+	if claims, ok := token.Claims.(*JWTClaims); ok && token.Valid {
+		return claims, nil
+	}
+	return nil, errors.New("invalid token")
 }
 
-func (c *Cover) ValidateSign(signParam string) error {
-	err := c.HmacSHA256Sign()
-	if err != nil {
-		return fmt.Errorf("Sign err")
+//
+// 通用工具
+// 此部分提供了一些常用的工具函数，例如生成加密安全的随机数据和字符串编解码。
+//
+
+// GenerateRandomString generates a cryptographically secure random string of a given length.
+func GenerateRandomString(length int) (string, error) {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	if length <= 0 {
+		return "", errors.New("length must be positive")
 	}
-	if c.Sign != signParam {
-		return fmt.Errorf("Sign err: correctSign：%s appKey：%s body：%s", c.Sign, c.AppKey, c.Body)
+	b := make([]byte, length)
+	for i := range b {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return "", err
+		}
+		b[i] = charset[n.Int64()]
 	}
-	return nil
+	return string(b), nil
 }
 
-// sign
-func (c *Cover) HmacSHA256Sign() error {
-	mac := hmac.New(sha256.New, []byte(c.AppKey))
-	_, err := mac.Write([]byte(c.Body + c.Timestamp))
-	if err != nil {
-		return err
+// GenerateRandomBytes generates a cryptographically secure random byte slice of a given length.
+func GenerateRandomBytes(length int) ([]byte, error) {
+	if length < 0 {
+		return nil, errors.New("length must be non-negative")
 	}
-	c.Sign = hex.EncodeToString(mac.Sum(nil))
-	return nil
+	b := make([]byte, length)
+	_, err := rand.Read(b)
+	return b, err
+}
+
+// GenerateAESKey generates a random AES key of the specified size (16, 24, or 32 bytes).
+func GenerateAESKey(keySize int) ([]byte, error) {
+	if keySize != 16 && keySize != 24 && keySize != 32 {
+		return nil, errors.New("AES key size must be 16, 24, or 32 bytes")
+	}
+	return GenerateRandomBytes(keySize)
+}
+
+// GenerateIV generates a 16-byte random IV for AES CBC mode.
+func GenerateIV() ([]byte, error) {
+	return GenerateRandomBytes(16)
+}
+
+// Base64Encode encodes a byte slice to a base64 string.
+func Base64Encode(data []byte) string {
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+// Base64Decode decodes a base64 string to a byte slice.
+func Base64Decode(data string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(data)
+}
+
+// HexEncode encodes a byte slice to a hexadecimal string.
+func HexEncode(data []byte) string {
+	return hex.EncodeToString(data)
+}
+
+// HexDecode decodes a hexadecimal string to a byte slice.
+func HexDecode(data string) ([]byte, error) {
+	return hex.DecodeString(data)
+}
+
+// ConstantTimeCompare compares two strings in constant time to prevent timing attacks.
+func ConstantTimeCompare(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
