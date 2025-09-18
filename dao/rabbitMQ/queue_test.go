@@ -3,6 +3,7 @@ package rabbitMQ
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -128,4 +129,62 @@ func TestWorkCh_SendMessages(t *testing.T) {
 
 	time.Sleep(10 * time.Second)
 
+}
+func TestWorkCh_DelayQueue(t *testing.T) {
+	config := Config{
+		DSN:       []string{"amqp://guest:guest@localhost:5672/"},
+		Heartbeat: 10,
+	}
+	conn, err := NewRabbitMQ(config)
+	assert.NoError(t, err)
+	assert.NotNil(t, conn)
+
+	workChConfig := QueueConfig{
+		ExchangeName: "test_exchange_delay",
+		ExchangeType: amqp091.ExchangeDirect,
+		RouteKey:     "test_route_delay",
+		QueueName:    "test_queue_delay",
+		QueueType:    "quorum",
+		MaxDelay:     10 * time.Second, // 队列最大延迟
+	}
+
+	workCh, err := NewQueue(conn, workChConfig)
+	assert.NoError(t, err)
+	assert.NotNil(t, workCh)
+
+	fmt.Println("等待 RabbitMQ 连接稳定...")
+	time.Sleep(2 * time.Second)
+
+	// 用于标记是否是第一次消费
+	var firstConsume sync.Map
+
+	go func() {
+		handler := func(msg *Delivery) error {
+			body := string(msg.Body)
+			fmt.Printf("[%s] 收到消息: %s\n", time.Now().Format("15:04:05"), body)
+
+			// 第一次消费该消息时，模拟失败并延迟 5 秒重试
+			if _, loaded := firstConsume.LoadOrStore(body, true); !loaded {
+				return fmt.Errorf("模拟处理失败")
+			}
+
+			// 第二次消费成功
+			fmt.Printf("[%s] 第二次消费成功: %s\n", time.Now().Format("15:04:05"), body)
+			//msg.Ack()
+			return nil
+		}
+
+		err := workCh.ConsumeMessagesEvery(context.Background(), handler, 3*time.Second)
+		assert.NoError(t, err)
+	}()
+
+	// 发送一条测试消息
+	messages := []amqp091.Publishing{
+		{Body: []byte("delay_message_1")},
+	}
+	err = workCh.SendMessagesEvery(context.Background(), messages)
+	assert.NoError(t, err)
+
+	// 等待足够时间观察延迟效果
+	time.Sleep(20 * time.Second)
 }

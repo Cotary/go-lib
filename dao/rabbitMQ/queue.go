@@ -18,60 +18,60 @@ type QueueConfig struct {
 	RouteKey     string
 	QueueName    string
 	QueueType    string
-}
 
-// Queue 表示工作通道结构体
-type Queue struct {
-	QueueConfig
-	*Connect
+	// 延迟队列相关配置（可选）
+	DelayExchangeName string
+	DelayQueueName    string
+	DelayRouteKey     string
+	MaxDelay          time.Duration
 }
 
 // NewQueue 创建工作模式通道，使用通道池获取通道
 func NewQueue(conn *Connect, config QueueConfig) (*Queue, error) {
-	ch, err := conn.GetCh() // 从通道池中获取通道
+	ch, err := conn.GetCh()
 	if err != nil {
 		return nil, e.Err(err)
 	}
-	defer conn.PutCh(ch) // 确保方法退出时归还通道
+	defer conn.PutCh(ch)
 
+	// 默认交换机类型
 	if config.ExchangeType == "" {
-		config.ExchangeType = amqp091.ExchangeDirect // 默认为直连交换机
+		config.ExchangeType = amqp091.ExchangeDirect
 	}
+	// 默认队列类型
 	if config.QueueType == "" {
-		config.QueueType = "quorum" // 默认为持久队列
+		config.QueueType = "quorum"
 	}
 
-	// 声明交换机
+	// 声明业务交换机
 	err = ch.ExchangeDeclare(
 		config.ExchangeName,
 		config.ExchangeType,
-		true,
-		false,
-		false,
-		false,
-		nil,
+		true,  // durable
+		false, // autoDelete
+		false, // internal
+		false, // noWait
+		nil,   // args
 	)
 	if err != nil {
 		return nil, e.Err(err)
 	}
 
-	queueArgs := amqp091.Table{}
-	if config.QueueType != "" {
-		queueArgs = amqp091.Table{"x-queue-type": config.QueueType}
-	}
+	// 声明业务队列
+	queueArgs := amqp091.Table{"x-queue-type": config.QueueType}
 	_, err = ch.QueueDeclare(
 		config.QueueName,
-		true,
-		false,
-		false,
-		false,
+		true,  // durable
+		false, // autoDelete
+		false, // exclusive
+		false, // noWait
 		queueArgs,
 	)
 	if err != nil {
 		return nil, e.Err(err)
 	}
 
-	// 绑定队列到交换机
+	// 绑定业务队列到业务交换机
 	err = ch.QueueBind(
 		config.QueueName,
 		config.RouteKey,
@@ -83,10 +83,65 @@ func NewQueue(conn *Connect, config QueueConfig) (*Queue, error) {
 		return nil, e.Err(err)
 	}
 
+	// ===== 延迟队列 & DLX 配置 =====
+	if config.MaxDelay > 0 {
+		// 如果延迟队列没配置，自动生成
+		if config.DelayExchangeName == "" {
+			config.DelayExchangeName = config.ExchangeName + ".delay"
+		}
+		if config.DelayQueueName == "" {
+			config.DelayQueueName = config.QueueName + ".delay"
+		}
+		if config.DelayRouteKey == "" {
+			config.DelayRouteKey = config.RouteKey + ".delay"
+		}
+
+		// 声明延迟交换机
+		err = ch.ExchangeDeclare(
+			config.DelayExchangeName,
+			amqp091.ExchangeDirect,
+			true, false, false, false, nil,
+		)
+		if err != nil {
+			return nil, e.Err(err)
+		}
+
+		// 延迟队列参数：队列级 TTL + 死信交换机
+		delayArgs := amqp091.Table{
+			"x-message-ttl":             int32(config.MaxDelay.Milliseconds()),
+			"x-dead-letter-exchange":    config.ExchangeName,
+			"x-dead-letter-routing-key": config.RouteKey,
+		}
+		_, err = ch.QueueDeclare(
+			config.DelayQueueName,
+			true, false, false, false,
+			delayArgs,
+		)
+		if err != nil {
+			return nil, e.Err(err)
+		}
+
+		// 绑定延迟队列到延迟交换机
+		err = ch.QueueBind(
+			config.DelayQueueName,
+			config.DelayRouteKey,
+			config.DelayExchangeName,
+			false, nil,
+		)
+		if err != nil {
+			return nil, e.Err(err)
+		}
+	}
 	return &Queue{
 		QueueConfig: config,
 		Connect:     conn,
 	}, nil
+}
+
+// Queue 表示工作通道结构体
+type Queue struct {
+	QueueConfig
+	*Connect
 }
 
 // SendMessages 发送消息到队列并返回未成功的消息列表
@@ -213,21 +268,30 @@ func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp091.Publis
 
 var channelClosedErr = errors.New("deliveries channel closed") // 通道关闭的error
 
-// ConsumeMessagesEvery 持续消费消息并处理，确保通道在处理完消息后才归还
-func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(*Delivery) error) error {
+// ConsumeMessagesEvery 持续消费消息并处理，可选传入延迟重试时间
+func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(*Delivery) error, retryDelay ...time.Duration) error {
+	var delay time.Duration
+	if len(retryDelay) > 0 {
+		delay = retryDelay[0]
+		if delay > c.MaxDelay {
+			return e.Err(errors.New("max delay exceeded"))
+		}
+	} else {
+		delay = c.MaxDelay // 默认用队列配置的最大延迟
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			err := c.ConsumeMessages(ctx, handler)
+			err := c.ConsumeMessages(ctx, handler, delay)
 			if err != nil {
 				if !errors.Is(err, channelClosedErr) {
 					e.SendMessage(ctx, err)
 				}
-				// 等待一段时间后重试，避免无限快速重试
 				select {
-				case <-time.After(time.Second * 5): // 重试间隔时间
+				case <-time.After(5 * time.Second):
 				case <-ctx.Done():
 					return ctx.Err()
 				}
@@ -236,8 +300,7 @@ func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(*Delivery
 	}
 }
 
-// ConsumeMessages 消费消息并处理，确保通道在处理完消息后才归还
-func (c *Queue) ConsumeMessages(ctx context.Context, handler func(*Delivery) error) error {
+func (c *Queue) ConsumeMessages(ctx context.Context, handler func(*Delivery) error, retryDelay time.Duration) error {
 	ch, err := c.GetCh()
 	if err != nil {
 		return e.Err(err)
@@ -274,10 +337,7 @@ func (c *Queue) ConsumeMessages(ctx context.Context, handler func(*Delivery) err
 				return channelClosedErr
 			}
 			d := NewDelivery(amqpMsg)
-
-			// 用局部 err 保证每条消息都单独判断
 			localErr := func() (err error) {
-				// 捕获 panic，转成 error 回传，并发送报警
 				defer func() {
 					if r := recover(); r != nil {
 						stack := debug.Stack()
@@ -288,17 +348,15 @@ func (c *Queue) ConsumeMessages(ctx context.Context, handler func(*Delivery) err
 				return handler(d)
 			}()
 
-			// 根据 localErr 做 Ack/Nack，不再复用外层 err
 			if localErr != nil {
 				e.SendMessage(ctx, e.Err(localErr, "mq consume error"))
-				d.Nack()
+				d.RetryLater(c, retryDelay)
 			} else {
 				d.Ack()
 			}
 			if d.Err != nil {
 				return d.Err
 			}
-
 		}
 	}
 }
@@ -338,4 +396,54 @@ func (d *Delivery) Nack() {
 	}
 	d.Nacked = true
 	return
+}
+
+// RetryLater 将当前消息以指定延迟重新投递到延迟交换机，然后 Ack 掉原消息
+func (d *Delivery) RetryLater(q *Queue, delay time.Duration) {
+	if q.MaxDelay == 0 {
+		d.Nack()
+		return
+	}
+	if d.Acked || d.Nacked {
+		return
+	}
+	if delay > q.MaxDelay {
+		delay = q.MaxDelay
+	}
+
+	ch, err := q.GetCh()
+	if err != nil {
+		d.Err = err
+		return
+	}
+	defer ch.Close()
+
+	// 建议复制必要属性，确保幂等/追踪（可按需补充）
+	props := amqp091.Publishing{
+		DeliveryMode:    amqp091.Persistent,
+		ContentType:     d.ContentType,
+		ContentEncoding: d.ContentEncoding,
+		Headers:         d.Headers,
+		CorrelationId:   d.CorrelationId,
+		MessageId:       d.MessageId,
+		Type:            d.Type,
+		AppId:           d.AppId,
+		Body:            d.Body,
+
+		// 单条消息 TTL（毫秒），到期后由延迟队列的 DLX 转发回业务交换机
+		Expiration: fmt.Sprintf("%d", delay.Milliseconds()),
+	}
+
+	if err = ch.Publish(
+		q.DelayExchangeName,
+		q.DelayRouteKey,
+		false, // mandatory
+		false, // immediate
+		props,
+	); err != nil {
+		d.Err = err
+		return
+	}
+
+	d.Ack()
 }
