@@ -44,7 +44,7 @@ func (t Client) Close() error {
 func NewRedis(config *Config) (Client, error) {
 	auth := config.Auth
 	if config.Encryption == 1 {
-		auth = utils.MD5(auth)
+		auth = utils.MD5Sum(auth)
 	}
 
 	var addrs []string

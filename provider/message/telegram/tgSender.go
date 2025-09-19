@@ -13,7 +13,7 @@ type TGSender struct {
 	GroupChatID int64
 }
 
-func (s *TGSender) Send(ctx context.Context, title string, zMap *utils.ZMap[string, string]) error {
+func (s *TGSender) Send(ctx context.Context, title string, zMap *utils.OrderedMap[string, string]) error {
 	robot, err := NewTelegramRobot(Config{
 		Token: s.RobotToken,
 		Debug: true,

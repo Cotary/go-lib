@@ -23,7 +23,7 @@ func SendMessage(ctx context.Context, err error) {
 	requestUri, _ := ctx.Value(defined.RequestURI).(string)
 	requestJson, _ := ctx.Value(defined.RequestBodyJson).(string)
 
-	zMap := utils.NewZMap[string, string]().
+	zMap := utils.NewOrderedMap[string, string]().
 		Set("ServerName", serverName).
 		Set("Env", env).
 		Set("RequestID", requestID).

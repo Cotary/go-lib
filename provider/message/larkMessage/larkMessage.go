@@ -48,7 +48,7 @@ func (t LarkRobot) SendMessage(language string, title string, message []string, 
 	}
 	if !intercept {
 		cacheKey, _ := json.Marshal(m.Content)
-		cacheVal, _ := cache.GetOrSet([]byte(utils.MD5(string(cacheKey))), []uint8{1}, 60)
+		cacheVal, _ := cache.GetOrSet([]byte(utils.MD5Sum(string(cacheKey))), []uint8{1}, 60)
 		if len(cacheVal) > 0 {
 			return nil, nil
 		}

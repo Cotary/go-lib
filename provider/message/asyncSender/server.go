@@ -11,7 +11,7 @@ import (
 type Message struct {
 	Ctx     context.Context
 	Title   string
-	Content *utils.ZMap[string, string]
+	Content *utils.OrderedMap[string, string]
 }
 
 type AsyncSender struct {
@@ -31,7 +31,7 @@ func NewAsyncSender(sender message.Sender, bufferSize int) *AsyncSender {
 	return asyncSender
 }
 
-func (a *AsyncSender) Send(ctx context.Context, title string, zMap *utils.ZMap[string, string]) error {
+func (a *AsyncSender) Send(ctx context.Context, title string, zMap *utils.OrderedMap[string, string]) error {
 	a.message <- Message{ctx, title, zMap}
 	return nil
 }

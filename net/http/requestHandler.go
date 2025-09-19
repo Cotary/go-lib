@@ -86,6 +86,6 @@ func RequestSizeLimitHandler(maxSize int64) RequestHandler {
 
 func calculateSignature(secret, signType, nonce string, signTime int64) string {
 	data := fmt.Sprintf("%d%s%s%s", signTime, secret, signType, nonce)
-	hash := utils.MD5(data)
+	hash := utils.MD5Sum(data)
 	return hash
 }

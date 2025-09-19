@@ -12,7 +12,7 @@ type LarkSender struct {
 	AtList    []string
 }
 
-func (s *LarkSender) Send(ctx context.Context, title string, zMap *utils.ZMap[string, string]) error {
+func (s *LarkSender) Send(ctx context.Context, title string, zMap *utils.OrderedMap[string, string]) error {
 	var message []string
 	if zMap != nil {
 		zMap.Each(func(p utils.Pair[string, string]) {

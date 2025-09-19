@@ -18,5 +18,5 @@ func GetPrioritySender(sender Sender) Sender {
 }
 
 type Sender interface {
-	Send(ctx context.Context, title string, zMap *utils.ZMap[string, string]) error
+	Send(ctx context.Context, title string, zMap *utils.OrderedMap[string, string]) error
 }

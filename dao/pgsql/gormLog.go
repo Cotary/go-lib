@@ -165,7 +165,7 @@ func SendMessage(ctx context.Context, sender message.Sender, msg string) {
 	requestUri, _ := ctx.Value(defined.RequestURI).(string)
 	requestJson, _ := ctx.Value(defined.RequestBodyJson).(string)
 
-	zMap := utils2.NewZMap[string, string]().
+	zMap := utils2.NewOrderedMap[string, string]().
 		Set("ServerName:", serverName).
 		Set("Env:", env).
 		Set("RequestID:", requestID).

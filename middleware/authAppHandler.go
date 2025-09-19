@@ -116,7 +116,7 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 
 func defaultValidateFunc(c *gin.Context, signTime int64, secret, signType, nonce string) (string, error) {
 	data := fmt.Sprintf("%d%s%s%s", signTime, secret, signType, nonce)
-	hash := utils.MD5(data)
+	hash := utils.MD5Sum(data)
 	return hash, nil
 }
 
