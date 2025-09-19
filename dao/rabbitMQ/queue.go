@@ -336,7 +336,7 @@ func (c *Queue) ConsumeMessages(ctx context.Context, handler func(*Delivery) err
 			if !ok {
 				return channelClosedErr
 			}
-			d := NewDelivery(amqpMsg)
+			d := c.NewDelivery(amqpMsg)
 			localErr := func() (err error) {
 				defer func() {
 					if r := recover(); r != nil {
@@ -350,7 +350,7 @@ func (c *Queue) ConsumeMessages(ctx context.Context, handler func(*Delivery) err
 
 			if localErr != nil {
 				e.SendMessage(ctx, e.Err(localErr, "mq consume error"))
-				d.RetryLater(c, retryDelay)
+				d.RetryLater(retryDelay)
 			} else {
 				d.Ack()
 			}
@@ -362,14 +362,15 @@ func (c *Queue) ConsumeMessages(ctx context.Context, handler func(*Delivery) err
 }
 
 type Delivery struct {
+	*Queue
 	amqp091.Delivery
 	Acked  bool
 	Nacked bool
 	Err    error
 }
 
-func NewDelivery(d amqp091.Delivery) *Delivery {
-	return &Delivery{Delivery: d}
+func (c *Queue) NewDelivery(d amqp091.Delivery) *Delivery {
+	return &Delivery{Queue: c, Delivery: d}
 }
 
 // Ack 确认消费（multiple=false）
@@ -399,7 +400,8 @@ func (d *Delivery) Nack() {
 }
 
 // RetryLater 将当前消息以指定延迟重新投递到延迟交换机，然后 Ack 掉原消息
-func (d *Delivery) RetryLater(q *Queue, delay time.Duration) {
+func (d *Delivery) RetryLater(delay time.Duration) {
+	q := d.Queue
 	if q.MaxDelay == 0 {
 		d.Nack()
 		return
