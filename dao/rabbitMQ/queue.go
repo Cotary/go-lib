@@ -269,7 +269,7 @@ func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp091.Publis
 var channelClosedErr = errors.New("deliveries channel closed") // 通道关闭的error
 
 // ConsumeMessagesEvery 持续消费消息并处理，可选传入延迟重试时间
-func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(*Delivery) error, retryDelay ...time.Duration) error {
+func (c *Queue) ConsumeMessagesEvery(ctx context.Context, consumer Consumer, retryDelay ...time.Duration) error {
 	var delay time.Duration
 	if len(retryDelay) > 0 {
 		delay = retryDelay[0]
@@ -285,7 +285,7 @@ func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(*Delivery
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			err := c.ConsumeMessages(ctx, handler, delay)
+			err := c.ConsumeMessages(ctx, consumer, delay)
 			if err != nil {
 				if !errors.Is(err, channelClosedErr) {
 					e.SendMessage(ctx, err)
@@ -300,7 +300,7 @@ func (c *Queue) ConsumeMessagesEvery(ctx context.Context, handler func(*Delivery
 	}
 }
 
-func (c *Queue) ConsumeMessages(ctx context.Context, handler func(*Delivery) error, retryDelay time.Duration) error {
+func (c *Queue) ConsumeMessages(ctx context.Context, consumer Consumer, retryDelay time.Duration) error {
 	ch, err := c.GetCh()
 	if err != nil {
 		return e.Err(err)
@@ -345,7 +345,7 @@ func (c *Queue) ConsumeMessages(ctx context.Context, handler func(*Delivery) err
 						e.SendMessage(ctx, err)
 					}
 				}()
-				return handler(d)
+				return consumer.Handle(d)
 			}()
 
 			if localErr != nil {
