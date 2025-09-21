@@ -345,7 +345,7 @@ func (c *Queue) ConsumeMessages(ctx context.Context, consumer Consumer, retryDel
 						e.SendMessage(ctx, err)
 					}
 				}()
-				return consumer.Handle(d)
+				return consumer.Consume(ctx, d)
 			}()
 
 			if localErr != nil {

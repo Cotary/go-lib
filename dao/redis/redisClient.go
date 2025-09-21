@@ -41,61 +41,83 @@ func (t Client) Close() error {
 	return t.UniversalClient.Close()
 }
 
-func NewRedis(config *Config) (Client, error) {
+func NewRedis(config *Config) (client Client, err error) {
 	auth := config.Auth
 	if config.Encryption == 1 {
 		auth = utils.MD5Sum(auth)
 	}
 
-	var addrs []string
-	// 根据模式选择地址
-	if strings.EqualFold(config.Framework, "cluster") {
-		// 集群模式
-		if len(config.Nodes) == 0 {
-			// 如果没配置 Nodes，就用 Host+Port
-			addrs = []string{normalizeAddr(config.Host, config.Port)}
-		} else {
-			addrs = normalizeAddrs(config.Nodes)
-		}
+	if config.Framework == "cluster" {
+		client, err = createClusterClient(config, auth)
 	} else {
-		// 单机模式
-		addrs = []string{normalizeAddr(config.Host, config.Port)}
+		client, err = createStandaloneClient(config, auth)
 	}
 
-	opts := &redis.UniversalOptions{
-		Addrs:        addrs,
-		DB:           config.DB, // 集群模式会忽略
-		PoolSize:     config.PoolSize,
-		DialTimeout:  10 * time.Second,
-		ReadTimeout:  3 * time.Second,
-		WriteTimeout: 3 * time.Second,
+	if err != nil {
+		return Client{}, err
+	}
+
+	return client, nil
+}
+
+func createClusterClient(config *Config, auth string) (Client, error) {
+	var addrArr []string
+	if len(config.Nodes) == 0 {
+		// 如果没配置 Nodes，就用 Host+Port
+		addrArr = []string{normalizeAddr(config.Host, config.Port)}
+	} else {
+		addrArr = normalizeAddrs(config.Nodes)
+	}
+	clusterOptions := &redis.ClusterOptions{
+		Addrs:       addrArr,
+		PoolSize:    config.PoolSize,
+		DialTimeout: 10 * time.Second,
 	}
 
 	if auth != "" {
-		opts.Username = config.Username
-		opts.Password = auth
+		clusterOptions.Username = config.Username
+		clusterOptions.Password = auth
 	}
 
 	if config.Tls {
-		opts.TLSConfig = &tls.Config{}
-		setTLSConfig(opts.TLSConfig, config.MinVersion)
+		setTLSConfig(clusterOptions.TLSConfig, config.MinVersion)
 	}
 
-	// 集群模式额外优化
-	if strings.EqualFold(config.Framework, "cluster") {
-		opts.RouteRandomly = true
-	}
-
-	uc := redis.NewUniversalClient(opts)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	if err := uc.Ping(ctx).Err(); err != nil {
+	clusterClient := redis.NewClusterClient(clusterOptions)
+	if _, err := clusterClient.Ping(context.Background()).Result(); err != nil {
 		return Client{}, err
 	}
 
 	return Client{
-		UniversalClient: uc,
+		UniversalClient: clusterClient,
+		Config:          *config,
+	}, nil
+}
+
+func createStandaloneClient(config *Config, auth string) (Client, error) {
+	addr := normalizeAddr(config.Host, config.Port)
+	options := &redis.Options{
+		Addr:     addr,
+		PoolSize: config.PoolSize,
+		DB:       config.DB,
+	}
+
+	if auth != "" {
+		options.Username = config.Username
+		options.Password = auth
+	}
+
+	if config.Tls {
+		setTLSConfig(options.TLSConfig, config.MinVersion)
+	}
+
+	client := redis.NewClient(options)
+	if _, err := client.Ping(context.Background()).Result(); err != nil {
+		return Client{}, err
+	}
+
+	return Client{
+		UniversalClient: client,
 		Config:          *config,
 	}, nil
 }

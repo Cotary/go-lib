@@ -1,5 +1,7 @@
 package rabbitMQ
 
+import "context"
+
 type Consumer interface {
-	Handle(msg *Delivery) error
+	Consume(ctx context.Context, msg *Delivery) error
 }
