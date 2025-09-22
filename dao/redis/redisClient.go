@@ -57,6 +57,8 @@ func NewRedis(config *Config) (client Client, err error) {
 		return Client{}, err
 	}
 
+	client.AddHook(LogHook{})
+
 	return client, nil
 }
 
