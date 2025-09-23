@@ -26,6 +26,8 @@ type QueueConfig struct {
 	MaxDelay          time.Duration
 }
 
+type ConsumeHandler func(ctx context.Context, msg *Delivery) error
+
 // NewQueue 创建工作模式通道，使用通道池获取通道
 func NewQueue(conn *Connect, config QueueConfig) (*Queue, error) {
 	ch, err := conn.GetCh()
@@ -108,6 +110,7 @@ func NewQueue(conn *Connect, config QueueConfig) (*Queue, error) {
 
 		// 延迟队列参数：队列级 TTL + 死信交换机
 		delayArgs := amqp091.Table{
+			"x-queue-type":              "quorum",
 			"x-message-ttl":             int32(config.MaxDelay.Milliseconds()),
 			"x-dead-letter-exchange":    config.ExchangeName,
 			"x-dead-letter-routing-key": config.RouteKey,
@@ -269,7 +272,7 @@ func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp091.Publis
 var channelClosedErr = errors.New("deliveries channel closed") // 通道关闭的error
 
 // ConsumeMessagesEvery 持续消费消息并处理，可选传入延迟重试时间
-func (c *Queue) ConsumeMessagesEvery(ctx context.Context, consumer Consumer, retryDelay ...time.Duration) error {
+func (c *Queue) ConsumeMessagesEvery(ctx context.Context, consumer ConsumeHandler, retryDelay ...time.Duration) error {
 	var delay time.Duration
 	if len(retryDelay) > 0 {
 		delay = retryDelay[0]
@@ -300,7 +303,7 @@ func (c *Queue) ConsumeMessagesEvery(ctx context.Context, consumer Consumer, ret
 	}
 }
 
-func (c *Queue) ConsumeMessages(ctx context.Context, consumer Consumer, retryDelay time.Duration) error {
+func (c *Queue) ConsumeMessages(ctx context.Context, consumer ConsumeHandler, retryDelay time.Duration) error {
 	ch, err := c.GetCh()
 	if err != nil {
 		return e.Err(err)
@@ -345,7 +348,7 @@ func (c *Queue) ConsumeMessages(ctx context.Context, consumer Consumer, retryDel
 						e.SendMessage(ctx, err)
 					}
 				}()
-				return consumer.Consume(ctx, d)
+				return consumer(ctx, d)
 			}()
 
 			if localErr != nil {

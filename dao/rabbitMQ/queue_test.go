@@ -57,7 +57,7 @@ func TestWorkCh(t *testing.T) {
 	// 测试消费者
 	failedMessages := make(map[string]int)
 	go func() {
-		handler := func(msg *Delivery) error {
+		var handler ConsumeHandler = func(ctx context.Context, msg *Delivery) error {
 			t.Logf("Received message: %s", msg.Body)
 
 			// 模拟处理失败并回退消息
@@ -105,7 +105,7 @@ func TestWorkCh_SendMessages(t *testing.T) {
 
 	go func() {
 
-		handler := func(msg *Delivery) error {
+		var handler ConsumeHandler = func(ctx context.Context, msg *Delivery) error {
 			fmt.Println("receive message", string(msg.Body))
 			return nil
 		}
@@ -159,7 +159,7 @@ func TestWorkCh_DelayQueue(t *testing.T) {
 	var firstConsume sync.Map
 
 	go func() {
-		handler := func(msg *Delivery) error {
+		var handler ConsumeHandler = func(ctx context.Context, msg *Delivery) error {
 			body := string(msg.Body)
 			fmt.Printf("[%s] 收到消息: %s\n", time.Now().Format("15:04:05"), body)
 
