@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+//RabbitMQ 的 TTL 是基于队列头部消息来检查的。如果队列前面有过期时间很长的消息，后面过期时间短的消息，那么短消息的 TTL 可能不会立即生效。这是因为 RabbitMQ 只有在队头消息过期后，才会检查下一个。
+
 // QueueConfig 包含交换机和队列配置
 type QueueConfig struct {
 	ExchangeName string
@@ -20,11 +22,12 @@ type QueueConfig struct {
 	QueueType    string
 
 	// 延迟队列相关配置（可选）
-	DelayExchangeName string
-	DelayQueueName    string
-	DelayRouteKey     string
-	MaxDelay          time.Duration
+	MaxDelay time.Duration
 }
+
+const (
+	DelayField = "x-delay"
+)
 
 type ConsumeHandler func(ctx context.Context, msg *Delivery) error
 
@@ -46,14 +49,21 @@ func NewQueue(conn *Connect, config QueueConfig) (*Queue, error) {
 	}
 
 	// 声明业务交换机
+	// 新增修改：如果配置了延迟，则使用 rabbitmq-delayed-message-exchange 插件
+	exchangeType := config.ExchangeType
+	exchangeArgs := amqp091.Table{}
+	if config.MaxDelay > 0 {
+		exchangeType = "x-delayed-message"
+		exchangeArgs["x-delayed-type"] = config.ExchangeType //延迟插件中，这个来标识实际的类型
+	}
 	err = ch.ExchangeDeclare(
 		config.ExchangeName,
-		config.ExchangeType,
-		true,  // durable
-		false, // autoDelete
-		false, // internal
-		false, // noWait
-		nil,   // args
+		exchangeType, // 修改点：使用插件类型或原始类型
+		true,         // durable
+		false,        // autoDelete
+		false,        // internal
+		false,        // noWait
+		exchangeArgs, // 修改点：为延迟插件传递参数
 	)
 	if err != nil {
 		return nil, e.Err(err)
@@ -85,56 +95,6 @@ func NewQueue(conn *Connect, config QueueConfig) (*Queue, error) {
 		return nil, e.Err(err)
 	}
 
-	// ===== 延迟队列 & DLX 配置 =====
-	if config.MaxDelay > 0 {
-		// 如果延迟队列没配置，自动生成
-		if config.DelayExchangeName == "" {
-			config.DelayExchangeName = config.ExchangeName + ".delay"
-		}
-		if config.DelayQueueName == "" {
-			config.DelayQueueName = config.QueueName + ".delay"
-		}
-		if config.DelayRouteKey == "" {
-			config.DelayRouteKey = config.RouteKey + ".delay"
-		}
-
-		// 声明延迟交换机
-		err = ch.ExchangeDeclare(
-			config.DelayExchangeName,
-			amqp091.ExchangeDirect,
-			true, false, false, false, nil,
-		)
-		if err != nil {
-			return nil, e.Err(err)
-		}
-
-		// 延迟队列参数：队列级 TTL + 死信交换机
-		delayArgs := amqp091.Table{
-			"x-queue-type":              "quorum",
-			"x-message-ttl":             int32(config.MaxDelay.Milliseconds()),
-			"x-dead-letter-exchange":    config.ExchangeName,
-			"x-dead-letter-routing-key": config.RouteKey,
-		}
-		_, err = ch.QueueDeclare(
-			config.DelayQueueName,
-			true, false, false, false,
-			delayArgs,
-		)
-		if err != nil {
-			return nil, e.Err(err)
-		}
-
-		// 绑定延迟队列到延迟交换机
-		err = ch.QueueBind(
-			config.DelayQueueName,
-			config.DelayRouteKey,
-			config.DelayExchangeName,
-			false, nil,
-		)
-		if err != nil {
-			return nil, e.Err(err)
-		}
-	}
 	return &Queue{
 		QueueConfig: config,
 		Connect:     conn,
@@ -272,23 +232,13 @@ func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp091.Publis
 var channelClosedErr = errors.New("deliveries channel closed") // 通道关闭的error
 
 // ConsumeMessagesEvery 持续消费消息并处理，可选传入延迟重试时间
-func (c *Queue) ConsumeMessagesEvery(ctx context.Context, consumer ConsumeHandler, retryDelay ...time.Duration) error {
-	var delay time.Duration
-	if len(retryDelay) > 0 {
-		delay = retryDelay[0]
-		if delay > c.MaxDelay {
-			return e.Err(errors.New("max delay exceeded"))
-		}
-	} else {
-		delay = c.MaxDelay // 默认用队列配置的最大延迟
-	}
-
+func (c *Queue) ConsumeMessagesEvery(ctx context.Context, consumer ConsumeHandler) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			err := c.ConsumeMessages(ctx, consumer, delay)
+			err := c.ConsumeMessages(ctx, consumer)
 			if err != nil {
 				if !errors.Is(err, channelClosedErr) {
 					e.SendMessage(ctx, err)
@@ -303,7 +253,7 @@ func (c *Queue) ConsumeMessagesEvery(ctx context.Context, consumer ConsumeHandle
 	}
 }
 
-func (c *Queue) ConsumeMessages(ctx context.Context, consumer ConsumeHandler, retryDelay time.Duration) error {
+func (c *Queue) ConsumeMessages(ctx context.Context, consumer ConsumeHandler) error {
 	ch, err := c.GetCh()
 	if err != nil {
 		return e.Err(err)
@@ -353,7 +303,7 @@ func (c *Queue) ConsumeMessages(ctx context.Context, consumer ConsumeHandler, re
 
 			if localErr != nil {
 				e.SendMessage(ctx, e.Err(localErr, "mq consume error"))
-				d.RetryLater(retryDelay)
+				d.RetryLater(d.MaxDelay)
 			} else {
 				d.Ack()
 			}
@@ -436,12 +386,18 @@ func (d *Delivery) RetryLater(delay time.Duration) {
 		Body:            d.Body,
 
 		// 单条消息 TTL（毫秒），到期后由延迟队列的 DLX 转发回业务交换机
-		Expiration: fmt.Sprintf("%d", delay.Milliseconds()),
+		//Expiration: fmt.Sprintf("%d", delay.Milliseconds()), //只能直接使用队列延迟
 	}
 
+	// 新增修改：使用延迟插件时，通过消息头指定延迟时间
+	if props.Headers == nil {
+		props.Headers = amqp091.Table{}
+	}
+	props.Headers[DelayField] = delay.Milliseconds()
+
 	if err = ch.Publish(
-		q.DelayExchangeName,
-		q.DelayRouteKey,
+		q.ExchangeName,
+		q.RouteKey,
 		false, // mandatory
 		false, // immediate
 		props,

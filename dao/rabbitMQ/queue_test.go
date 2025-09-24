@@ -174,7 +174,7 @@ func TestWorkCh_DelayQueue(t *testing.T) {
 			return nil
 		}
 
-		err := workCh.ConsumeMessagesEvery(context.Background(), handler, 3*time.Second)
+		err := workCh.ConsumeMessagesEvery(context.Background(), handler)
 		assert.NoError(t, err)
 	}()
 
