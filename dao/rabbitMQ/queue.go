@@ -27,8 +27,12 @@ type QueueConfig struct {
 }
 
 const (
-	DelayField      = "x-delay"       // 延迟字段
-	RetryCountField = "x-retry-count" // 重试次数字段
+	DelayField         = "x-delay"       // 延迟字段
+	RetryCountField    = "x-retry-count" // 重试次数字段
+	DelayedTypeField   = "x-delayed-type"
+	DelayedTypeMessage = "x-delayed-message"
+	QueueTypeField     = "x-queue-type"
+	QueueTypeQuorum    = "quorum"
 )
 
 type ConsumeHandler func(ctx context.Context, msg *Delivery) error
@@ -47,15 +51,15 @@ func NewQueue(conn *Connect, config QueueConfig) (*Queue, error) {
 	}
 	// 默认队列类型
 	if config.QueueType == "" {
-		config.QueueType = "quorum"
+		config.QueueType = QueueTypeQuorum
 	}
 
 	// 声明业务交换机
 	exchangeType := config.ExchangeType
 	exchangeArgs := amqp091.Table{}
 	if config.MaxDelay > 0 {
-		exchangeType = "x-delayed-message"
-		exchangeArgs["x-delayed-type"] = config.ExchangeType //延迟插件中，这个来标识实际的类型
+		exchangeType = DelayedTypeMessage
+		exchangeArgs[DelayedTypeField] = config.ExchangeType //延迟插件中，这个来标识实际的类型
 	}
 	err = ch.ExchangeDeclare(
 		config.ExchangeName,
@@ -71,7 +75,7 @@ func NewQueue(conn *Connect, config QueueConfig) (*Queue, error) {
 	}
 
 	// 声明业务队列
-	queueArgs := amqp091.Table{"x-queue-type": config.QueueType}
+	queueArgs := amqp091.Table{QueueTypeField: config.QueueType}
 	_, err = ch.QueueDeclare(
 		config.QueueName,
 		true,  // durable
@@ -171,7 +175,7 @@ func (c *Queue) SendMessages(ctx context.Context, messages []amqp091.Publishing)
 			}
 			if !confirm.Ack {
 				// ack=false，也算失败
-				idx := int(confirm.DeliveryTag - 1)
+				idx := int(confirm.DeliveryTag - 1) //必须使用新的channel: DeliveryTag 并不是从 1 开始严格对应你这批消息的下标，而是 channel 级别的全局递增序号。
 				failed = append(failed, messages[idx])
 			}
 		case <-timer.C:
@@ -407,14 +411,8 @@ func (d *Delivery) RetryLater(delay time.Duration) {
 
 	currentRetryCount := d.GetRetryNum()
 	props.Headers[RetryCountField] = currentRetryCount + 1
-
-	if err = ch.Publish(
-		q.ExchangeName,
-		q.RouteKey,
-		false, // mandatory
-		false, // immediate
-		props,
-	); err != nil {
+	_, err = d.SendMessages(context.Background(), []amqp091.Publishing{props})
+	if err != nil {
 		d.Err = err
 		return
 	}
