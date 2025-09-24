@@ -3,6 +3,7 @@ package rabbitMQ
 import (
 	"context"
 	"fmt"
+	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -26,7 +27,8 @@ type QueueConfig struct {
 }
 
 const (
-	DelayField = "x-delay"
+	DelayField      = "x-delay"       // 延迟字段
+	RetryCountField = "x-retry-count" // 重试次数字段
 )
 
 type ConsumeHandler func(ctx context.Context, msg *Delivery) error
@@ -49,7 +51,6 @@ func NewQueue(conn *Connect, config QueueConfig) (*Queue, error) {
 	}
 
 	// 声明业务交换机
-	// 新增修改：如果配置了延迟，则使用 rabbitmq-delayed-message-exchange 插件
 	exchangeType := config.ExchangeType
 	exchangeArgs := amqp091.Table{}
 	if config.MaxDelay > 0 {
@@ -58,12 +59,12 @@ func NewQueue(conn *Connect, config QueueConfig) (*Queue, error) {
 	}
 	err = ch.ExchangeDeclare(
 		config.ExchangeName,
-		exchangeType, // 修改点：使用插件类型或原始类型
-		true,         // durable
-		false,        // autoDelete
-		false,        // internal
-		false,        // noWait
-		exchangeArgs, // 修改点：为延迟插件传递参数
+		exchangeType,
+		true,  // durable
+		false, // autoDelete
+		false, // internal
+		false, // noWait
+		exchangeArgs,
 	)
 	if err != nil {
 		return nil, e.Err(err)
@@ -130,7 +131,7 @@ func (c *Queue) SendMessages(ctx context.Context, messages []amqp091.Publishing)
 	// 批量发送消息
 	for i := range messages {
 		//if messages[i].Headers == nil {
-		//	messages[i].Headers = amqp091.Table{}
+		// messages[i].Headers = amqp091.Table{}
 		//}
 		//messages[i].Headers["__idx"] = i
 		messages[i].DeliveryMode = amqp091.Persistent //消息持久化
@@ -352,6 +353,14 @@ func (d *Delivery) Nack() {
 	return
 }
 
+func (d *Delivery) GetRetryNum() int64 {
+	var currentRetryCount int64
+	if count, ok := d.Headers[RetryCountField]; ok {
+		currentRetryCount = utils.AnyToInt(count)
+	}
+	return currentRetryCount
+}
+
 // RetryLater 将当前消息以指定延迟重新投递到延迟交换机，然后 Ack 掉原消息
 func (d *Delivery) RetryLater(delay time.Duration) {
 	q := d.Queue
@@ -384,16 +393,20 @@ func (d *Delivery) RetryLater(delay time.Duration) {
 		Type:            d.Type,
 		AppId:           d.AppId,
 		Body:            d.Body,
-
-		// 单条消息 TTL（毫秒），到期后由延迟队列的 DLX 转发回业务交换机
-		//Expiration: fmt.Sprintf("%d", delay.Milliseconds()), //只能直接使用队列延迟
+		Timestamp:       d.Timestamp,
+		UserId:          d.UserId,
+		Priority:        d.Priority,
+		ReplyTo:         d.ReplyTo,
+		Expiration:      d.Expiration,
 	}
 
-	// 新增修改：使用延迟插件时，通过消息头指定延迟时间
 	if props.Headers == nil {
 		props.Headers = amqp091.Table{}
 	}
 	props.Headers[DelayField] = delay.Milliseconds()
+
+	currentRetryCount := d.GetRetryNum()
+	props.Headers[RetryCountField] = currentRetryCount + 1
 
 	if err = ch.Publish(
 		q.ExchangeName,
