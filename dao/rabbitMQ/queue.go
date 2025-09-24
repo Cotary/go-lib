@@ -375,7 +375,7 @@ func (d *Delivery) RetryLater(delay time.Duration) {
 	if d.Acked || d.Nacked {
 		return
 	}
-	if delay > q.MaxDelay {
+	if delay < 0 || delay > q.MaxDelay {
 		delay = q.MaxDelay
 	}
 
