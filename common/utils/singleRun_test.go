@@ -15,7 +15,7 @@ func TestSingleRun_NoWait(t *testing.T) {
 	// 启动一个长时间运行的任务
 	done := make(chan bool)
 	go func() {
-		_, err := SingleRun(key, NoWait, func() error {
+		_, err := DefaultManager.SingleRun(key, NoWait, func() error {
 			time.Sleep(100 * time.Millisecond)
 			return nil
 		})
@@ -29,7 +29,7 @@ func TestSingleRun_NoWait(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// 尝试立即执行另一个任务（应该失败）
-	_, err := SingleRun(key, NoWait, func() error {
+	_, err := DefaultManager.SingleRun(key, NoWait, func() error {
 		return nil
 	})
 
@@ -48,7 +48,7 @@ func TestSingleRun_Wait(t *testing.T) {
 	start := time.Now()
 	done := make(chan bool)
 	go func() {
-		_, err := SingleRun(key, NoWait, func() error {
+		_, err := DefaultManager.SingleRun(key, NoWait, func() error {
 			time.Sleep(10 * time.Second)
 			return nil
 		})
@@ -61,7 +61,7 @@ func TestSingleRun_Wait(t *testing.T) {
 	// 等待第一个任务开始
 	time.Sleep(10 * time.Millisecond)
 	fmt.Println("first task started", time.Since(start).Seconds())
-	_, err := SingleRun(key, 5*time.Second, func() error {
+	_, err := DefaultManager.SingleRun(key, 5*time.Second, func() error {
 		return nil
 	})
 	fmt.Println("first task end", time.Since(start).Seconds())
@@ -70,7 +70,7 @@ func TestSingleRun_Wait(t *testing.T) {
 		t.Errorf("Expected ErrRunning, got %v", err)
 	}
 	fmt.Println("second task started", time.Since(start).Seconds())
-	_, err = SingleRun(key, 5*time.Second, func() error {
+	_, err = DefaultManager.SingleRun(key, 5*time.Second, func() error {
 		return nil
 	})
 	fmt.Println("second task end", time.Since(start).Seconds())
@@ -90,7 +90,7 @@ func TestSingleRun_InfiniteWait(t *testing.T) {
 	start := time.Now()
 	done := make(chan bool)
 	go func() {
-		_, err := SingleRun(key, NoWait, func() error {
+		_, err := DefaultManager.SingleRun(key, NoWait, func() error {
 			fmt.Println("execute task1")
 			time.Sleep(5 * time.Second)
 			return nil
@@ -106,7 +106,7 @@ func TestSingleRun_InfiniteWait(t *testing.T) {
 
 	// 无限等待第一个任务完成
 	fmt.Println("first task started", time.Since(start).Seconds())
-	_, err := SingleRun(key, MustWait, func() error {
+	_, err := DefaultManager.SingleRun(key, MustWait, func() error {
 		fmt.Println("execute task2")
 		return nil
 	})
@@ -131,7 +131,7 @@ func TestSingleRun_Count_MustWait(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			_, _ = SingleRun(key, MustWait, func() error {
+			_, _ = DefaultManager.SingleRun(key, MustWait, func() error {
 				num += 1
 				return nil
 			})
@@ -160,7 +160,7 @@ func TestSingleRun_Count_Wait(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			_, _ = SingleRun(key, 100*time.Second, func() error {
+			_, _ = DefaultManager.SingleRun(key, 5*time.Second, func() error {
 				num += 1
 				return nil
 			})
@@ -188,7 +188,7 @@ func TestSingleRun_Count_NoWait(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			_, _ = SingleRun(key, NoWait, func() error {
+			_, _ = DefaultManager.SingleRun(key, NoWait, func() error {
 				num += 1
 				time.Sleep(5 * time.Second)
 				return nil
@@ -218,7 +218,7 @@ func TestSingleRun_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			_, err := SingleRun(key, 200*time.Millisecond, func() error {
+			_, err := DefaultManager.SingleRun(key, 200*time.Millisecond, func() error {
 				time.Sleep(50 * time.Millisecond)
 				return nil
 			})
@@ -260,7 +260,7 @@ func TestSingleRun_RunCount(t *testing.T) {
 	key := "test_run_count"
 
 	// 第一次运行
-	info1, err := SingleRun(key, NoWait, func() error {
+	info1, err := DefaultManager.SingleRun(key, NoWait, func() error {
 		time.Sleep(10 * time.Millisecond)
 		return nil
 	})
@@ -272,7 +272,7 @@ func TestSingleRun_RunCount(t *testing.T) {
 	}
 
 	// 第二次运行
-	info2, err := SingleRun(key, NoWait, func() error {
+	info2, err := DefaultManager.SingleRun(key, NoWait, func() error {
 		time.Sleep(10 * time.Millisecond)
 		return nil
 	})
@@ -289,7 +289,7 @@ func TestSingleRun_ErrorHandling(t *testing.T) {
 	key := "test_error_handling"
 	expectedError := errors.New("test error")
 
-	_, err := SingleRun(key, NoWait, func() error {
+	_, err := DefaultManager.SingleRun(key, NoWait, func() error {
 		return expectedError
 	})
 

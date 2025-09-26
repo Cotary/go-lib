@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+var DefaultManager = NewManager()
+
 // RunInfo 存储了任务的运行状态
 type RunInfo struct {
 	IsRunning bool
