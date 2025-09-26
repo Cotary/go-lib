@@ -68,32 +68,16 @@ func SingleRun(key string, waitTime time.Duration, f func() error) (RunInfo, err
 		}
 
 		if waitTime > 0 {
-			// 有超时时间
+			// 有超时时间，使用条件变量等待
 			timeout := time.After(waitTime)
 			done := make(chan struct{})
-			stop := make(chan struct{})
 
+			// 启动等待goroutine
 			go func() {
 				mu.Lock()
 				defer mu.Unlock()
-
-				// 检查是否已经被停止
-				select {
-				case <-stop:
-					return
-				default:
-				}
-
-				// 等待条件变量
 				cond.Wait()
-
-				// 再次检查是否被停止
-				select {
-				case <-stop:
-					return
-				default:
-					close(done)
-				}
+				close(done)
 			}()
 
 			mu.Unlock()
@@ -101,12 +85,10 @@ func SingleRun(key string, waitTime time.Duration, f func() error) (RunInfo, err
 			select {
 			case <-done:
 				// 被唤醒，重新尝试
-				close(stop)
 				mu.Lock()
-				waitTime = 0 // 避免重复等待
 				continue
 			case <-timeout:
-				close(stop)
+				mu.Lock()
 				return info, ErrRunning
 			}
 		}

@@ -176,6 +176,35 @@ func TestSingleRun_Count_Wait(t *testing.T) {
 
 }
 
+func TestSingleRun_Count_NoWait(t *testing.T) {
+	key := "test_count_nowait"
+	num := 0
+	numGoroutines := 1000
+
+	var wg sync.WaitGroup
+
+	// 启动多个goroutine同时尝试执行
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_, _ = SingleRun(key, NoWait, func() error {
+				num += 1
+				time.Sleep(5 * time.Second)
+				return nil
+			})
+		}(i)
+	}
+
+	wg.Wait()
+	fmt.Println("num", num)
+	// 由于SingleRun确保同一个key同时只有一个函数执行，所以应该只执行1次
+	if num != 1 {
+		t.Errorf("Expected num to be %d, got %d", 1, num)
+	}
+
+}
+
 // TestSingleRun_Concurrent 测试并发场景
 func TestSingleRun_Concurrent(t *testing.T) {
 	key := "test_concurrent"
