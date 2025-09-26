@@ -1,34 +1,92 @@
 package utils
 
 import (
-	"github.com/Cotary/go-lib/common/defined"
 	"time"
 )
 
-// Time 在 time.Time 基础上扩展了秒/毫秒转换与区间计算等方法
+// ============================================================================
+// 时间戳类型定义
+// ============================================================================
+
+// TimestampSec 秒级时间戳类型
+type TimestampSec int64
+
+// TimestampMilli 毫秒级时间戳类型
+type TimestampMilli int64
+
+// ============================================================================
+// 时间戳转换函数
+// ============================================================================
+
+// NewTimestampSec 将 int64 转换为秒级时间戳
+func NewTimestampSec(value int64) TimestampSec {
+	return TimestampSec(value)
+}
+
+// NewTimestampMilli 将 int64 转换为毫秒级时间戳
+func NewTimestampMilli(value int64) TimestampMilli {
+	return TimestampMilli(value)
+}
+
+// ToInt64 转换为 int64
+func (ts TimestampSec) ToInt64() int64 {
+	return int64(ts)
+}
+
+// ToInt64 转换为 int64
+func (tm TimestampMilli) ToInt64() int64 {
+	return int64(tm)
+}
+
+// ToSec 转换为秒级时间戳
+func (tm TimestampMilli) ToSec() TimestampSec {
+	return TimestampSec(int64(tm) / 1000)
+}
+
+// ToMilli 转换为毫秒级时间戳
+func (ts TimestampSec) ToMilli() TimestampMilli {
+	return TimestampMilli(int64(ts) * 1000)
+}
+
+// NewTimestampSecFromInt64 将 int64 转换为秒级时间戳（辅助函数）
+func NewTimestampSecFromInt64(value int64) TimestampSec {
+	return TimestampSec(value)
+}
+
+// ============================================================================
+// Time 结构体和类型定义
+// ============================================================================
+
+// Time 扩展的时间结构体，提供更丰富的时间操作方法
 type Time struct {
 	time.Time
 }
 
-// TimeType 支持的构造类型
+// TimeType 支持的构造类型（泛型约束）
 type TimeType interface {
-	~int64 | time.Time
+	TimestampSec | TimestampMilli | time.Time
 }
 
+// ============================================================================
+// Time 对象创建函数
+// ============================================================================
+
 // NewTime 创建 Time 对象
-// t 可以是秒级或毫秒级时间戳，也可以是 time.Time
-// loc 可选，默认使用本地时区
-func NewTime[T TimeType](t T, loc ...*time.Location) *Time {
-	location := time.Local
-	if len(loc) > 0 && loc[0] != nil {
-		location = loc[0]
+// 支持多种时间类型：秒级/毫秒级时间戳、time.Time
+// location 可选，默认使用本地时区
+func NewTime[T TimeType](timeValue T, location ...*time.Location) Time {
+	loc := time.Local
+	if len(location) > 0 && location[0] != nil {
+		loc = location[0]
 	}
 
-	switch v := any(t).(type) {
+	switch v := any(timeValue).(type) {
 	case time.Time:
-		return &Time{v.In(location)}
-	case int64:
-		return &Time{time.UnixMilli(GetMillTime(v)).In(location)}
+		return Time{v.In(loc)}
+	case TimestampSec:
+		return Time{time.Unix(int64(v), 0).In(loc)}
+	case TimestampMilli:
+		return Time{time.UnixMilli(int64(v)).In(loc)}
 	default:
 		panic("unsupported time type for NewTime")
 	}
@@ -40,146 +98,232 @@ func NewUTC() *Time {
 }
 
 // NewLocal 返回当前本地时间（可指定时区）
-func NewLocal(loc ...*time.Location) *Time {
-	location := time.Local
-	if len(loc) > 0 && loc[0] != nil {
-		location = loc[0]
+func NewLocal(location ...*time.Location) *Time {
+	loc := time.Local
+	if len(location) > 0 && location[0] != nil {
+		loc = location[0]
 	}
-	return &Time{time.Now().In(location)}
+	return &Time{time.Now().In(loc)}
 }
 
-// GetSecTime 将毫秒级时间戳转换为秒级
-func GetSecTime(t int64) int64 {
-	if t > 1e12 {
-		return t / 1000
+// ============================================================================
+// 时间戳转换工具函数
+// ============================================================================
+
+// ToSecTimestamp 将时间戳转换为秒级时间戳
+func ToSecTimestamp[T TimeType](timeValue T) int64 {
+	switch v := any(timeValue).(type) {
+	case TimestampSec:
+		return int64(v)
+	case TimestampMilli:
+		return int64(v) / 1000
+	case time.Time:
+		return v.Unix()
+	default:
+		panic("unsupported time type for ToSecTimestamp")
 	}
-	return t
 }
 
-// GetMillTime 将秒级时间戳转换为毫秒级
-// end=true 时返回该秒的最后一毫秒
-func GetMillTime(t int64, end ...bool) int64 {
-	if t == 0 || t > 1e12 {
-		return t
+// ToMilliTimestamp 将时间戳转换为毫秒级时间戳
+// isEndOfSecond=true 时返回该秒的最后一毫秒（用于区间查询）
+func ToMilliTimestamp[T TimeType](timeValue T, isEndOfSecond ...bool) int64 {
+	switch v := any(timeValue).(type) {
+	case TimestampSec:
+		if len(isEndOfSecond) > 0 && isEndOfSecond[0] {
+			return int64(v)*1000 + 999
+		}
+		return int64(v) * 1000
+	case TimestampMilli:
+		return int64(v)
+	case time.Time:
+		return v.UnixMilli()
+	default:
+		panic("unsupported time type for ToMilliTimestamp")
 	}
-	if len(end) > 0 && end[0] {
-		return t*1000 + 999
-	}
-	return t * 1000
 }
 
-// StrToTime 将字符串解析为秒级时间戳
-func (t *Time) StrToTime(str string, layout string) (int64, error) {
-	tm, err := time.ParseInLocation(layout, str, t.Location())
+// ============================================================================
+// 时间解析和格式化函数
+// ============================================================================
+
+// ParseTimeFromString 解析字符串为 Time 对象
+func ParseTimeFromString(timeString string, layout string, location ...*time.Location) (Time, error) {
+	loc := time.Local
+	if len(location) > 0 && location[0] != nil {
+		loc = location[0]
+	}
+	timeValue, err := time.ParseInLocation(layout, timeString, loc)
 	if err != nil {
-		return 0, err
+		return Time{}, err
 	}
-	return tm.Unix(), nil
+	return NewTime(timeValue), nil
 }
 
-// FormatString 格式化为字符串
-func (t *Time) FormatString(layout string) string {
-	return t.Format(layout)
+// ParseTimeFromString 解析字符串为 Time 对象（使用当前时区）
+func (t *Time) ParseTimeFromString(timeString string, layout string) (Time, error) {
+	return ParseTimeFromString(timeString, layout, t.Location())
+}
+
+// Format 格式化时间
+func (t *Time) Format(layout string) string {
+	return t.Time.Format(layout)
 }
 
 // FormatToUnix 格式化后再解析为秒级时间戳（会丢失秒以下精度）
-func (t *Time) FormatToUnix(layout string) (int64, error) {
-	str := t.FormatString(layout)
-	return t.StrToTime(str, layout)
+func (t *Time) FormatToUnix(layout string) (Time, error) {
+	formattedString := t.Format(layout)
+	return t.ParseTimeFromString(formattedString, layout)
 }
 
-// GetHourRange 获取当前时间偏移 h 小时所在的整点区间（秒级时间戳）
-func (t *Time) GetHourRange(h int) (int64, int64) {
-	now := t.Add(time.Duration(h) * time.Hour)
-	year, month, day := now.Date()
-	hour := now.Hour()
-	start := time.Date(year, month, day, hour, 0, 0, 0, t.Location())
-	end := start.Add(time.Hour).Add(-time.Nanosecond)
-	return start.Unix(), end.Unix()
+// ============================================================================
+// 时间区间获取函数
+// ============================================================================
+
+// GetHourRange 获取当前时间偏移 hourOffset 小时所在的整点区间
+func (t *Time) GetHourRange(hourOffset int) (Time, Time) {
+	adjustedTime := t.Add(time.Duration(hourOffset) * time.Hour)
+	year, month, day := adjustedTime.Date()
+	hour := adjustedTime.Hour()
+	startTime := time.Date(year, month, day, hour, 0, 0, 0, t.Location())
+	endTime := startTime.Add(time.Hour).Add(-time.Nanosecond)
+	return NewTime(startTime), NewTime(endTime)
 }
 
-// GetDayRange 获取当前时间偏移 d 天所在的日期区间（秒级时间戳）
-func (t *Time) GetDayRange(d int) (int64, int64) {
-	now := t.AddDate(0, 0, d)
-	year, month, day := now.Date()
-	start := time.Date(year, month, day, 0, 0, 0, 0, t.Location())
-	end := start.AddDate(0, 0, 1).Add(-time.Nanosecond)
-	return start.Unix(), end.Unix()
+// GetDayRange 获取当前时间偏移 dayOffset 天所在的日期区间
+func (t *Time) GetDayRange(dayOffset int) (Time, Time) {
+	adjustedTime := t.AddDate(0, 0, dayOffset)
+	year, month, day := adjustedTime.Date()
+	startTime := time.Date(year, month, day, 0, 0, 0, 0, t.Location())
+	endTime := startTime.AddDate(0, 0, 1).Add(-time.Nanosecond)
+	return NewTime(startTime), NewTime(endTime)
 }
 
-// GetWeekRangeSunday 周日到周六为一周
-func (t *Time) GetWeekRangeSunday(weekOffset int) (int64, int64) {
-	now := t.AddDate(0, 0, weekOffset*7)
-	year, month, day := now.Date()
-	weekday := now.Weekday()
-	start := time.Date(year, month, day-int(weekday), 0, 0, 0, 0, t.Location())
-	end := start.AddDate(0, 0, 7).Add(-time.Nanosecond)
-	return start.Unix(), end.Unix()
+// GetWeekRangeSunday 获取周区间（周日到周六为一周）
+func (t *Time) GetWeekRangeSunday(weekOffset int) (Time, Time) {
+	adjustedTime := t.AddDate(0, 0, weekOffset*7)
+	year, month, day := adjustedTime.Date()
+	weekday := adjustedTime.Weekday()
+	startTime := time.Date(year, month, day-int(weekday), 0, 0, 0, 0, t.Location())
+	endTime := startTime.AddDate(0, 0, 7).Add(-time.Nanosecond)
+	return NewTime(startTime), NewTime(endTime)
 }
 
-// GetWeekRangeMonday 周一到周日为一周
-func (t *Time) GetWeekRangeMonday(weekOffset int) (int64, int64) {
-	now := t.AddDate(0, 0, weekOffset*7)
-	year, month, day := now.Date()
-	weekday := int(now.Weekday())
+// GetWeekRangeMonday 获取周区间（周一到周日为一周）
+func (t *Time) GetWeekRangeMonday(weekOffset int) (Time, Time) {
+	adjustedTime := t.AddDate(0, 0, weekOffset*7)
+	year, month, day := adjustedTime.Date()
+	weekday := int(adjustedTime.Weekday())
 	if weekday == 0 {
 		weekday = 7
 	}
-	start := time.Date(year, month, day-(weekday-1), 0, 0, 0, 0, t.Location())
-	end := start.AddDate(0, 0, 7).Add(-time.Nanosecond)
-	return start.Unix(), end.Unix()
+	startTime := time.Date(year, month, day-(weekday-1), 0, 0, 0, 0, t.Location())
+	endTime := startTime.AddDate(0, 0, 7).Add(-time.Nanosecond)
+	return NewTime(startTime), NewTime(endTime)
 }
 
-// GetMonthRange 获取当前时间偏移 monthOffset 个月所在的月份区间（秒级时间戳）
-func (t *Time) GetMonthRange(monthOffset int) (int64, int64) {
-	now := t.AddDate(0, monthOffset, 0)
-	year, month, _ := now.Date()
-	start := time.Date(year, month, 1, 0, 0, 0, 0, t.Location())
-	end := start.AddDate(0, 1, 0).Add(-time.Nanosecond)
-	return start.Unix(), end.Unix()
+// GetMonthRange 获取当前时间偏移 monthOffset 个月所在的月份区间
+func (t *Time) GetMonthRange(monthOffset int) (Time, Time) {
+	adjustedTime := t.AddDate(0, monthOffset, 0)
+	year, month, _ := adjustedTime.Date()
+	startTime := time.Date(year, month, 1, 0, 0, 0, 0, t.Location())
+	endTime := startTime.AddDate(0, 1, 0).Add(-time.Nanosecond)
+	return NewTime(startTime), NewTime(endTime)
 }
 
-// CalculateMonthAndDayItem 月日差结果
-type CalculateMonthAndDayItem struct {
-	Month int
-	Day   int
+// GetYearRange 获取当前时间偏移 yearOffset 年所在的年份区间
+func (t *Time) GetYearRange(yearOffset int) (Time, Time) {
+	adjustedTime := t.AddDate(yearOffset, 0, 0)
+	year, _, _ := adjustedTime.Date()
+	startTime := time.Date(year, 1, 1, 0, 0, 0, 0, t.Location())
+	endTime := startTime.AddDate(1, 0, 0).Add(-time.Nanosecond)
+	return NewTime(startTime), NewTime(endTime)
 }
 
-// CalculateMonthAndDayList 计算时间区间内每一天与目标日期的月差和日
-func (t *Time) CalculateMonthAndDayList(start, end int64, targetDate string) ([]CalculateMonthAndDayItem, error) {
-	var list []CalculateMonthAndDayItem
-	for ts := GetSecTime(start); ts < GetSecTime(end); ts += 86400 {
-		month, day, err := t.CalculateMonthAndDay(ts, targetDate)
-		if err != nil {
-			return nil, err
-		}
-		list = append(list, CalculateMonthAndDayItem{Month: month, Day: day})
+// ============================================================================
+// 时间列表生成函数
+// ============================================================================
+
+// GetDayListBetween 获取两个时间戳之间的所有日期（按天对齐）
+// 性能优化：预分配切片容量，避免动态扩容
+func GetDayListBetween[T TimeType](startTime, endTime T, location ...*time.Location) []Time {
+	// 确定时区
+	loc := time.Local
+	if len(location) > 0 && location[0] != nil {
+		loc = location[0]
 	}
-	return list, nil
+
+	startTimeObj := NewTime(startTime, loc)
+	endTimeObj := NewTime(endTime, loc)
+
+	// 按天对齐：截断到当天开始时间
+	startSec := ToSecTimestamp(startTimeObj.Time.Truncate(24 * time.Hour))
+	endSec := ToSecTimestamp(endTimeObj.Time.Truncate(24 * time.Hour))
+
+	if startSec > endSec {
+		return []Time{}
+	}
+
+	// 预分配切片容量以提高性能
+	dayCount := int((endSec-startSec)/86400) + 1
+	dayList := make([]Time, 0, dayCount)
+
+	for timestamp := startSec; timestamp <= endSec; timestamp += 86400 {
+		dayTime := NewTime(NewTimestampSecFromInt64(timestamp), loc)
+		dayList = append(dayList, dayTime)
+	}
+	return dayList
 }
 
-// CalculateMonthAndDay 计算与目标日期的月差和日
-func (t *Time) CalculateMonthAndDay(timestamp int64, targetDateStr string) (int, int, error) {
-	targetDate, err := time.ParseInLocation(defined.YearMonthDayLayout, targetDateStr, t.Location())
-	if err != nil {
-		return 0, 0, err
-	}
-	inputDate := time.Unix(GetSecTime(timestamp), 0).In(t.Location())
-	months := (inputDate.Year()-targetDate.Year())*12 + int(inputDate.Month()) - int(targetDate.Month()) + 1
-	return months, inputDate.Day(), nil
+// ============================================================================
+// 月日差计算相关函数
+// ============================================================================
+
+// MonthDayDifference 月日差结果结构体
+type MonthDayDifference struct {
+	MonthDifference int // 月差
+	DayDifference   int // 日差
 }
 
-// GetDayListBetween 获取两个时间戳之间的所有日期（秒级时间戳，按天对齐）
-func (t *Time) GetDayListBetween(start, end int64) []int64 {
-	start, _ = NewTime(start, t.Location()).FormatToUnix(defined.YearMonthDayLayout)
-	end, _ = NewTime(end, t.Location()).FormatToUnix(defined.YearMonthDayLayout)
-	var days []int64
-	if start > end {
-		return days
+// CalculateMonthDayDifferences 计算时间区间内每一天与目标日期的月差和日
+// 性能优化：预分配切片容量，避免重复解析目标日期
+func CalculateMonthDayDifferences[T TimeType](startTime, endTime, targetDate T, location ...*time.Location) ([]MonthDayDifference, error) {
+	// 确定时区
+	loc := time.Local
+	if len(location) > 0 && location[0] != nil {
+		loc = location[0]
 	}
-	for ts := start; ts <= end; ts += 86400 {
-		day, _ := NewTime(ts, t.Location()).FormatToUnix(defined.YearMonthDayLayout)
-		days = append(days, day)
+
+	// 将目标日期转换为 Time 对象（只解析一次）
+	targetTimeObj := NewTime(targetDate, loc)
+
+	startSec := ToSecTimestamp(startTime)
+	endSec := ToSecTimestamp(endTime)
+
+	if startSec >= endSec {
+		return []MonthDayDifference{}, nil
 	}
-	return days
+
+	// 预分配切片容量
+	dayCount := int((endSec-startSec)/86400) + 1
+	differenceList := make([]MonthDayDifference, 0, dayCount)
+
+	for timestamp := startSec; timestamp < endSec; timestamp += 86400 {
+		monthDiff, dayDiff := calculateMonthDayDifferenceOptimized(targetTimeObj.Time, time.Unix(timestamp, 0).In(loc))
+		differenceList = append(differenceList, MonthDayDifference{MonthDifference: monthDiff, DayDifference: dayDiff})
+	}
+	return differenceList, nil
+}
+
+// calculateMonthDayDifferenceOptimized 优化的月日差计算函数
+// 算法：年差*12 + 月差，并根据天数差异调整月份
+func calculateMonthDayDifferenceOptimized(targetDate, inputDate time.Time) (int, int) {
+	// 计算月差：年差*12 + 月差
+	monthDifference := (inputDate.Year()-targetDate.Year())*12 + int(inputDate.Month()) - int(targetDate.Month())
+
+	// 如果输入日期的天数小于目标日期的天数，月份减1
+	if inputDate.Day() < targetDate.Day() {
+		monthDifference--
+	}
+
+	return monthDifference + 1, inputDate.Day()
 }

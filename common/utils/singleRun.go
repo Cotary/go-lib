@@ -54,9 +54,11 @@ func SingleRun(key string, waitTime time.Duration, f func() error) (RunInfo, err
 				RunCount:  runCount,
 			}
 			cond.Broadcast()
+			// 在解锁前保存返回值
+			result := runStatus[key]
 			mu.Unlock()
 
-			return runStatus[key], err
+			return result, err
 		}
 
 		// 已在运行
@@ -112,6 +114,7 @@ func SingleRun(key string, waitTime time.Duration, f func() error) (RunInfo, err
 		// 无限等待
 		if waitTime < 0 {
 			cond.Wait()
+			// 被唤醒后重新检查条件
 			continue
 		}
 	}
