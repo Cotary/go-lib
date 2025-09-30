@@ -93,17 +93,17 @@ func NewTime[T TimeType](timeValue T, location ...*time.Location) Time {
 }
 
 // NewUTC 返回当前 UTC 时间
-func NewUTC() *Time {
-	return &Time{time.Now().UTC()}
+func NewUTC() Time {
+	return Time{time.Now().UTC()}
 }
 
 // NewLocal 返回当前本地时间（可指定时区）
-func NewLocal(location ...*time.Location) *Time {
+func NewLocal(location ...*time.Location) Time {
 	loc := time.Local
 	if len(location) > 0 && location[0] != nil {
 		loc = location[0]
 	}
-	return &Time{time.Now().In(loc)}
+	return Time{time.Now().In(loc)}
 }
 
 // ============================================================================
@@ -160,17 +160,17 @@ func ParseTimeFromString(timeString string, layout string, location ...*time.Loc
 }
 
 // ParseTimeFromString 解析字符串为 Time 对象（使用当前时区）
-func (t *Time) ParseTimeFromString(timeString string, layout string) (Time, error) {
+func (t Time) ParseTimeFromString(timeString string, layout string) (Time, error) {
 	return ParseTimeFromString(timeString, layout, t.Location())
 }
 
 // Format 格式化时间
-func (t *Time) Format(layout string) string {
+func (t Time) Format(layout string) string {
 	return t.Time.Format(layout)
 }
 
 // FormatToUnix 格式化后再解析为秒级时间戳（会丢失秒以下精度）
-func (t *Time) FormatToUnix(layout string) (Time, error) {
+func (t Time) FormatToUnix(layout string) (Time, error) {
 	formattedString := t.Format(layout)
 	return t.ParseTimeFromString(formattedString, layout)
 }
@@ -180,7 +180,7 @@ func (t *Time) FormatToUnix(layout string) (Time, error) {
 // ============================================================================
 
 // GetHourRange 获取当前时间偏移 hourOffset 小时所在的整点区间
-func (t *Time) GetHourRange(hourOffset int) (Time, Time) {
+func (t Time) GetHourRange(hourOffset int) (Time, Time) {
 	adjustedTime := t.Add(time.Duration(hourOffset) * time.Hour)
 	year, month, day := adjustedTime.Date()
 	hour := adjustedTime.Hour()
@@ -190,7 +190,7 @@ func (t *Time) GetHourRange(hourOffset int) (Time, Time) {
 }
 
 // GetDayRange 获取当前时间偏移 dayOffset 天所在的日期区间
-func (t *Time) GetDayRange(dayOffset int) (Time, Time) {
+func (t Time) GetDayRange(dayOffset int) (Time, Time) {
 	adjustedTime := t.AddDate(0, 0, dayOffset)
 	year, month, day := adjustedTime.Date()
 	startTime := time.Date(year, month, day, 0, 0, 0, 0, t.Location())
@@ -199,7 +199,7 @@ func (t *Time) GetDayRange(dayOffset int) (Time, Time) {
 }
 
 // GetWeekRangeSunday 获取周区间（周日到周六为一周）
-func (t *Time) GetWeekRangeSunday(weekOffset int) (Time, Time) {
+func (t Time) GetWeekRangeSunday(weekOffset int) (Time, Time) {
 	adjustedTime := t.AddDate(0, 0, weekOffset*7)
 	year, month, day := adjustedTime.Date()
 	weekday := adjustedTime.Weekday()
@@ -209,7 +209,7 @@ func (t *Time) GetWeekRangeSunday(weekOffset int) (Time, Time) {
 }
 
 // GetWeekRangeMonday 获取周区间（周一到周日为一周）
-func (t *Time) GetWeekRangeMonday(weekOffset int) (Time, Time) {
+func (t Time) GetWeekRangeMonday(weekOffset int) (Time, Time) {
 	adjustedTime := t.AddDate(0, 0, weekOffset*7)
 	year, month, day := adjustedTime.Date()
 	weekday := int(adjustedTime.Weekday())
@@ -222,7 +222,7 @@ func (t *Time) GetWeekRangeMonday(weekOffset int) (Time, Time) {
 }
 
 // GetMonthRange 获取当前时间偏移 monthOffset 个月所在的月份区间
-func (t *Time) GetMonthRange(monthOffset int) (Time, Time) {
+func (t Time) GetMonthRange(monthOffset int) (Time, Time) {
 	adjustedTime := t.AddDate(0, monthOffset, 0)
 	year, month, _ := adjustedTime.Date()
 	startTime := time.Date(year, month, 1, 0, 0, 0, 0, t.Location())
@@ -231,7 +231,7 @@ func (t *Time) GetMonthRange(monthOffset int) (Time, Time) {
 }
 
 // GetYearRange 获取当前时间偏移 yearOffset 年所在的年份区间
-func (t *Time) GetYearRange(yearOffset int) (Time, Time) {
+func (t Time) GetYearRange(yearOffset int) (Time, Time) {
 	adjustedTime := t.AddDate(yearOffset, 0, 0)
 	year, _, _ := adjustedTime.Date()
 	startTime := time.Date(year, 1, 1, 0, 0, 0, 0, t.Location())
