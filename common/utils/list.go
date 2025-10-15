@@ -1,6 +1,9 @@
 package utils
 
-import "reflect"
+import (
+	"reflect"
+	"strings"
+)
 
 // MapSlice 提取结构体切片中的某个字段，返回字段值的切片
 func MapSlice[T any, U any](src []T, mapper func(T) U) []U {
@@ -28,6 +31,14 @@ func InArray[T comparable](val T, arr []T) bool {
 		}
 	}
 	return false
+}
+
+func Join[T any](nums []T, sep string) string {
+	strList := make([]string, len(nums))
+	for i, n := range nums {
+		strList[i] = AnyToString(n)
+	}
+	return strings.Join(strList, sep)
 }
 
 // ToSlice 将一个或多个值转换为切片
