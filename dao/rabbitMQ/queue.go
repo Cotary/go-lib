@@ -27,6 +27,7 @@ type QueueConfig struct {
 }
 
 const (
+	MaxDelayMs         = (1 << 32) - 1   // 2的32次方-1 ,最大延迟时间(毫秒)
 	DelayField         = "x-delay"       // 延迟字段
 	RetryCountField    = "x-retry-count" // 重试次数字段
 	DelayedTypeField   = "x-delayed-type"
@@ -34,6 +35,8 @@ const (
 	QueueTypeField     = "x-queue-type"
 	QueueTypeQuorum    = "quorum"
 )
+
+var DefaultMaxDelay = time.Duration(MaxDelayMs) * time.Millisecond
 
 type ConsumeHandler func(ctx context.Context, msg *Delivery) error
 
