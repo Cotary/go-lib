@@ -40,7 +40,7 @@ func handleConfig(config *Config) {
 	}
 
 	if config.MaxSize == 0 {
-		config.MaxSize = 100
+		config.MaxSize = 10
 	}
 }
 
