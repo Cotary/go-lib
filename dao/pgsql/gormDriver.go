@@ -81,6 +81,7 @@ func NewGorm(config *GormConfig) *GormDrive {
 		MaxAge:     config.LogSaveDay,
 		FileName:   "gorm-log",
 		Compress:   false,
+		MaxSize:    10,
 	}
 	glog := log2.NewLogrusLogger(&logConfig)
 	newLogger := New(
