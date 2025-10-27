@@ -22,7 +22,7 @@ type Config struct {
 	Identity           string `mapstructure:"identity" yaml:"identity"`
 	UserName           string `mapstructure:"userName" yaml:"userName"`
 	Password           string `mapstructure:"password" yaml:"password"`
-	SmtpHost           string `mapstructure:"smtp" yaml:"smtp"` // 优化命名
+	SmtpHost           string `mapstructure:"smtp" yaml:"smtp"`
 	Port               int    `mapstructure:"port" yaml:"port"`
 	TlsModel           int    `mapstructure:"tlsModel" yaml:"tlsModel"` // 0不使用，1 tls（465 端口）, 2 starttls（587 端口）
 	InsecureSkipVerify bool   `mapstructure:"insecureSkipVerify" yaml:"insecureSkipVerify"`
