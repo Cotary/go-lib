@@ -35,37 +35,42 @@ type Email struct {
 }
 
 func NewEmail(config Config) *Email {
-	return &Email{config: config}
+	instance := &Email{config: config}
+	if config.SmtpHost == "" || config.Port == 0 {
+		instance.Gmail().Tls()
+	}
+	return instance
 }
 
 func (e *Email) QQEmail() *Email {
 	e.config.SmtpHost = "smtp.qq.com"
-	e.config.TlsModel = TlsModelTLS // 使用新常量
-	e.config.Port = 465
+	return e
+}
+
+func (e *Email) LarkEmail() *Email {
+	e.config.SmtpHost = "smtp.larksuite.com"
 	return e
 }
 
 func (e *Email) Gmail() *Email {
 	e.config.SmtpHost = "smtp.gmail.com"
-	e.config.TlsModel = TlsModelStartTLS // 使用新常量
-	e.config.Port = 587
 	return e
 }
 
 func (e *Email) TlsNone() *Email {
-	e.config.TlsModel = TlsModelNone // 使用新常量
+	e.config.TlsModel = TlsModelNone
 	e.config.Port = 25
 	return e
 }
 
 func (e *Email) Tls() *Email {
-	e.config.TlsModel = TlsModelTLS // 使用新常量
+	e.config.TlsModel = TlsModelTLS
 	e.config.Port = 465
 	return e
 }
 
 func (e *Email) StartTls() *Email {
-	e.config.TlsModel = TlsModelStartTLS // 使用新常量
+	e.config.TlsModel = TlsModelStartTLS
 	e.config.Port = 587
 	return e
 }
