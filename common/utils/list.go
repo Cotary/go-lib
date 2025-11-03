@@ -5,20 +5,20 @@ import (
 	"strings"
 )
 
-// MapSlice 提取结构体切片中的某个字段，返回字段值的切片
-func MapSlice[T any, U any](src []T, mapper func(T) U) []U {
+// KeySlice 提取结构体切片中的某个字段，返回字段值的切片
+func KeySlice[T any, U any](src []T, mapper func(int, T) U) []U {
 	result := make([]U, len(src))
 	for i, v := range src {
-		result[i] = mapper(v)
+		result[i] = mapper(i, v)
 	}
 	return result
 }
 
-// KeyBy 将结构体切片按某个字段作为键，返回键值对映射
-func KeyBy[T any, K comparable](src []T, keySelector func(T) K) map[K]T {
+// KeyMap 将结构体切片按某个字段作为键，返回键值对映射
+func KeyMap[T any, K comparable](src []T, keySelector func(int, T) K) map[K]T {
 	result := make(map[K]T, len(src))
-	for _, v := range src {
-		result[keySelector(v)] = v
+	for i, v := range src {
+		result[keySelector(i, v)] = v
 	}
 	return result
 }
