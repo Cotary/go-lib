@@ -21,7 +21,7 @@ package main
 
 import (
     "context"
-    "github.com/Cotary/go-lib/net/http"
+    "go-lib/net/http"
 )
 
 func main() {
