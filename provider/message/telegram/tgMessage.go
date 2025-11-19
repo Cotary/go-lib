@@ -46,6 +46,5 @@ func (t *Robot) Send(msg tgbotapi.MessageConfig) error {
 	if err != nil {
 		return e.Err(err)
 	}
-	return err
-
+	return nil
 }

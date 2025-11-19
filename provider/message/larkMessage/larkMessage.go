@@ -7,12 +7,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/Cotary/go-lib/common/utils"
-	http2 "github.com/Cotary/go-lib/net/http"
-	"github.com/coocood/freecache"
-	"github.com/pkg/errors"
 	"net/http"
 	"time"
+
+	"github.com/Cotary/go-lib/common/utils"
+	http2 "github.com/Cotary/go-lib/net/http"
+	"github.com/pkg/errors"
 )
 
 type LarkRobot struct {
@@ -34,8 +34,8 @@ type larkMessage struct {
 	Sign      string                         `json:"sign"`
 }
 
-func (t LarkRobot) SendMessage(language string, title string, message []string, atList []string, intercept bool) (*http2.Response, error) {
-	m := genMsg(language, title, message, atList)
+func (t LarkRobot) SendMessage(ctx context.Context, language string, title string, zMap *utils.OrderedMap[string, string], atList []string) (*http2.Response, error) {
+	m := genMsg(language, title, zMap, atList)
 
 	//send
 	if err := m.genSign(t.Secret); err != nil {
@@ -46,19 +46,12 @@ func (t LarkRobot) SendMessage(language string, title string, message []string, 
 	if err != nil {
 		return nil, errors.Wrap(err, "json.Marshal err")
 	}
-	if !intercept {
-		cacheKey, _ := json.Marshal(m.Content)
-		cacheVal, _ := cache.GetOrSet([]byte(utils.MD5Sum(string(cacheKey))), []uint8{1}, 60)
-		if len(cacheVal) > 0 {
-			return nil, nil
-		}
-	}
 
 	url := fmt.Sprintf("https://open.larksuite.com%s", t.RobotPath)
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
-	res := http2.NewRequestBuilder(http2.DefaultFastHTTPClient).Execute(context.Background(), http.MethodPost, url, nil, str, headers)
+	res := http2.NewRequestBuilder(http2.DefaultFastHTTPClient).Execute(ctx, http.MethodPost, url, nil, str, headers)
 	return res.Response, res.Error
 }
 
@@ -70,43 +63,56 @@ type content struct {
 	Tag     string      `json:"tag,omitempty"`
 }
 
-var cache = freecache.NewCache(10 * 1024 * 1024)
-
-// https://open.larksuite.com/document/client-docs/bot-v3/use-custom-bots-in-a-group#f62e72d5
-func genMsg(language string, title string, message []string, atList []string) *larkMessage {
-	//gen msg
+// genMsg 根据飞书文档生成 post 消息格式
+// 参考: https://open.larksuite.com/document/client-docs/bot-v3/use-custom-bots-in-a-group#f62e72d5
+// 消息格式: 每行是一个数组，包含多个 content 元素，键值对在同一行左右排列
+func genMsg(language string, title string, zMap *utils.OrderedMap[string, string], atList []string) *larkMessage {
 	m := new(larkMessage)
 	m.MsgType = "post"
 	m.Content = make(map[string]map[string]*content)
 	m.Content["post"] = make(map[string]*content)
 
 	messageContent := make([][]content, 0)
-	messageRow := make([]content, 0)
-	for _, v := range message {
-		if v == "" {
-			v = " "
-		}
-		messageRow = append(messageRow, content{
-			Tag:  "text",
-			Text: v,
-		})
-		if len(messageRow) == 2 {
-			messageContent = append(messageContent, messageRow)
-			messageRow = make([]content, 0)
-		}
-	}
-	if len(atList) > 0 {
-		messageRow = make([]content, 0)
-		for _, userID := range atList {
-			messageRow = append(messageRow, content{
-				Tag:    "at",
-				UserID: userID,
+
+	// 处理键值对：每对键值在同一行，左右排列
+	if zMap != nil {
+		zMap.Each(func(p utils.Pair[string, string]) {
+			key := p.Key
+			value := p.Value
+			if key == "" {
+				key = " "
+			}
+			if value == "" {
+				value = " "
+			}
+			// 键值对在同一行，左右排列
+			messageContent = append(messageContent, []content{
+				{Tag: "text", Text: key + ": "},
+				{Tag: "text", Text: value},
 			})
-		}
-		messageContent = append(messageContent, messageRow)
+		})
 	}
-	m.Content["post"][language] = &content{Title: title, Content: make([][]content, 0)}
-	m.Content["post"][language].Content = messageContent
+
+	// 处理 @ 用户列表：所有 @ 用户在同一行
+	if len(atList) > 0 {
+		atRow := make([]content, 0, len(atList))
+		for _, userID := range atList {
+			if userID != "" {
+				atRow = append(atRow, content{
+					Tag:    "at",
+					UserID: userID,
+				})
+			}
+		}
+		if len(atRow) > 0 {
+			messageContent = append(messageContent, atRow)
+		}
+	}
+
+	m.Content["post"][language] = &content{
+		Title:   title,
+		Content: messageContent,
+	}
 	return m
 }
 
@@ -114,9 +120,8 @@ func (m *larkMessage) genSign(secret string) error {
 	timestamp := time.Now().Unix()
 	m.Timestamp = fmt.Sprintf("%d", timestamp)
 	stringToSign := m.Timestamp + "\n" + secret
-	var data []byte
-	h := hmac.New(sha256.New, []byte(stringToSign))
-	_, err := h.Write(data)
+	h := hmac.New(sha256.New, []byte(secret))
+	_, err := h.Write([]byte(stringToSign))
 	if err != nil {
 		return err
 	}
