@@ -120,8 +120,9 @@ func (m *larkMessage) genSign(secret string) error {
 	timestamp := time.Now().Unix()
 	m.Timestamp = fmt.Sprintf("%d", timestamp)
 	stringToSign := m.Timestamp + "\n" + secret
-	h := hmac.New(sha256.New, []byte(secret))
-	_, err := h.Write([]byte(stringToSign))
+	var data []byte
+	h := hmac.New(sha256.New, []byte(stringToSign))
+	_, err := h.Write(data)
 	if err != nil {
 		return err
 	}
