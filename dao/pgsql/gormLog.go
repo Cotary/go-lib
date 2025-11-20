@@ -155,7 +155,9 @@ func (l GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (strin
 }
 
 func SendMessage(ctx context.Context, sender message.Sender, msg string) {
-	sender = message.GetPrioritySender(sender)
+	if sender == nil {
+		sender = message.GetGlobalSender()
+	}
 	if sender == nil {
 		return
 	}

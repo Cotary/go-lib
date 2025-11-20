@@ -31,13 +31,26 @@ func SendMessage(ctx context.Context, err error) {
 		Set("RequestJson", requestJson).
 		Set("Error", errMsg)
 
-	log.WithContext(ctx).Error(errMsg)
-	errSender := message.GetPrioritySender(sender)
+	log.WithContext(ctx).WithFields(map[string]interface{}{
+		"serverName":  serverName,
+		"env":         env,
+		"requestID":   requestID,
+		"requestUri":  requestUri,
+		"requestJson": requestJson,
+		"error":       errMsg,
+	}).Error("SendMessage Record")
+	if err != nil {
+
+	}
+	errSender := sender
+	if errSender == nil {
+		errSender = message.GetGlobalSender()
+	}
 	if errSender == nil {
 		return
 	}
 	sendErr := errSender.Send(ctx, "Running Error", zMap)
 	if sendErr != nil {
-		log.WithContext(ctx).Error("err sender:" + sendErr.Error())
+		log.WithContext(ctx).WithField("action", "SendMessage Error").Error(sendErr.Error())
 	}
 }
