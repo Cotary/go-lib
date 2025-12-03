@@ -3,7 +3,7 @@ package http
 import (
 	"context"
 	"errors"
-	"github.com/stretchr/testify/assert"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/stretchr/testify/assert"
 	"github.com/valyala/fasthttp"
 )
 
@@ -32,9 +33,7 @@ func TestHttpRequest_Timeout(t *testing.T) {
 	// 测试 fasthttp 客户端
 	t.Run("Fasthttp Timeout", func(t *testing.T) {
 		fastClient := &FastHTTPClient{client: &fasthttp.Client{}}
-		builder := NewRequestBuilder(fastClient)
-		// 使用 SetTimeout 设置超时
-		builder.SetTimeout(2 * time.Second)
+		builder := NewRequestBuilder[any](fastClient).SetTimeout(2 * time.Second)
 
 		res := builder.Execute(
 			context.Background(),
@@ -54,9 +53,7 @@ func TestHttpRequest_Timeout(t *testing.T) {
 	// 测试 resty 客户端
 	t.Run("Resty Timeout", func(t *testing.T) {
 		restyClient := &RestyClient{client: resty.New()}
-		builder := NewRequestBuilder(restyClient)
-		// 使用 SetTimeout 设置超时
-		builder.SetTimeout(2 * time.Second)
+		builder := NewRequestBuilder[any](restyClient).SetTimeout(2 * time.Second)
 
 		res := builder.Execute(
 			context.Background(),
@@ -74,6 +71,10 @@ func TestHttpRequest_Timeout(t *testing.T) {
 	})
 }
 
+type StatusResponse struct {
+	Status string `json:"status"`
+}
+
 // TestHttpRequest_Success 验证在延迟 1s 的场景下，
 // 设置超时 3s 可以正常返回并解析 JSON。
 func TestHttpRequest_Success(t *testing.T) {
@@ -83,9 +84,7 @@ func TestHttpRequest_Success(t *testing.T) {
 	// 测试 fasthttp 客户端
 	t.Run("Fasthttp Success", func(t *testing.T) {
 		fastClient := &FastHTTPClient{client: &fasthttp.Client{}}
-		builder := NewRequestBuilder(fastClient)
-		// 使用 SetTimeout 设置超时
-		builder.SetTimeout(3 * time.Second)
+		builder := NewRequestBuilder[StatusResponse](fastClient).SetTimeout(3 * time.Second)
 
 		res := builder.Execute(
 			context.Background(),
@@ -98,8 +97,8 @@ func TestHttpRequest_Success(t *testing.T) {
 			t.Fatalf("expected no error, got: %v", res.Error)
 		}
 
-		var data struct{ Status string }
-		if err := res.Parse("", &data); err != nil {
+		data, err := res.Parse("")
+		if err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if data.Status != "ok" {
@@ -110,9 +109,7 @@ func TestHttpRequest_Success(t *testing.T) {
 	// 测试 resty 客户端
 	t.Run("Resty Success", func(t *testing.T) {
 		restyClient := &RestyClient{client: resty.New()}
-		builder := NewRequestBuilder(restyClient)
-		// 使用 SetTimeout 设置超时
-		builder.SetTimeout(3 * time.Second)
+		builder := NewRequestBuilder[StatusResponse](restyClient).SetTimeout(3 * time.Second)
 
 		res := builder.Execute(
 			context.Background(),
@@ -125,8 +122,8 @@ func TestHttpRequest_Success(t *testing.T) {
 			t.Fatalf("expected no error, got: %v", res.Error)
 		}
 
-		var data struct{ Status string }
-		if err := res.Parse("", &data); err != nil {
+		data, err := res.Parse("")
+		if err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if data.Status != "ok" {
@@ -150,15 +147,13 @@ func TestHttpRequest_Concurrent(t *testing.T) {
 			wg.Add(1)
 			go func(idx int) {
 				defer wg.Done()
-				// 每个 goroutine 拥有独立的 builder 实例
-				builder := NewRequestBuilder(fastClient)
-				builder.SetTimeout(500 * time.Millisecond)
+				builder := NewRequestBuilder[StatusResponse](fastClient).SetTimeout(500 * time.Millisecond)
 
 				res := builder.Execute(context.Background(), http.MethodGet, srv.URL, nil, nil, nil)
 				errs[idx] = res.Error
 				if res.Error == nil {
-					var d struct{ Status string }
-					if parseErr := res.Parse("", &d); parseErr != nil {
+					d, parseErr := res.Parse("")
+					if parseErr != nil {
 						errs[idx] = parseErr
 					} else if d.Status != "ok" {
 						errs[idx] = errors.New("status != ok")
@@ -187,15 +182,13 @@ func TestHttpRequest_Concurrent(t *testing.T) {
 			wg.Add(1)
 			go func(idx int) {
 				defer wg.Done()
-				// 每个 goroutine 拥有独立的 builder 实例
-				builder := NewRequestBuilder(restyClient)
-				builder.SetTimeout(500 * time.Millisecond)
+				builder := NewRequestBuilder[StatusResponse](restyClient).SetTimeout(500 * time.Millisecond)
 
 				res := builder.Execute(context.Background(), http.MethodGet, srv.URL, nil, nil, nil)
 				errs[idx] = res.Error
 				if res.Error == nil {
-					var d struct{ Status string }
-					if parseErr := res.Parse("", &d); parseErr != nil {
+					d, parseErr := res.Parse("")
+					if parseErr != nil {
 						errs[idx] = parseErr
 					} else if d.Status != "ok" {
 						errs[idx] = errors.New("status != ok")
@@ -224,9 +217,7 @@ func TestHttpRequest_Concurrent(t *testing.T) {
 			wg.Add(1)
 			go func(idx int) {
 				defer wg.Done()
-				// 每个 goroutine 拥有独立的 builder 实例
-				builder := NewRequestBuilder(fastClient)
-				builder.SetTimeout(100 * time.Millisecond)
+				builder := NewRequestBuilder[any](fastClient).SetTimeout(100 * time.Millisecond)
 
 				res := builder.Execute(context.Background(), http.MethodGet, srv.URL, nil, nil, nil)
 				errs[idx] = res.Error
@@ -257,9 +248,7 @@ func TestHttpRequest_Concurrent(t *testing.T) {
 			wg.Add(1)
 			go func(idx int) {
 				defer wg.Done()
-				// 每个 goroutine 拥有独立的 builder 实例
-				builder := NewRequestBuilder(restyClient)
-				builder.SetTimeout(100 * time.Millisecond)
+				builder := NewRequestBuilder[any](restyClient).SetTimeout(100 * time.Millisecond)
 
 				res := builder.Execute(context.Background(), http.MethodGet, srv.URL, nil, nil, nil)
 				errs[idx] = res.Error
@@ -281,7 +270,7 @@ func TestHttpRequest_Concurrent(t *testing.T) {
 
 func TestResponseStats_Resty(t *testing.T) {
 	client := NewRestyClient()
-	builder := NewRequestBuilder(client)
+	builder := NewRequestBuilder[any](client)
 
 	ctx := context.Background()
 	result := builder.Execute(ctx, "GET", "https://httpbin.org/get", nil, nil, nil)
@@ -295,13 +284,11 @@ func TestResponseStats_Resty(t *testing.T) {
 	assert.True(t, stats.StartTime.Before(stats.EndTime))
 
 	t.Logf("Total Time: %v", stats.TotalTime)
-	//t.Logf("Local Addr: %s", stats.LocalAddr)
-	//t.Logf("Remote Addr: %s", stats.RemoteAddr)
 }
 
 func TestResponseStats_FastHTTP(t *testing.T) {
 	client := NewFastHTTPClient()
-	builder := NewRequestBuilder(client)
+	builder := NewRequestBuilder[any](client)
 
 	ctx := context.Background()
 	result := builder.Execute(ctx, "GET", "https://httpbin.org/get", nil, nil, nil)
@@ -315,6 +302,13 @@ func TestResponseStats_FastHTTP(t *testing.T) {
 	assert.True(t, stats.StartTime.Before(stats.EndTime))
 
 	t.Logf("Total Time: %v", stats.TotalTime)
-	//t.Logf("Local Addr: %s", stats.LocalAddr)
-	//t.Logf("Remote Addr: %s", stats.RemoteAddr)
+}
+
+func Test_DefaultHTTP(t *testing.T) {
+	type TestUser struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+	user, err := fastHTTP[TestUser]().Execute(context.Background(), "GET", "https://httpbin.org/get", nil, nil, nil).Parse("")
+	fmt.Println(user, err)
 }

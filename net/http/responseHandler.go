@@ -7,11 +7,12 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-type ResponseHandler func(res *Result) error
+// ResponseHandler 响应处理器，接收 BaseResult 指针
+type ResponseHandler func(res *BaseResult) error
 
 // CodeCheckHandler 检查响应中的业务状态码
 var CodeCheckHandler = func(code int64, codeStr ...string) ResponseHandler {
-	return func(res *Result) error {
+	return func(res *BaseResult) error {
 		gj := gjson.ParseBytes(res.Response.Body)
 		field := "code"
 		if len(codeStr) > 0 {
@@ -27,7 +28,7 @@ var CodeCheckHandler = func(code int64, codeStr ...string) ResponseHandler {
 
 // StatusCodeCheckHandler 检查HTTP状态码
 func StatusCodeCheckHandler(expectedCodes ...int) ResponseHandler {
-	return func(res *Result) error {
+	return func(res *BaseResult) error {
 		if len(expectedCodes) == 0 {
 			// 默认检查2xx状态码
 			if res.Response.StatusCode < 200 || res.Response.StatusCode >= 300 {
@@ -48,7 +49,7 @@ func StatusCodeCheckHandler(expectedCodes ...int) ResponseHandler {
 
 // ResponseSizeCheckHandler 检查响应体大小
 func ResponseSizeCheckHandler(maxSize int64) ResponseHandler {
-	return func(res *Result) error {
+	return func(res *BaseResult) error {
 		if int64(len(res.Response.Body)) > maxSize {
 			return errors.New(fmt.Sprintf("response body size %d exceeds limit %d", len(res.Response.Body), maxSize))
 		}
@@ -58,7 +59,7 @@ func ResponseSizeCheckHandler(maxSize int64) ResponseHandler {
 
 // JSONValidationHandler 验证响应是否为有效JSON
 func JSONValidationHandler() ResponseHandler {
-	return func(res *Result) error {
+	return func(res *BaseResult) error {
 		if !gjson.ValidBytes(res.Response.Body) {
 			return errors.New("response is not valid JSON")
 		}
@@ -68,7 +69,7 @@ func JSONValidationHandler() ResponseHandler {
 
 // RetryOnErrorHandler 根据错误类型决定是否重试
 func RetryOnErrorHandler(retryableErrors ...string) ResponseHandler {
-	return func(res *Result) error {
+	return func(res *BaseResult) error {
 		if res.Error == nil {
 			return nil
 		}

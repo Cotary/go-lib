@@ -8,6 +8,10 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+func fastHTTP[T any]() *RequestBuilder[T] {
+	return NewRequestBuilder[T](DefaultFastHTTPClient)
+}
+
 var DefaultFastHTTPClient = NewFastHTTPClient()
 
 type FastHTTPClient struct {

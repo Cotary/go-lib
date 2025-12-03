@@ -19,6 +19,9 @@ func AuthAppHandler(appID, secret, signType string) RequestHandler {
 		nonce := uuid.NewString()
 		signature := calculateSignature(secret, signType, nonce, timestamp)
 		// 添加签名字段到请求头
+		if req.Headers == nil {
+			req.Headers = make(map[string]string)
+		}
 		req.Headers[defined.AppidHeader] = appID
 		req.Headers[defined.SignTypeHeader] = signType
 		req.Headers[defined.SignHeader] = signature

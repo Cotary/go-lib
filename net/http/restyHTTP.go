@@ -9,6 +9,10 @@ import (
 	"github.com/pkg/errors"
 )
 
+func restyHTTP[T any]() *RequestBuilder[T] {
+	return NewRequestBuilder[T](DefaultFastHTTPClient)
+}
+
 var DefaultRestyClient = NewRestyClient()
 
 type RestyClient struct {

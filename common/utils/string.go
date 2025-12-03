@@ -8,8 +8,7 @@ import (
 
 // AnyToInt 将任意类型转换为 int64（依赖 AnyToAny）
 func AnyToInt(value interface{}) int64 {
-	var res int64
-	_ = AnyToAny(value, &res)
+	res, _ := AnyToAny[int64](value)
 	return res
 }
 

@@ -50,18 +50,18 @@ func TestStringToAndToString(t *testing.T) {
 			t.Errorf("ToString(%v) = %v, want %v", tt.input, str, tt.expected)
 		}
 
-		// 测试StringTo方法
+		// 测试StringToPtr方法
 		target := reflect.New(reflect.TypeOf(tt.input)).Interface()
-		err = StringTo(str, target)
-		fmt.Println("StringTo:", reflect.ValueOf(target).Elem().Interface())
+		err = StringToPtr(str, target)
+		fmt.Println("StringToPtr:", reflect.ValueOf(target).Elem().Interface())
 		if reflect.TypeOf(tt.input).Kind() == reflect.Slice && reflect.TypeOf(tt.input).Elem().Kind() == reflect.Uint8 {
 			fmt.Println("Converted value:", string(reflect.ValueOf(target).Elem().Bytes()))
 		}
 		if err != nil {
-			t.Errorf("StringTo(%v, %T) returned error: %v", str, target, err)
+			t.Errorf("StringToPtr(%v, %T) returned error: %v", str, target, err)
 		}
 		if !reflect.DeepEqual(reflect.ValueOf(target).Elem().Interface(), tt.input) {
-			t.Errorf("StringTo(%v, %T) = %v, want %v", str, target, reflect.ValueOf(target).Elem().Interface(), tt.input)
+			t.Errorf("StringToPtr(%v, %T) = %v, want %v", str, target, reflect.ValueOf(target).Elem().Interface(), tt.input)
 		}
 	}
 }

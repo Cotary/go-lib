@@ -2,12 +2,13 @@ package cache
 
 import (
 	"context"
+	"time"
+
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/eko/gocache/lib/v4/store"
 	"github.com/eko/gocache/store/redis/v4"
-	"time"
 )
 
 // UseString 这些store只能用string类型
@@ -57,38 +58,34 @@ func (c *BaseCache[T, U]) Get(ctx context.Context, key string) (value T, err err
 	if err != nil {
 		return value, e.Err(err)
 	}
-	// 检查和转换类型
-	switch v := any(val).(type) {
-	case T:
-		value = v
-	default:
-		err = utils.AnyToAny(val, &value)
-		if err != nil {
-			return value, e.Err(err)
-		}
+	// 快路径：类型相同直接返回
+	if v, ok := any(val).(T); ok {
+		return v, nil
+	}
+	// 类型不同，使用泛型转换 U -> T
+	value, err = utils.AnyToAny[T](val)
+	if err != nil {
+		return value, e.Err(err)
 	}
 	return value, nil
 }
 
 func (c *BaseCache[T, U]) Set(ctx context.Context, key string, value T, options ...store.Option) error {
-	var cacheValue U
 	key = c.GetKey(key)
 	if c.config.Expire >= 0 {
 		options = append(options, store.WithExpiration(c.config.Expire))
 	}
 
-	// 尝试将 value 转换为 U 类型
+	// 快路径：类型相同直接使用
 	if v, ok := any(value).(U); ok {
-		cacheValue = v
-	} else {
-		// 如果类型转换失败，使用 AnyToAny 进行转换
-		err := utils.AnyToAny(value, &cacheValue)
-		if err != nil {
-			return e.Err(err)
-		}
+		return e.Err(c.cache.Set(ctx, key, v, options...))
 	}
-	err := c.cache.Set(ctx, key, cacheValue, options...)
-	return e.Err(err)
+	// 类型不同，使用泛型转换 T -> U
+	cacheValue, err := utils.AnyToAny[U](value)
+	if err != nil {
+		return e.Err(err)
+	}
+	return e.Err(c.cache.Set(ctx, key, cacheValue, options...))
 }
 
 func (c *BaseCache[T, U]) OriginGet(ctx context.Context, key string) (value T, err error) {

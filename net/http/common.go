@@ -67,8 +67,19 @@ type ResponseStats struct {
 	EndTime   time.Time // 请求结束时间
 }
 
-// Result encapsulates the outcome of an HTTP request.
-type Result struct {
+// IClient is the core interface for executing HTTP requests.
+// It defines the contract for different HTTP client implementations (e.g., fasthttp, net/http).
+type IClient interface {
+	Do(request *Request) (*Response, error)
+	IsTimeout(err error) bool
+}
+
+// ============================================================================
+// BaseResult 基础结果（非泛型）
+// ============================================================================
+
+// BaseResult 基础结果结构体，包含所有非泛型字段
+type BaseResult struct {
 	Request      *Request
 	Response     *Response
 	Error        error
@@ -77,25 +88,79 @@ type Result struct {
 	SendErrorMsg bool
 }
 
-// IClient is the core interface for executing HTTP requests.
-// It defines the contract for different HTTP client implementations (e.g., fasthttp, net/http).
-type IClient interface {
-	Do(request *Request) (*Response, error)
-	IsTimeout(err error) bool
+func (r *BaseResult) SetHandlers(handlers ...ResponseHandler) *BaseResult {
+	r.Handlers = handlers
+	return r
 }
 
-// RequestBuilder is a generic struct for configuring and sending HTTP requests.
-// T is a type that must implement the IClient interface.
-type RequestBuilder[T IClient] struct {
-	client       T
+func (r *BaseResult) Log(logEntry log.Logger) *BaseResult {
+	ctx := r.Request.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	logMap := r.getLogMap(ctx)
+	if r.Error != nil {
+		if logEntry != nil {
+			logEntry.WithContext(ctx).WithFields(logMap).Error("HTTP Request")
+		}
+		if r.SendErrorMsg {
+			e.SendMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
+		}
+	} else {
+		if logEntry != nil {
+			logEntry.WithContext(ctx).WithFields(logMap).Info("HTTP Request")
+		}
+	}
+	return r
+}
+
+func (r *BaseResult) getLogMap(ctx context.Context) map[string]interface{} {
+	logMap := map[string]interface{}{
+		"Context ID": ctx.Value(defined.RequestID),
+	}
+
+	if r.Request != nil {
+		logMap["Request URL"] = r.Request.URL
+		logMap["Request Method"] = r.Request.Method
+		logMap["Request Headers"] = r.Request.Headers
+		logMap["Request Query"] = r.Request.Query
+		if r.Request.Body != nil {
+			logMap["Request Body"] = r.Request.Body
+		}
+	}
+
+	if r.Response != nil {
+		logMap["Response Status Code"] = r.Response.StatusCode
+		logMap["Response Headers"] = r.Response.Header
+		logMap["Response Body"] = string(r.Response.Body)
+
+		if r.Response.Stats != nil {
+			logMap["Total Time"] = r.Response.Stats.TotalTime.String()
+		}
+	}
+
+	if r.Error != nil {
+		logMap["Request Error"] = r.Error.Error()
+	}
+	return logMap
+}
+
+// ============================================================================
+// RequestBuilder[T] 泛型请求构建器
+// ============================================================================
+
+// RequestBuilder 泛型请求构建器，T 表示期望的响应类型
+type RequestBuilder[T any] struct {
+	client       IClient
 	handlers     []RequestHandler
 	keepLog      bool
 	sendErrorMsg bool
 	timeout      time.Duration
 }
 
-// NewRequestBuilder creates a new RequestBuilder with a specific IClient implementation.
-func NewRequestBuilder[T IClient](client T) *RequestBuilder[T] {
+// NewRequestBuilder 创建泛型请求构建器
+func NewRequestBuilder[T any](client IClient) *RequestBuilder[T] {
 	return &RequestBuilder[T]{
 		client:       client,
 		keepLog:      true,
@@ -123,14 +188,14 @@ func (rb *RequestBuilder[T]) SetTimeout(timeout time.Duration) *RequestBuilder[T
 	return rb
 }
 
-// Execute performs the HTTP request and returns a Result.
+// Execute 执行 HTTP 请求，返回 Result[T]
 func (rb *RequestBuilder[T]) Execute(
 	ctx context.Context,
 	method, url string,
 	query map[string][]string,
 	body interface{},
 	headers map[string]string,
-) *Result {
+) *Result[T] {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -145,10 +210,12 @@ func (rb *RequestBuilder[T]) Execute(
 		Timeout: rb.timeout,
 	}
 
-	res := &Result{
-		Request:      req,
-		KeepLog:      rb.keepLog,
-		SendErrorMsg: rb.sendErrorMsg,
+	res := &Result[T]{
+		BaseResult: BaseResult{
+			Request:      req,
+			KeepLog:      rb.keepLog,
+			SendErrorMsg: rb.sendErrorMsg,
+		},
 	}
 
 	// 参数校验
@@ -179,61 +246,57 @@ func (rb *RequestBuilder[T]) Execute(
 	return res
 }
 
-func (r *Result) SetHandlers(handlers ...ResponseHandler) *Result {
+// ============================================================================
+// Result[T] 泛型结果（嵌入 BaseResult）
+// ============================================================================
+
+// Result 泛型版本的结果，T 表示期望解析的响应类型
+type Result[T any] struct {
+	BaseResult
+}
+
+// SetHandlers 设置响应处理器（返回 Result[T] 以支持链式调用）
+func (r *Result[T]) SetHandlers(handlers ...ResponseHandler) *Result[T] {
 	r.Handlers = handlers
 	return r
 }
 
-func (r *Result) Log(logEntry log.Logger) *Result {
-	ctx := r.Request.Ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	logMap := r.getLogMap(ctx)
-	if r.Error != nil {
-		if logEntry != nil {
-			logEntry.WithContext(ctx).WithFields(logMap).Error("HTTP Request")
-		}
-		if r.SendErrorMsg {
-			e.SendMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
-		}
-	} else {
-		if logEntry != nil {
-			logEntry.WithContext(ctx).WithFields(logMap).Info("HTTP Request")
-		}
-	}
+// Log 记录日志（返回 Result[T] 以支持链式调用）
+func (r *Result[T]) Log(logEntry log.Logger) *Result[T] {
+	r.BaseResult.Log(logEntry)
 	return r
 }
 
-func (r *Result) Parse(path string, data interface{}) error {
+// Parse 解析响应到泛型类型 T
+func (r *Result[T]) Parse(path string) (T, error) {
+	var zero T
 	ctx := r.Request.Ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	if r.Error != nil {
-		return r.Error
+		return zero, r.Error
 	}
+	if r.Response == nil {
+		return zero, errors.New("response is nil")
+	}
+
 	logMap := r.getLogMap(ctx)
 	if r.Response.StatusCode < 200 || r.Response.StatusCode >= 300 {
-		return errors.New("response status code error: " + utils.Json(logMap))
+		return zero, errors.New("response status code error: " + utils.Json(logMap))
 	}
 
 	isJson := utils.IsJson(r.Response.Body)
 	if !isJson {
-		return errors.New("response is not json: " + utils.Json(logMap))
+		return zero, errors.New("response is not json: " + utils.Json(logMap))
 	}
 
 	// Execute response handlers before parsing
 	for _, f := range r.Handlers {
-		if err := f(r); err != nil {
-			return errors.Wrap(err, utils.Json(logMap))
+		if err := f(&r.BaseResult); err != nil {
+			return zero, errors.Wrap(err, utils.Json(logMap))
 		}
-	}
-
-	if data == nil {
-		return nil
 	}
 
 	// Handle parsing with gjson
@@ -242,47 +305,26 @@ func (r *Result) Parse(path string, data interface{}) error {
 		gj := gjson.ParseBytes(r.Response.Body)
 		value := gj.Get(path)
 		if !value.Exists() {
-			return errors.New(fmt.Sprintf("path not found: %s , response: %s", path, utils.Json(logMap)))
+			return zero, errors.New(fmt.Sprintf("path not found: %s , response: %s", path, utils.Json(logMap)))
 		}
 		respJson = value.String()
 	} else {
 		respJson = string(r.Response.Body)
 	}
 
-	if err := utils.StringTo(respJson, data); err != nil {
-		return e.Err(err, fmt.Sprintf("response parse error, response: %s", utils.Json(logMap)))
+	// 使用泛型转换
+	data, err := utils.AnyToAny[T](respJson)
+	if err != nil {
+		return zero, e.Err(err, fmt.Sprintf("response parse error, response: %s", utils.Json(logMap)))
 	}
-	return nil
+	return data, nil
 }
 
-func (r *Result) getLogMap(ctx context.Context) map[string]interface{} {
-	logMap := map[string]interface{}{
-		"Context ID": ctx.Value(defined.RequestID),
+// MustParse 解析响应，失败时 panic
+func (r *Result[T]) MustParse(path string) T {
+	data, err := r.Parse(path)
+	if err != nil {
+		panic(err)
 	}
-
-	if r.Request != nil {
-		logMap["Request URL"] = r.Request.URL
-		logMap["Request Method"] = r.Request.Method
-		logMap["Request Headers"] = r.Request.Headers
-		logMap["Request Query"] = r.Request.Query
-		if r.Request.Body != nil {
-			logMap["Request Body"] = r.Request.Body
-		}
-	}
-
-	if r.Response != nil {
-		logMap["Response Status Code"] = r.Response.StatusCode
-		logMap["Response Headers"] = r.Response.Header
-		logMap["Response Body"] = string(r.Response.Body)
-
-		// 添加统计信息到日志
-		if r.Response.Stats != nil {
-			logMap["Total Time"] = r.Response.Stats.TotalTime.String()
-		}
-	}
-
-	if r.Error != nil {
-		logMap["Request Error"] = r.Error.Error()
-	}
-	return logMap
+	return data
 }
