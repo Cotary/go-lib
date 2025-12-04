@@ -8,16 +8,21 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-func fastHTTP[T any]() *RequestBuilder[T] {
-	return NewRequestBuilder[T](DefaultFastHTTPClient)
-}
+// ============================================================================
+// FastHTTP 客户端
+// ============================================================================
 
+// DefaultFastHTTPClient 默认的 FastHTTP 客户端实例
 var DefaultFastHTTPClient = NewFastHTTPClient()
 
+// FastHTTPClient FastHTTP 客户端实现
 type FastHTTPClient struct {
 	client *fasthttp.Client
 }
 
+// NewFastHTTPClient 创建 FastHTTP 客户端
+//
+// 可选传入自定义的 fasthttp.Client，否则使用默认配置
 func NewFastHTTPClient(args ...*fasthttp.Client) *FastHTTPClient {
 	if len(args) > 0 {
 		return &FastHTTPClient{
@@ -33,8 +38,8 @@ func NewFastHTTPClient(args ...*fasthttp.Client) *FastHTTPClient {
 	}
 }
 
+// Do 执行 HTTP 请求
 func (fc *FastHTTPClient) Do(req *Request) (*Response, error) {
-	// 记录开始时间
 	startTime := time.Now()
 
 	fastReq := fasthttp.AcquireRequest()
@@ -42,7 +47,6 @@ func (fc *FastHTTPClient) Do(req *Request) (*Response, error) {
 	defer fasthttp.ReleaseRequest(fastReq)
 	defer fasthttp.ReleaseResponse(fastResp)
 
-	// 验证请求参数
 	if req.URL == "" {
 		return nil, errors.New("URL cannot be empty")
 	}
@@ -74,17 +78,13 @@ func (fc *FastHTTPClient) Do(req *Request) (*Response, error) {
 		}
 	}
 
-	// 设置超时时间
 	if req.Timeout > 0 {
 		fastReq.SetTimeout(req.Timeout)
 	}
 
 	err := fc.client.Do(fastReq, fastResp)
-
-	// 记录结束时间
 	endTime := time.Now()
 
-	// 拷贝响应数据到通用结构体
 	resp := &Response{
 		Stats: &ResponseStats{
 			StartTime: startTime,
@@ -101,18 +101,21 @@ func (fc *FastHTTPClient) Do(req *Request) (*Response, error) {
 			resp.Header[string(key)] = []string{string(value)}
 			return true
 		})
-		// 连接信息
-		//if fastResp.RemoteAddr() != nil {
-		//	resp.Stats.RemoteAddr = fastResp.RemoteAddr().String()
-		//}
-		//if fastResp.LocalAddr() != nil {
-		//	resp.Stats.LocalAddr = fastResp.LocalAddr().String()
-		//}
 	}
 
 	return resp, err
 }
 
+// IsTimeout 判断是否为超时错误
 func (fc *FastHTTPClient) IsTimeout(err error) bool {
 	return errors.Is(err, fasthttp.ErrTimeout)
+}
+
+// ============================================================================
+// 快捷函数
+// ============================================================================
+
+// fastHTTP 使用默认 FastHTTP 客户端创建请求构建器
+func fastHTTP[T any]() *RequestBuilder[T] {
+	return NewRequestBuilder[T](DefaultFastHTTPClient)
 }

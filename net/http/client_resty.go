@@ -9,16 +9,21 @@ import (
 	"github.com/pkg/errors"
 )
 
-func restyHTTP[T any]() *RequestBuilder[T] {
-	return NewRequestBuilder[T](DefaultFastHTTPClient)
-}
+// ============================================================================
+// Resty 客户端
+// ============================================================================
 
+// DefaultRestyClient 默认的 Resty 客户端实例
 var DefaultRestyClient = NewRestyClient()
 
+// RestyClient Resty 客户端实现
 type RestyClient struct {
 	client *resty.Client
 }
 
+// NewRestyClient 创建 Resty 客户端
+//
+// 可选传入自定义的 resty.Client，否则使用默认配置
 func NewRestyClient(args ...*resty.Client) *RestyClient {
 	if len(args) > 0 {
 		return &RestyClient{
@@ -30,13 +35,12 @@ func NewRestyClient(args ...*resty.Client) *RestyClient {
 	}
 }
 
+// Do 执行 HTTP 请求
 func (rc *RestyClient) Do(req *Request) (*Response, error) {
-	// 验证请求参数
 	if req.URL == "" {
 		return nil, errors.New("URL cannot be empty")
 	}
 
-	// 记录开始时间
 	startTime := time.Now()
 
 	restyReq := rc.client.R().SetContext(req.Ctx)
@@ -53,12 +57,7 @@ func (rc *RestyClient) Do(req *Request) (*Response, error) {
 		restyReq.SetContext(newCtx)
 	}
 
-	var restyResp *resty.Response
-	var err error
-
-	restyResp, err = restyReq.Execute(req.Method, req.URL)
-
-	// 记录结束时间
+	restyResp, err := restyReq.Execute(req.Method, req.URL)
 	endTime := time.Now()
 
 	resp := &Response{
@@ -78,11 +77,20 @@ func (rc *RestyClient) Do(req *Request) (*Response, error) {
 	return resp, err
 }
 
+// IsTimeout 判断是否为超时错误
 func (rc *RestyClient) IsTimeout(err error) bool {
-	// resty 内部的超时错误是 net.timeout 错误，需要进行类型断言
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
 	}
 	return false
+}
+
+// ============================================================================
+// 快捷函数
+// ============================================================================
+
+// restyHTTP 使用默认 Resty 客户端创建请求构建器
+func restyHTTP[T any]() *RequestBuilder[T] {
+	return NewRequestBuilder[T](DefaultRestyClient)
 }

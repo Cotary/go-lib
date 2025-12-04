@@ -15,6 +15,19 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+func Test_DefaultHTTP(t *testing.T) {
+	type TestUser struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+	user, err := fastHTTP[TestUser]().Use(func(ctx *Context) {
+		fmt.Println("before request")
+		ctx.Next()
+		fmt.Println("after request")
+	}).Execute(context.Background(), "GET", "https://httpbin.org/get", nil, nil, nil).Parse("")
+	fmt.Println(user, err)
+}
+
 // setupTestServer 启动一个带有延迟的测试服务器。
 func setupTestServer(delay time.Duration) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -302,13 +315,4 @@ func TestResponseStats_FastHTTP(t *testing.T) {
 	assert.True(t, stats.StartTime.Before(stats.EndTime))
 
 	t.Logf("Total Time: %v", stats.TotalTime)
-}
-
-func Test_DefaultHTTP(t *testing.T) {
-	type TestUser struct {
-		Name string `json:"name"`
-		Age  int    `json:"age"`
-	}
-	user, err := fastHTTP[TestUser]().Execute(context.Background(), "GET", "https://httpbin.org/get", nil, nil, nil).Parse("")
-	fmt.Println(user, err)
 }
