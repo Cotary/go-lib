@@ -37,30 +37,6 @@ func TruncateDecimalString(num string, decimalPlaces int32) string {
 	return data.Truncate(decimalPlaces).String()
 }
 
-// DecimalRatio 计算两个数的比值（截断到指定小数位）
-func DecimalRatio(numerator, denominator interface{}, decimalPlaces int32) string {
-	return decimalRatioInternal(numerator, denominator, decimalPlaces, false)
-}
-
-// DecimalRatioPercent 计算两个数的百分比（截断到指定小数位）
-func DecimalRatioPercent(numerator, denominator interface{}, decimalPlaces int32) string {
-	return decimalRatioInternal(numerator, denominator, decimalPlaces, true)
-}
-
-// decimalRatioInternal 公共逻辑
-func decimalRatioInternal(numerator, denominator interface{}, decimalPlaces int32, percent bool) string {
-	numDec, err1 := decimal.NewFromString(AnyToString(numerator))
-	denDec, err2 := decimal.NewFromString(AnyToString(denominator))
-	if err1 != nil || err2 != nil || denDec.IsZero() {
-		return "0"
-	}
-	result := numDec.Div(denDec).Truncate(decimalPlaces)
-	if percent {
-		result = result.Mul(decimal.NewFromInt(100))
-	}
-	return result.String()
-}
-
 // BigIntToUint128 将 *big.Int 转换为 Uint128（限制非负且不超过 128 位）
 func BigIntToUint128(i *big.Int) (u bin.Uint128, err error) {
 	if i.Sign() < 0 {
@@ -89,5 +65,5 @@ func AverageIntList[T constraints.Integer](data []T, filterZero bool, decimalPla
 	if count == 0 {
 		return decimal.Decimal{}
 	}
-	return sum.Div(decimal.NewFromInt(count)).Truncate(decimalPlaces)
+	return sum.DivRound(decimal.NewFromInt(count), decimalPlaces)
 }

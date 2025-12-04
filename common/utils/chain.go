@@ -31,13 +31,13 @@ func HexToDecimalString(hexStr string) string {
 	return HexToDecimal(hexStr).String()
 }
 
-// FormatWithAccuracy 按精度格式化 decimal.Decimal
-func FormatWithAccuracy(amount decimal.Decimal, accuracy int64) decimal.Decimal {
-	if accuracy == 0 {
+// DivWithDecimals 按精度格式化 decimal.Decimal
+func DivWithDecimals(amount decimal.Decimal, decimals int32) decimal.Decimal {
+	if decimals == 0 {
 		return amount
 	}
-	divisor := decimal.NewFromInt(10).Pow(decimal.NewFromInt(accuracy))
-	return amount.DivRound(divisor, int32(accuracy))
+	divisor := decimal.NewFromInt(10).Pow(decimal.NewFromInt(int64(decimals)))
+	return amount.DivRound(divisor, decimals)
 }
 
 // ParseTokenName 从十六进制字符串解析代币名称
