@@ -90,7 +90,12 @@ func (rc *RestyClient) IsTimeout(err error) bool {
 // 快捷函数
 // ============================================================================
 
-// restyHTTP 使用默认 Resty 客户端创建请求构建器
-func restyHTTP[T any]() *RequestBuilder[T] {
-	return NewRequestBuilder[T](DefaultRestyClient)
+// RestyHTTP 使用默认 Resty 客户端创建请求构建器
+//
+// 使用示例:
+//
+//	result := http.RestyHTTP().Execute(ctx, "GET", url, nil, nil, nil)
+//	user, err := http.Parse[User](result, "data")
+func RestyHTTP() *RequestBuilder {
+	return NewRequestBuilder(DefaultRestyClient)
 }

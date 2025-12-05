@@ -333,7 +333,7 @@ func TestRequestBuilder(t *testing.T) {
 		},
 	}
 
-	builder := NewRequestBuilder[map[string]interface{}](mockClient)
+	builder := NewRequestBuilder(mockClient)
 	builder.NoKeepLog().NoSendErrorMsg()
 
 	var middlewareExecuted bool
@@ -363,7 +363,7 @@ func TestRequestBuilder(t *testing.T) {
 		t.Errorf("expected 1 call, got %d", mockClient.callCount)
 	}
 
-	data, err := result.Parse("data")
+	data, err := Parse[map[string]interface{}](result, "data")
 	if err != nil {
 		t.Errorf("parse error: %v", err)
 	}

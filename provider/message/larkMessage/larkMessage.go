@@ -51,7 +51,7 @@ func (t LarkRobot) SendMessage(ctx context.Context, language string, title strin
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
-	res := http2.NewRequestBuilder(http2.DefaultFastHTTPClient).Execute(ctx, http.MethodPost, url, nil, str, headers)
+	res := http2.FastHTTP().Execute(ctx, http.MethodPost, url, nil, str, headers)
 	return res.Response, res.Error
 }
 

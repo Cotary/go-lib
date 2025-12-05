@@ -25,10 +25,10 @@ const logConfigKey = "__log_config__"
 // 请求构建器
 // ============================================================================
 
-// RequestBuilder 泛型请求构建器
+// RequestBuilder 请求构建器
 //
-// 使用洋葱模型中间件处理请求和响应，T 表示期望的响应类型
-type RequestBuilder[T any] struct {
+// 使用洋葱模型中间件处理请求和响应
+type RequestBuilder struct {
 	client       IClient
 	chain        *middlewareChain
 	keepLog      bool
@@ -36,9 +36,9 @@ type RequestBuilder[T any] struct {
 	timeout      time.Duration
 }
 
-// NewRequestBuilder 创建泛型请求构建器
-func NewRequestBuilder[T any](client IClient) *RequestBuilder[T] {
-	return &RequestBuilder[T]{
+// NewRequestBuilder 创建请求构建器
+func NewRequestBuilder(client IClient) *RequestBuilder {
+	return &RequestBuilder{
 		client:       client,
 		chain:        newMiddlewareChain(client),
 		keepLog:      true,
@@ -55,25 +55,25 @@ func NewRequestBuilder[T any](client IClient) *RequestBuilder[T] {
 //	    LoggingMiddleware(logger),   // 第二层
 //	    AuthMiddleware("app", "secret"), // 最内层
 //	)
-func (rb *RequestBuilder[T]) Use(middlewares ...Middleware) *RequestBuilder[T] {
+func (rb *RequestBuilder) Use(middlewares ...Middleware) *RequestBuilder {
 	rb.chain.use(middlewares...)
 	return rb
 }
 
 // NoSendErrorMsg 禁用错误消息发送
-func (rb *RequestBuilder[T]) NoSendErrorMsg() *RequestBuilder[T] {
+func (rb *RequestBuilder) NoSendErrorMsg() *RequestBuilder {
 	rb.sendErrorMsg = false
 	return rb
 }
 
 // NoKeepLog 禁用日志记录
-func (rb *RequestBuilder[T]) NoKeepLog() *RequestBuilder[T] {
+func (rb *RequestBuilder) NoKeepLog() *RequestBuilder {
 	rb.keepLog = false
 	return rb
 }
 
 // SetTimeout 设置请求超时时间
-func (rb *RequestBuilder[T]) SetTimeout(timeout time.Duration) *RequestBuilder[T] {
+func (rb *RequestBuilder) SetTimeout(timeout time.Duration) *RequestBuilder {
 	rb.timeout = timeout
 	return rb
 }
@@ -89,14 +89,14 @@ func (rb *RequestBuilder[T]) SetTimeout(timeout time.Duration) *RequestBuilder[T
 //   - headers: 请求头
 //
 // 返回:
-//   - *Result[T]: 包含响应数据和错误信息的结果对象
-func (rb *RequestBuilder[T]) Execute(
+//   - *Result: 包含响应数据和错误信息的结果对象
+func (rb *RequestBuilder) Execute(
 	goCtx context.Context,
 	method, url string,
 	query map[string][]string,
 	body interface{},
 	headers map[string]string,
-) *Result[T] {
+) *Result {
 	if goCtx == nil {
 		goCtx = context.Background()
 	}
@@ -124,7 +124,7 @@ func (rb *RequestBuilder[T]) Execute(
 		sendErrorMsg: rb.sendErrorMsg,
 	})
 
-	res := &Result[T]{
+	res := &Result{
 		Context:      ctx,
 		keepLog:      rb.keepLog,
 		sendErrorMsg: rb.sendErrorMsg,

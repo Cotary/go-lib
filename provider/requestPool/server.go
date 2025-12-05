@@ -544,7 +544,7 @@ func (r routines) DoRequest(ctx context.Context, req Request) (runInfo RequestRu
 	}
 	body := req.Body
 
-	clientRequest := http2.NewRequestBuilder(http2.DefaultFastHTTPClient)
+	clientRequest := http2.FastHTTP()
 	clientRequest.NoKeepLog()
 	// 动态设置超时时间
 	minTimeout := 5 * time.Second

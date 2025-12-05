@@ -115,7 +115,14 @@ func (fc *FastHTTPClient) IsTimeout(err error) bool {
 // 快捷函数
 // ============================================================================
 
-// fastHTTP 使用默认 FastHTTP 客户端创建请求构建器
-func fastHTTP[T any]() *RequestBuilder[T] {
-	return NewRequestBuilder[T](DefaultFastHTTPClient)
+// FastHTTP 使用默认 FastHTTP 客户端创建请求构建器
+//
+// 推荐优先使用此方法，FastHTTP 性能更优
+//
+// 使用示例:
+//
+//	result := http.FastHTTP().Execute(ctx, "GET", url, nil, nil, nil)
+//	user, err := http.Parse[User](result, "data")
+func FastHTTP() *RequestBuilder {
+	return NewRequestBuilder(DefaultFastHTTPClient)
 }

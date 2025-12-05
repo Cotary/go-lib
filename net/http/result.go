@@ -16,10 +16,10 @@ import (
 // 请求结果
 // ============================================================================
 
-// Result 泛型请求结果
+// Result 请求结果
 //
-// 包含完整的请求/响应信息，支持链式调用和泛型解析
-type Result[T any] struct {
+// 包含完整的请求/响应信息，支持链式调用
+type Result struct {
 	*Context
 	keepLog      bool
 	sendErrorMsg bool
@@ -29,7 +29,7 @@ type Result[T any] struct {
 //
 // 注意：如果 keepLog 为 true，日志会由 RequestLogMiddleware 自动记录。
 // 此方法可用于在 NoKeepLog() 模式下手动记录日志。
-func (r *Result[T]) Log(logEntry log.Logger) *Result[T] {
+func (r *Result) Log(logEntry log.Logger) *Result {
 	ctx := r.Ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -52,7 +52,7 @@ func (r *Result[T]) Log(logEntry log.Logger) *Result[T] {
 }
 
 // getLogMap 构建日志字段映射
-func (r *Result[T]) getLogMap(ctx context.Context) map[string]interface{} {
+func (r *Result) getLogMap(ctx context.Context) map[string]interface{} {
 	logMap := map[string]interface{}{
 		"Context ID": ctx.Value(defined.RequestID),
 	}
@@ -92,79 +92,104 @@ func (r *Result[T]) getLogMap(ctx context.Context) map[string]interface{} {
 	return logMap
 }
 
-// Parse 解析响应到泛型类型 T
-//
-// 参数:
-//   - path: JSON 路径（如 "data.user"），空字符串表示解析整个响应
-//
-// 返回:
-//   - T: 解析后的数据
-//   - error: 解析错误
-func (r *Result[T]) Parse(path string) (T, error) {
-	var zero T
+// HasError 检查是否有错误
+func (r *Result) HasError() bool {
+	return r.Error != nil
+}
+
+// GetResponse 获取原始响应
+func (r *Result) GetResponse() *Response {
+	return r.Response
+}
+
+// GetRequest 获取原始请求
+func (r *Result) GetRequest() *Request {
+	return r.Request
+}
+
+// parseJSON 解析响应 JSON（内部公共方法）
+func (r *Result) parseJSON(path string) (string, error) {
 	ctx := r.Ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	if r.Error != nil {
-		return zero, r.Error
+		return "", r.Error
 	}
 	if r.Response == nil {
-		return zero, errors.New("response is nil")
+		return "", errors.New("response is nil")
 	}
 
 	logMap := r.getLogMap(ctx)
 	if r.Response.StatusCode < 200 || r.Response.StatusCode >= 300 {
-		return zero, errors.New("response status code error: " + utils.Json(logMap))
+		return "", errors.New("response status code error: " + utils.Json(logMap))
 	}
 
-	isJson := utils.IsJson(r.Response.Body)
-	if !isJson {
-		return zero, errors.New("response is not json: " + utils.Json(logMap))
+	if !utils.IsJson(r.Response.Body) {
+		return "", errors.New("response is not json: " + utils.Json(logMap))
 	}
 
-	// 使用 gjson 解析
-	var respJson string
-	if path != "" {
-		gj := gjson.ParseBytes(r.Response.Body)
-		value := gj.Get(path)
-		if !value.Exists() {
-			return zero, errors.New(fmt.Sprintf("path not found: %s , response: %s", path, utils.Json(logMap)))
-		}
-		respJson = value.String()
-	} else {
-		respJson = string(r.Response.Body)
+	if path == "" {
+		return string(r.Response.Body), nil
 	}
 
-	// 使用泛型转换
+	value := gjson.ParseBytes(r.Response.Body).Get(path)
+	if !value.Exists() {
+		return "", errors.New(fmt.Sprintf("path not found: %s , response: %s", path, utils.Json(logMap)))
+	}
+	return value.String(), nil
+}
+
+// ParseTo 解析响应到目标指针（支持链式调用）
+//
+// 使用示例:
+//
+//	var user User
+//	err := builder.Execute(ctx, "GET", url, nil, nil, nil).ParseTo("data.user", &user)
+func (r *Result) ParseTo(path string, dest interface{}) error {
+	respJson, err := r.parseJSON(path)
+	if err != nil {
+		return err
+	}
+	if err = utils.AnyToAnyPtr(respJson, dest); err != nil {
+		return e.Err(err, fmt.Sprintf("response parse error, response: %s", utils.Json(r.getLogMap(r.Ctx))))
+	}
+	return nil
+}
+
+// ============================================================================
+// 响应解析工具函数
+// ============================================================================
+
+// Parse 解析响应到泛型类型 T
+//
+// 使用示例:
+//
+//	user, err := http.Parse[User](builder.Execute(ctx, "GET", url, nil, nil, nil), "data.user")
+func Parse[T any](result *Result, path string) (T, error) {
+	var zero T
+	respJson, err := result.parseJSON(path)
+	if err != nil {
+		return zero, err
+	}
 	data, err := utils.AnyToAny[T](respJson)
 	if err != nil {
-		return zero, e.Err(err, fmt.Sprintf("response parse error, response: %s", utils.Json(logMap)))
+		return zero, e.Err(err, fmt.Sprintf("response parse error, response: %s", utils.Json(result.getLogMap(result.Ctx))))
 	}
 	return data, nil
 }
 
 // MustParse 解析响应，失败时 panic
-func (r *Result[T]) MustParse(path string) T {
-	data, err := r.Parse(path)
+//
+// 使用示例:
+//
+//	result := builder.Execute(ctx, "GET", url, nil, nil, nil)
+//	user := http.MustParse[User](result, "data.user")
+func MustParse[T any](result *Result, path string) T {
+	data, err := Parse[T](result, path)
 	if err != nil {
 		panic(err)
 	}
 	return data
-}
-
-// HasError 检查是否有错误
-func (r *Result[T]) HasError() bool {
-	return r.Error != nil
-}
-
-// GetResponse 获取原始响应
-func (r *Result[T]) GetResponse() *Response {
-	return r.Response
-}
-
-// GetRequest 获取原始请求
-func (r *Result[T]) GetRequest() *Request {
-	return r.Request
 }
