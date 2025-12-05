@@ -11,11 +11,11 @@ import (
 // 定义 TLS 模式常量
 const (
 	// TlsModelNone 不使用 TLS，通常用于端口 25
-	TlsModelNone = 0
+	TlsModelNone = "none"
 	// TlsModelTLS 使用隐式 TLS/SSL，通常用于端口 465
-	TlsModelTLS = 1
+	TlsModelTLS = "tls"
 	// TlsModelStartTLS 使用 STARTTLS，通常用于端口 587
-	TlsModelStartTLS = 2
+	TlsModelStartTLS = "starttls"
 )
 
 type Config struct {
@@ -24,7 +24,7 @@ type Config struct {
 	Password           string `mapstructure:"password" yaml:"password"`
 	SmtpHost           string `mapstructure:"smtp" yaml:"smtp"`
 	Port               int    `mapstructure:"port" yaml:"port"`
-	TlsModel           int    `mapstructure:"tlsModel" yaml:"tlsModel"` // 0不使用，1 tls（465 端口）, 2 starttls（587 端口）
+	TlsModel           string `mapstructure:"tlsModel" yaml:"tlsModel"` // none不使用，tls（465 端口）, starttls（587 端口）
 	InsecureSkipVerify bool   `mapstructure:"insecureSkipVerify" yaml:"insecureSkipVerify"`
 	CertFile           string `mapstructure:"certFile" yaml:"certFile"`
 	KeyFile            string `mapstructure:"keyFile" yaml:"keyFile"`
