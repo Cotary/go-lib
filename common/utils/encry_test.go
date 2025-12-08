@@ -302,10 +302,7 @@ func TestJWT(t *testing.T) {
 
 func TestUtilityFunctions(t *testing.T) {
 	// 测试随机字符串生成
-	randomStr, err := GenerateRandomString(16)
-	if err != nil {
-		t.Fatalf("GenerateRandomString failed: %v", err)
-	}
+	randomStr := GenerateCode(16)
 
 	if len(randomStr) != 16 {
 		t.Errorf("GenerateRandomString length = %v, want 16", len(randomStr))

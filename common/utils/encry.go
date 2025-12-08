@@ -12,7 +12,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"math/big"
 	"time"
 
 	"github.com/dromara/dongle"
@@ -419,23 +418,6 @@ func VerifyJWT(tokenString, secretKey string) (*JWTClaims, error) {
 // 通用工具
 // 此部分提供了一些常用的工具函数，例如生成加密安全的随机数据和字符串编解码。
 //
-
-// GenerateRandomString generates a cryptographically secure random string of a given length.
-func GenerateRandomString(length int) (string, error) {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	if length <= 0 {
-		return "", errors.New("length must be positive")
-	}
-	b := make([]byte, length)
-	for i := range b {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
-		if err != nil {
-			return "", err
-		}
-		b[i] = charset[n.Int64()]
-	}
-	return string(b), nil
-}
 
 // GenerateRandomBytes generates a cryptographically secure random byte slice of a given length.
 func GenerateRandomBytes(length int) ([]byte, error) {
