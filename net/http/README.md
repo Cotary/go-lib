@@ -14,7 +14,7 @@
 
 ## 快速开始
 
-### 基本使用
+### 基本使用（推荐）
 
 ```go
 package main
@@ -25,11 +25,8 @@ import (
 )
 
 func main() {
-    // 使用默认的 FastHTTP 客户端
-    builder := http.NewRequestBuilder[map[string]interface{}](http.DefaultFastHTTPClient)
-    
-    // 发送 GET 请求
-    result := builder.Execute(
+    // 推荐：使用 FastHTTP 快捷函数（性能更优）
+    result := http.FastHTTP().Execute(
         context.Background(),
         "GET",
         "https://api.example.com/users",
@@ -40,22 +37,23 @@ func main() {
         panic(result.Error)
     }
     
-    // 解析响应
-    data, err := result.Parse("data")
+    // 方式一：使用泛型工具函数解析响应
+    data, err := http.Parse[map[string]interface{}](result, "data")
     if err != nil {
         panic(err)
     }
+    
+    // 方式二：链式调用 ParseTo
+    var user User
+    err = result.ParseTo("data.user", &user)
 }
 ```
 
 ### 使用 Resty 客户端
 
 ```go
-// 使用 Resty 客户端
-builder := http.NewRequestBuilder[User](http.DefaultRestyClient)
-builder.SetTimeout(30 * time.Second)
-
-result := builder.Execute(
+// 使用 Resty 快捷函数
+result := http.RestyHTTP().SetTimeout(30 * time.Second).Execute(
     context.Background(),
     "POST",
     "https://api.example.com/users",
@@ -63,6 +61,13 @@ result := builder.Execute(
     map[string]interface{}{"name": "John", "email": "john@example.com"},
     map[string]string{"Content-Type": "application/json"},
 )
+
+// 方式一：使用泛型工具函数解析
+user, err := http.Parse[User](result, "data")
+
+// 方式二：链式调用 ParseTo
+var user2 User
+err = result.ParseTo("data", &user2)
 ```
 
 ## 洋葱模型中间件
@@ -82,7 +87,7 @@ result := builder.Execute(
 ### 添加中间件
 
 ```go
-builder := http.NewRequestBuilder[MyResponse](http.DefaultFastHTTPClient)
+builder := http.NewRequestBuilder(http.DefaultFastHTTPClient)
 
 // 添加中间件（按注册顺序执行）
 builder.Use(
@@ -95,6 +100,9 @@ builder.Use(
 )
 
 result := builder.Execute(ctx, "GET", url, nil, nil, nil)
+
+// 需要解析时使用泛型工具函数
+data, err := http.Parse[MyResponse](result, "")
 ```
 
 ### 自定义中间件
@@ -272,12 +280,12 @@ customFastClient := &fasthttp.Client{
     ReadTimeout:     30 * time.Second,
     WriteTimeout:    30 * time.Second,
 }
-builder := http.NewRequestBuilder[User](http.NewFastHTTPClient(customFastClient))
+builder := http.NewRequestBuilder(http.NewFastHTTPClient(customFastClient))
 
 // 自定义 Resty 客户端
 customRestyClient := resty.New()
 customRestyClient.SetTimeout(30 * time.Second)
-builder := http.NewRequestBuilder[User](http.NewRestyClient(customRestyClient))
+builder := http.NewRequestBuilder(http.NewRestyClient(customRestyClient))
 ```
 
 ## 错误处理
