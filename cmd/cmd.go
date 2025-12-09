@@ -125,7 +125,7 @@ func cmdHandle(id string, handle Handler) {
 	ctx := coroutines.NewContext("CRON:" + id)
 	coroutines.SafeFunc(ctx, func(ctx context.Context) {
 		funcName := fmt.Sprintf("%s-%T", id, handle)
-		runInfo, err := utils2.DefaultManager.SingleRun(funcName, utils2.NoWait, func() error {
+		runInfo, err := utils2.DefaultManager.SingleRun(ctx, funcName, utils2.NoWait, func(ctx context.Context) error {
 			return handle.Do(ctx)
 		})
 		if err != nil {

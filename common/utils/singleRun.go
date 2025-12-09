@@ -1,10 +1,37 @@
 package utils
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
 )
+
+// heldLocksKey 用于在 context 中存储已持有的锁 key 集合
+type heldLocksKey struct{}
+
+// getHeldLocks 从 context 中获取已持有的锁 key 集合
+func getHeldLocks(ctx context.Context) map[string]bool {
+	if ctx == nil {
+		return nil
+	}
+	if locks, ok := ctx.Value(heldLocksKey{}).(map[string]bool); ok {
+		return locks
+	}
+	return nil
+}
+
+// withHeldLock 将当前 key 添加到 context 的已持有锁集合中
+func withHeldLock(ctx context.Context, key string) context.Context {
+	oldLocks := getHeldLocks(ctx)
+	// 创建新的 map，避免修改原有的
+	newLocks := make(map[string]bool, len(oldLocks)+1)
+	for k, v := range oldLocks {
+		newLocks[k] = v
+	}
+	newLocks[key] = true
+	return context.WithValue(ctx, heldLocksKey{}, newLocks)
+}
 
 var DefaultManager = NewManager()
 
@@ -62,10 +89,36 @@ func (m *Manager) getEntry(key string) *entry {
 }
 
 // SingleRun 确保对于给定的 key，函数 f 一次只运行一个实例。
+// 支持锁的嵌套调用：如果在同一个调用链中（通过 ctx 传递），对同一个 key 的嵌套调用
+// 会直接执行 f，而不会尝试重新获取锁，从而避免死锁。
+//
 // waitTime < 0: 一直等 (MustWait)
 // waitTime = 0: 不等 (NoWait)
 // waitTime > 0: 等待指定时间
-func (m *Manager) SingleRun(key string, waitTime time.Duration, f func() error) (RunInfo, error) {
+//
+// 使用示例：
+//
+//	manager.SingleRun(ctx, "key", NoWait, func(ctx context.Context) error {
+//	    // 嵌套调用同一个 key，不会死锁
+//	    return manager.SingleRun(ctx, "key", NoWait, func(ctx context.Context) error {
+//	        return nil
+//	    })
+//	})
+func (m *Manager) SingleRun(ctx context.Context, key string, waitTime time.Duration, f func(ctx context.Context) error) (RunInfo, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// 检查是否是嵌套调用（当前调用链已持有该 key 的锁）
+	heldLocks := getHeldLocks(ctx)
+	if heldLocks != nil && heldLocks[key] {
+		// 嵌套调用：直接执行 f，不再获取锁
+		// 返回一个表示嵌套调用的 RunInfo
+		newCtx := withHeldLock(ctx, key)
+		err := f(newCtx)
+		return RunInfo{IsRunning: true}, err
+	}
+
 	// 1. 获取这个 key 专属的 entry (包含它自己的锁、状态和条件变量)
 	e := m.getEntry(key)
 
@@ -78,7 +131,7 @@ func (m *Manager) SingleRun(key string, waitTime time.Duration, f func() error) 
 		// --- Case 1: 不等待 ---
 		case waitTime == NoWait:
 			info := e.info
-			e.mu.Unlock() // 在返回前解锁
+			e.mu.Unlock()
 			return info, ErrRunning
 
 		// --- Case 2: 无限等待 ---
@@ -89,7 +142,7 @@ func (m *Manager) SingleRun(key string, waitTime time.Duration, f func() error) 
 				e.cond.Wait()
 			}
 
-		// --- Case 3: 超时等待 (无协程泄漏的正确实现) ---
+		// --- Case 3: 超时等待 ---
 		case waitTime > 0:
 			var timedOut bool
 			// 使用 AfterFunc 启动一个定时器。它不会阻塞，只会在时间到了之后
@@ -115,7 +168,7 @@ func (m *Manager) SingleRun(key string, waitTime time.Duration, f func() error) 
 			if timedOut {
 				info := e.info
 				e.mu.Unlock()
-				return info, ErrRunning // 可以考虑返回一个更明确的 "ErrTimeout"
+				return info, ErrRunning
 			}
 		}
 	}
@@ -128,8 +181,11 @@ func (m *Manager) SingleRun(key string, waitTime time.Duration, f func() error) 
 	// 5. 【关键】在执行长时间任务 f() 之前，必须解锁，否则会阻塞其他所有操作
 	e.mu.Unlock()
 
+	// 创建新的 context，记录当前已持有此 key 的锁
+	newCtx := withHeldLock(ctx, key)
+
 	// 执行任务
-	err := f()
+	err := f(newCtx)
 
 	// 6. 任务执行完毕，重新加锁以安全地更新状态
 	e.mu.Lock()
