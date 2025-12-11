@@ -152,6 +152,9 @@ func (r *Result) ParseTo(path string, dest interface{}) error {
 	if err != nil {
 		return err
 	}
+	if dest == nil {
+		return nil
+	}
 	if err = utils.AnyToAnyPtr(respJson, dest); err != nil {
 		return e.Err(err, fmt.Sprintf("response parse error, response: %s", utils.Json(r.getLogMap(r.Ctx))))
 	}
