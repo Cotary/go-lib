@@ -57,14 +57,14 @@ func (s *TGSender) Send(ctx context.Context, title string, zMap *utils.OrderedMa
 func (s *TGSender) buildMessage(title string, zMap *utils.OrderedMap[string, string]) string {
 	var builder strings.Builder
 	builder.WriteString("***")
-	builder.WriteString(escapeMarkdown(title))
+	builder.WriteString(utils.EscapeMarkdown(title))
 	builder.WriteString("***\n\n")
 
 	if zMap != nil {
 		zMap.Each(func(p utils.Pair[string, string]) {
-			builder.WriteString(escapeMarkdown(p.Key))
+			builder.WriteString(utils.EscapeMarkdown(p.Key))
 			builder.WriteString(": ")
-			builder.WriteString(escapeMarkdown(p.Value))
+			builder.WriteString(utils.EscapeMarkdown(p.Value))
 			builder.WriteString("\n")
 		})
 	}
@@ -142,14 +142,4 @@ func (s *TGSender) initCache() {
 func (s *TGSender) SetCacheExpire(seconds int) {
 	s.cacheExpireSec = seconds
 	s.initCache()
-}
-
-// escapeMarkdown 为文本中的 Markdown 特殊字符添加反斜杠转义。
-func escapeMarkdown(text string) string {
-	// 注意：顺序需要注意，先转义反斜杠再转义其他字符。
-	specialCharacters := []string{"\\", "`", "*", "_", "{", "}", "[", "]", "(", ")", "#", "+", "-", ".", "!"}
-	for _, ch := range specialCharacters {
-		text = strings.ReplaceAll(text, ch, "\\"+ch)
-	}
-	return text
 }
