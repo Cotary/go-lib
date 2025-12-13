@@ -44,7 +44,7 @@ func (t *Robot) SendMessage(chatID int64, message string) error {
 func (t *Robot) Send(msg tgbotapi.MessageConfig) error {
 	_, err := t.BotAPI.Send(msg)
 	if err != nil {
-		return e.Err(err)
+		return e.Err(err, msg.Text)
 	}
 	return nil
 }
