@@ -31,7 +31,7 @@ func SafeFunc(ctx context.Context, F func(ctx context.Context)) {
 }
 
 // Retry 自己维护重试sleep时间
-func Retry(ctx context.Context, F func(ctx context.Context) error, count ...int) {
+func Retry(ctx context.Context, F func(ctx context.Context) error, count ...int) error {
 	maxRetries := -1
 	if len(count) > 0 {
 		maxRetries = count[0]
@@ -42,18 +42,18 @@ func Retry(ctx context.Context, F func(ctx context.Context) error, count ...int)
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		default:
 			err := F(ctx)
 			if err != nil {
 				retries++
 				if maxRetries >= 0 && retries > maxRetries {
 					e.SendMessage(ctx, errors.WithMessage(err, "Retry Error: Exceeded max retries"))
-					return
+					return err
 				}
 				e.SendMessage(ctx, errors.WithMessage(err, "Retry Error"))
 			} else {
-				return
+				return nil
 			}
 		}
 	}
