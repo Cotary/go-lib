@@ -57,14 +57,14 @@ func (s *TGSender) Send(ctx context.Context, title string, zMap *utils.OrderedMa
 func (s *TGSender) buildMessage(title string, zMap *utils.OrderedMap[string, string]) string {
 	var builder strings.Builder
 	builder.WriteString("***")
-	builder.WriteString(utils.EscapeMarkdown(title))
+	builder.WriteString(utils.EscapeMarkdownV2(title))
 	builder.WriteString("***\n\n")
 
 	if zMap != nil {
 		zMap.Each(func(p utils.Pair[string, string]) {
-			builder.WriteString(utils.EscapeMarkdown(p.Key))
+			builder.WriteString(utils.EscapeMarkdownV2(p.Key))
 			builder.WriteString(": ")
-			builder.WriteString(utils.EscapeMarkdown(p.Value))
+			builder.WriteString(utils.EscapeMarkdownV2(p.Value))
 			builder.WriteString("\n")
 		})
 	}

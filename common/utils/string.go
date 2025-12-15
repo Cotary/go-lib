@@ -35,10 +35,16 @@ func FirstUpper(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-// EscapeMarkdown 为文本中的 Markdown 特殊字符添加反斜杠转义。
-func EscapeMarkdown(text string) string {
-	// 注意：顺序需要注意，先转义反斜杠再转义其他字符。
-	specialCharacters := []string{"\\", "`", "*", "_", "{", "}", "[", "]", "(", ")", "#", "+", "-", ".", "!"}
+// EscapeMarkdownV2 为文本中的 Markdown 特殊字符添加反斜杠转义。
+func EscapeMarkdownV2(text string) string {
+	// 先转义反斜杠
+	text = strings.ReplaceAll(text, "\\", "\\\\")
+
+	// 按照文档列出的字符逐个转义
+	specialCharacters := []string{
+		"_", "*", "[", "(", ")", "~", "`", ">", "#",
+		"+", "-", "=", "|", "{", "}", ".", "!",
+	}
 	for _, ch := range specialCharacters {
 		text = strings.ReplaceAll(text, ch, "\\"+ch)
 	}
