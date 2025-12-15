@@ -42,7 +42,7 @@ func EscapeMarkdownV2(text string) string {
 
 	// 按照文档列出的字符逐个转义
 	specialCharacters := []string{
-		"_", "*", "[", "(", ")", "~", "`", ">", "#",
+		"_", "*", "[", "]", "(", ")", "~", "`", ">", "#",
 		"+", "-", "=", "|", "{", "}", ".", "!",
 	}
 	for _, ch := range specialCharacters {
