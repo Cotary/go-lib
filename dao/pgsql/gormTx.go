@@ -7,93 +7,51 @@ import (
 	"gorm.io/gorm"
 )
 
-type txKeyType struct{}
-
-var txKey = txKeyType{}
-
-func (g *GormDrive) getTxFromCtx(ctx context.Context) (*gorm.DB, bool) {
-	txMap, ok := ctx.Value(txKey).(map[string]*gorm.DB)
-	if !ok {
-		return nil, false
-	}
-	tx, ok := txMap[g.ID]
-	return tx, ok
+type ctxTransactionKey struct {
+	DbID string
 }
 
-func (g *GormDrive) setTxToCtx(ctx context.Context, tx *gorm.DB) context.Context {
-	txMap, ok := ctx.Value(txKey).(map[string]*gorm.DB)
-	if !ok {
-		txMap = make(map[string]*gorm.DB)
-		ctx = context.WithValue(ctx, txKey, txMap)
-	}
-	txMap[g.ID] = tx
-	return ctx
-}
-
-func (g *GormDrive) deleteTxFromCtx(ctx context.Context) {
-	if txMap, ok := ctx.Value(txKey).(map[string]*gorm.DB); ok {
-		delete(txMap, g.ID)
-	}
-}
-
-func (g *GormDrive) CtxTx(ctx context.Context, opts ...*sql.TxOptions) (*gorm.DB, context.Context) {
-	if tx, ok := g.getTxFromCtx(ctx); ok && tx != nil {
-		return tx, ctx
-	}
-	tx := g.DB.WithContext(ctx).Begin(opts...)
-	ctx = g.setTxToCtx(ctx, tx)
-	return tx, ctx
-}
-
-func (g *GormDrive) CtxCommit(ctx context.Context) error {
-	tx, ok := g.getTxFromCtx(ctx)
-	if !ok || tx == nil {
+func (g *GormDrive) getTxFromCtx(ctx context.Context) *gorm.DB {
+	if ctx == nil {
 		return nil
 	}
-	defer g.deleteTxFromCtx(ctx)
-
-	if err := tx.Commit().Error; err != nil {
-		_ = tx.Rollback()
-		return errors.Wrap(err, "commit failed")
+	if val := ctx.Value(ctxTransactionKey{DbID: g.ID}); val != nil {
+		if tx, ok := val.(*gorm.DB); ok {
+			return tx
+		}
 	}
 	return nil
 }
 
-func (g *GormDrive) CtxRollback(ctx context.Context) error {
-	tx, ok := g.getTxFromCtx(ctx)
-	if !ok || tx == nil {
-		return nil
+// CtxTransaction 推荐只保留这一个入口，强制用户使用闭包模式，防止忘记 Commit/Rollback
+func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Context) error, opts ...*sql.TxOptions) error {
+	if g.DB == nil {
+		return errors.New("database is nil")
 	}
-	defer g.deleteTxFromCtx(ctx)
-	return tx.Rollback().Error
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// 1. 检查是否已有事务（处理嵌套）
+	if tx := g.getTxFromCtx(ctx); tx != nil {
+		// 如果已有事务，使用 GORM 的原生嵌套事务支持 (SavePoint)
+		return tx.Transaction(func(subTx *gorm.DB) error {
+			newCtx := context.WithValue(ctx, ctxTransactionKey{DbID: g.ID}, subTx)
+			return fn(newCtx)
+		}, opts...)
+	}
+
+	// 2. 开启新事务，使用 GORM 的 Transaction 方法，它自动处理 Commit/Rollback/Panic
+	return g.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 将 tx 注入到新的 Context 中
+		newCtx := context.WithValue(ctx, ctxTransactionKey{DbID: g.ID}, tx)
+		return fn(newCtx)
+	}, opts...)
 }
 
+// WithContext 获取当前可用的 DB（如果有事务用事务，没事务用原生 DB）
 func (g *GormDrive) WithContext(ctx context.Context) *gorm.DB {
-	if tx, ok := g.getTxFromCtx(ctx); ok && tx != nil {
+	if tx := g.getTxFromCtx(ctx); tx != nil {
 		return tx.WithContext(ctx)
 	}
 	return g.DB.WithContext(ctx)
-}
-
-func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Context, tx *gorm.DB) error, opts ...*sql.TxOptions) (err error) {
-	// 已有事务则直接执行
-	if tx, ok := g.getTxFromCtx(ctx); ok && tx != nil {
-		return fn(ctx, tx.WithContext(ctx))
-	}
-
-	// 新事务
-	tx, newCtx := g.CtxTx(ctx, opts...)
-
-	defer func() {
-		if r := recover(); r != nil {
-			_ = g.CtxRollback(newCtx)
-			panic(r)
-		}
-	}()
-
-	if err = fn(newCtx, tx.WithContext(newCtx)); err != nil {
-		_ = g.CtxRollback(newCtx)
-		return err
-	}
-	return g.CtxCommit(newCtx)
 }

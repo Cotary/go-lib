@@ -51,67 +51,100 @@ func DbAffectedErr(db *gorm.DB) error {
 	}
 	return db.Error
 }
-
-func MustGet[T any](ctx context.Context, db *gorm.DB, opts ...QueryOption) (res T, err error) {
-	q := db.WithContext(ctx).Model(new(T))
-	for _, opt := range opts {
-		if opt != nil {
-			q = opt(q)
-		}
-	}
-	err = q.First(&res).Error
-	return res, DbErr(err)
-}
-
-func Get[T any](ctx context.Context, db *gorm.DB, opts ...QueryOption) (res T, err error) {
-	q := db.WithContext(ctx).Model(new(T))
-	for _, opt := range opts {
-		if opt != nil {
-			q = opt(q)
-		}
-	}
-	err = q.First(&res).Error
+func MustGet[T any](ctx context.Context, g *GormDrive, opts ...QueryOption) (res T, err error) {
+	err = g.MustGet(ctx, &res, opts...)
 	return res, err
 }
 
-func List[T any](ctx context.Context, db *gorm.DB, opts ...QueryOption) (res []T, err error) {
-	q := db.WithContext(ctx).Model(new(T))
-	for _, opt := range opts {
-		if opt != nil {
-			q = opt(q)
-		}
-	}
-	err = q.Find(&res).Error
+func Get[T any](ctx context.Context, g *GormDrive, opts ...QueryOption) (res T, err error) {
+	err = g.Get(ctx, &res, opts...)
 	return res, err
 }
 
-func Insert(ctx context.Context, db *gorm.DB, data interface{}) error {
-	return DbAffectedErr(db.WithContext(ctx).Create(data))
+func List[T any](ctx context.Context, g *GormDrive, opts ...QueryOption) (res []T, err error) {
+	err = g.List(ctx, &res, opts...)
+	return res, err
 }
 
-func Update(ctx context.Context, db *gorm.DB, data interface{}, updateFields []string, condition map[string]interface{}) error {
-	dbModel := db.WithContext(ctx).Where(condition)
-	if len(updateFields) > 0 {
-		if len(updateFields) == 1 && updateFields[0] == "*" {
-			dbModel.Select("*")
-		} else {
-			dbModel.Select(updateFields)
+func (g *GormDrive) prepareQuery(ctx context.Context, model interface{}, opts ...QueryOption) *gorm.DB {
+	emptyModel := newStruct(model)
+	db := g.WithContext(ctx).Model(emptyModel)
+	for _, opt := range opts {
+		if opt != nil {
+			db = opt(db)
 		}
 	}
-	return DbAffectedErr(dbModel.Updates(data))
+	return db
 }
 
-func QueryAndSave(ctx context.Context, db *gorm.DB, data interface{}, updateFields []string, condition map[string]interface{}) (operation string, err error) {
-	err = db.Transaction(func(tx *gorm.DB) error {
+func (g *GormDrive) MustGet(ctx context.Context, res interface{}, opts ...QueryOption) error {
+	return DbErr(g.Get(ctx, res, opts...))
+}
+
+func (g *GormDrive) Get(ctx context.Context, res interface{}, opts ...QueryOption) error {
+	return g.prepareQuery(ctx, res, opts...).First(res).Error
+}
+
+func (g *GormDrive) List(ctx context.Context, res interface{}, opts ...QueryOption) error {
+	return g.prepareQuery(ctx, res, opts...).Find(res).Error
+}
+
+// Insert 插入数据
+func (g *GormDrive) Insert(ctx context.Context, data interface{}) error {
+	return DbAffectedErr(g.WithContext(ctx).Create(data))
+}
+
+// Update 更新数据
+func (g *GormDrive) Update(ctx context.Context, data interface{}, updateFields []string, opts ...QueryOption) error {
+	db := g.prepareQuery(ctx, data, opts...)
+	db = applySelectFields(db, updateFields)
+	return DbAffectedErr(db.Updates(data))
+}
+func (g *GormDrive) Delete(ctx context.Context, data interface{}, opts ...QueryOption) error {
+	db := g.prepareQuery(ctx, data, opts...)
+	return DbAffectedErr(db.Delete(data))
+}
+
+// Save (Upsert) 批量或单条保存，处理冲突
+func (g *GormDrive) Save(ctx context.Context, data interface{}, updateFields []string, clausesFields []string) *gorm.DB {
+	notUpdate := len(updateFields) == 0
+	updateAll := len(updateFields) == 1 && updateFields[0] == "*"
+	if updateAll {
+		updateFields = []string{}
+	}
+
+	var columns []clause.Column
+	for _, v := range clausesFields {
+		columns = append(columns, clause.Column{Name: v})
+	}
+
+	return g.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   columns,
+		DoUpdates: clause.AssignmentColumns(updateFields),
+		DoNothing: notUpdate,
+		UpdateAll: updateAll,
+	}).Create(data)
+}
+
+// QueryAndSave 复杂逻辑：先锁查询，不存在则 Save(Upsert)，存在则 Update
+func (g *GormDrive) QueryAndSave(ctx context.Context, data interface{}, updateFields []string, condition map[string]interface{}) (operation string, err error) {
+	// 使用 CtxTransaction 确保这一系列操作在事务中（复用现有事务或新建）
+	err = g.CtxTransaction(ctx, func(ctx context.Context) error {
+		// 这里 g.WithContext(ctx) 会自动获取当前闭包内的事务 tx
+		db := g.WithContext(ctx)
+
 		queryStruct := newStruct(data)
-		err = tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where(condition).First(queryStruct).Error
+		err = db.Clauses(clause.Locking{Strength: "UPDATE"}).Where(condition).First(queryStruct).Error
+
+		// 1. 如果没找到，尝试插入 (Save 包含 Upsert 逻辑)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				var clausesFields []string
 				for key := range condition {
 					clausesFields = append(clausesFields, key)
 				}
-				insertResult := Save(ctx, tx, data, updateFields, clausesFields)
+				// 调用自身的 Save 方法
+				insertResult := g.Save(ctx, data, updateFields, clausesFields)
 				if insertResult.Error != nil {
 					return insertResult.Error
 				}
@@ -119,62 +152,41 @@ func QueryAndSave(ctx context.Context, db *gorm.DB, data interface{}, updateFiel
 					operation = ClauseOperationInsert
 				}
 				return nil
-
 			}
 			return err
 		}
-		//更新
+
+		// 2. 如果找到了，执行更新
 		if updateFields == nil {
+			operation = ClauseOperationNothing
 			return nil
 		}
-		updateModel := tx.WithContext(ctx).Where(condition)
-		//没有指定的话就只更新结构体不为空值的部分
-		if len(updateFields) > 0 {
-			if len(updateFields) == 1 && updateFields[0] == "*" {
-				updateModel.Select("*") //全部更新
-			} else {
-				updateModel.Select(updateFields) //只更新个别
-			}
-		}
+
+		updateModel := db.Where(condition)
+		updateModel = applySelectFields(updateModel, updateFields)
+
 		updateResult := updateModel.Omit(CreateField).Updates(data)
 		if updateResult.Error != nil {
 			return updateResult.Error
 		}
 		if updateResult.RowsAffected > 0 {
 			operation = ClauseOperationUpdate
+		} else {
+			operation = ClauseOperationNothing
 		}
 		return nil
 	})
-	return
 
-}
-func Save(ctx context.Context, db *gorm.DB, data interface{}, updateFields []string, clausesFields []string) *gorm.DB {
-
-	notUpdate := false
-	if updateFields == nil {
-		notUpdate = true
-	}
-	updateAll := false
-	if len(updateFields) == 1 && updateFields[0] == "*" {
-		updateAll = true
-		updateFields = []string{}
-	}
-
-	var columns []clause.Column
-	for _, v := range clausesFields {
-		columns = append(columns, clause.Column{
-			Name: v,
-		})
-	}
-
-	dbModel := db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   columns,
-		DoUpdates: clause.AssignmentColumns(updateFields),
-		DoNothing: notUpdate,
-		UpdateAll: updateAll,
-	})
-	return dbModel.Create(data)
+	return operation, err
 }
 
-//整合一个list查询
-//搞一个condition方式
+// applySelectFields 内部复用逻辑：处理 Select 字段
+func applySelectFields(db *gorm.DB, fields []string) *gorm.DB {
+	if len(fields) > 0 {
+		if len(fields) == 1 && fields[0] == "*" {
+			return db.Select("*")
+		}
+		return db.Select(fields)
+	}
+	return db
+}

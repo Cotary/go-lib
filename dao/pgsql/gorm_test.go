@@ -2,11 +2,9 @@ package pgsql
 
 import (
 	"context"
-	"gorm.io/gorm"
 )
 
 var DBDriver *GormDrive
-var DB *gorm.DB
 
 type Goods struct {
 	BaseModel
@@ -27,11 +25,11 @@ func (p *Goods) GetSingle(ctx context.Context) error {
 }
 
 func test() {
-	DBDriver.CtxTransaction(context.Background(), func(ctx context.Context, tx *gorm.DB) error {
+	DBDriver.CtxTransaction(context.Background(), func(ctx context.Context) error {
 		g := NewGoods()
 		g.Name = "test"
 		return g.GetSingle(ctx)
 	})
 
-	QueryAndSave(context.Background(), DBDriver.WithContext(context.Background()), NewGoods(), nil, map[string]interface{}{"name": "test"})
+	DBDriver.QueryAndSave(context.Background(), NewGoods(), nil, map[string]interface{}{"name": "test"})
 }

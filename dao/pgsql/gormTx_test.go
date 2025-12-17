@@ -9,7 +9,6 @@ import (
 
 	"github.com/Cotary/go-lib/common/community"
 	"github.com/stretchr/testify/assert"
-	"gorm.io/gorm"
 )
 
 // 测试用的模型
@@ -61,28 +60,27 @@ func TestGormDrive_CtxTx_Basic(t *testing.T) {
 	db := createTestDB(t)
 	ctx := context.Background()
 
-	// 开始事务
-	tx, newCtx := db.CtxTx(ctx)
-	fmt.Println("=== 开始事务 ===")
+	err := db.CtxTransaction(ctx, func(txCtx context.Context) error {
+		fmt.Println("=== 开始事务 ===")
+		tx := db.WithContext(txCtx)
 
-	// 在事务中插入数据
-	user := &TestUser{
-		Name:  "张三",
-		Email: "zhangsan@example.com",
-		Age:   25,
-	}
+		user := &TestUser{
+			Name:  "张三",
+			Email: "zhangsan@example.com",
+			Age:   25,
+		}
+		if err := Insert(txCtx, tx, user); err != nil {
+			return err
+		}
+		fmt.Printf("插入用户: %+v\n", user)
 
-	err := Insert(newCtx, tx, user)
-	assert.NoError(t, err)
-	fmt.Printf("插入用户: %+v\n", user)
-
-	// 查询数据
-	foundUser, err := Get[TestUser](newCtx, tx, WithWhere(map[string]interface{}{"name": "张三"}))
-	assert.NoError(t, err)
-	fmt.Printf("查询用户: %+v\n", foundUser)
-
-	// 提交事务
-	err = db.CtxCommit(newCtx)
+		foundUser, err := Get[TestUser](txCtx, tx, WithWhere(map[string]interface{}{"name": "张三"}))
+		if err != nil {
+			return err
+		}
+		fmt.Printf("查询用户: %+v\n", foundUser)
+		return nil
+	})
 	assert.NoError(t, err)
 	fmt.Println("=== 事务提交成功 ===")
 
@@ -97,24 +95,21 @@ func TestGormDrive_CtxTx_Rollback(t *testing.T) {
 	db := createTestDB(t)
 	ctx := context.Background()
 
-	// 开始事务
-	tx, newCtx := db.CtxTx(ctx)
 	fmt.Println("=== 开始事务（将回滚）===")
-
-	// 在事务中插入数据
-	user := &TestUser{
-		Name:  "李四",
-		Email: "lisi@example.com",
-		Age:   30,
-	}
-
-	err := Insert(newCtx, tx, user)
-	assert.NoError(t, err)
-	fmt.Printf("插入用户: %+v\n", user)
-
-	// 回滚事务
-	err = db.CtxRollback(newCtx)
-	assert.NoError(t, err)
+	err := db.CtxTransaction(ctx, func(txCtx context.Context) error {
+		tx := db.WithContext(txCtx)
+		user := &TestUser{
+			Name:  "李四",
+			Email: "lisi@example.com",
+			Age:   30,
+		}
+		if err := Insert(txCtx, tx, user); err != nil {
+			return err
+		}
+		fmt.Printf("插入用户: %+v\n", user)
+		return fmt.Errorf("模拟错误，触发回滚")
+	})
+	assert.Error(t, err)
 	fmt.Println("=== 事务回滚成功 ===")
 
 	// 验证数据未保存
@@ -126,45 +121,36 @@ func TestGormDrive_CtxTx_Rollback(t *testing.T) {
 func TestGormDrive_CtxTx_Nested(t *testing.T) {
 	db := createTestDB(t)
 	ctx := context.Background()
-
-	// 外层事务
-	outerTx, outerCtx := db.CtxTx(ctx)
-	fmt.Println("=== 开始外层事务 ===")
-
-	// 外层事务插入用户
 	user := &TestUser{
 		Name:  "王五",
 		Email: "wangwu@example.com",
 		Age:   28,
 	}
+	err := db.CtxTransaction(ctx, func(outerCtx context.Context) error {
+		fmt.Println("=== 开始外层事务 ===")
+		outer := db.WithContext(outerCtx)
 
-	err := Insert(outerCtx, outerTx, user)
-	assert.NoError(t, err)
-	fmt.Printf("外层事务插入用户: %+v\n", user)
+		if err := Insert(outerCtx, outer, user); err != nil {
+			return err
+		}
+		fmt.Printf("外层事务插入用户: %+v\n", user)
 
-	// 内层事务（应该复用外层事务）
-	innerTx, innerCtx := db.CtxTx(outerCtx)
-	fmt.Println("=== 开始内层事务（复用外层事务）===")
-
-	// 内层事务插入订单
-	order := &TestOrder{
-		UserID:    user.ID,
-		Amount:    100.50,
-		Status:    "pending",
-		ProductID: 1,
-	}
-
-	err = Insert(innerCtx, innerTx, order)
-	assert.NoError(t, err)
-	fmt.Printf("内层事务插入订单: %+v\n", order)
-
-	// 提交内层事务（实际上不会提交，因为复用外层事务）
-	err = db.CtxCommit(innerCtx)
-	assert.NoError(t, err)
-	fmt.Println("=== 内层事务提交（实际未提交）===")
-
-	// 提交外层事务
-	err = db.CtxCommit(outerCtx)
+		return db.CtxTransaction(outerCtx, func(innerCtx context.Context) error {
+			fmt.Println("=== 开始内层事务（复用外层事务）===")
+			inner := db.WithContext(innerCtx)
+			order := &TestOrder{
+				UserID:    user.ID,
+				Amount:    100.50,
+				Status:    "pending",
+				ProductID: 1,
+			}
+			if err := Insert(innerCtx, inner, order); err != nil {
+				return err
+			}
+			fmt.Printf("内层事务插入订单: %+v\n", order)
+			return nil
+		})
+	})
 	assert.NoError(t, err)
 	fmt.Println("=== 外层事务提交成功 ===")
 
@@ -184,7 +170,8 @@ func TestGormDrive_CtxTransaction(t *testing.T) {
 
 	fmt.Println("=== 测试事务函数 ===")
 
-	err := db.CtxTransaction(ctx, func(ctx context.Context, tx *gorm.DB) error {
+	err := db.CtxTransaction(ctx, func(txCtx context.Context) error {
+		tx := db.WithContext(txCtx)
 		// 插入用户
 		user := &TestUser{
 			Name:  "赵六",
@@ -192,7 +179,7 @@ func TestGormDrive_CtxTransaction(t *testing.T) {
 			Age:   35,
 		}
 
-		err := Insert(ctx, tx, user)
+		err := Insert(txCtx, tx, user)
 		if err != nil {
 			return err
 		}
@@ -206,7 +193,7 @@ func TestGormDrive_CtxTransaction(t *testing.T) {
 			ProductID: 2,
 		}
 
-		err = Insert(ctx, tx, order)
+		err = Insert(txCtx, tx, order)
 		if err != nil {
 			return err
 		}
@@ -231,7 +218,8 @@ func TestGormDrive_CtxTransaction_Rollback(t *testing.T) {
 
 	fmt.Println("=== 测试事务函数回滚 ===")
 
-	err := db.CtxTransaction(ctx, func(ctx context.Context, tx *gorm.DB) error {
+	err := db.CtxTransaction(ctx, func(txCtx context.Context) error {
+		tx := db.WithContext(txCtx)
 		// 插入用户
 		user := &TestUser{
 			Name:  "钱七",
@@ -239,7 +227,7 @@ func TestGormDrive_CtxTransaction_Rollback(t *testing.T) {
 			Age:   40,
 		}
 
-		err := Insert(ctx, tx, user)
+		err := Insert(txCtx, tx, user)
 		if err != nil {
 			return err
 		}
@@ -271,18 +259,16 @@ func TestGormDrive_WithContext(t *testing.T) {
 	err := Insert(ctx, db.DB, user)
 	assert.NoError(t, err)
 
-	// 开始事务
-	_, newCtx := db.CtxTx(ctx)
 	fmt.Println("=== 测试WithContext方法 ===")
-
-	// 使用WithContext查询（应该在事务中）
-	dbWithCtx := db.WithContext(newCtx)
-	foundUser, err := Get[TestUser](newCtx, dbWithCtx, WithWhere(map[string]interface{}{"name": "孙八"}))
-	assert.NoError(t, err)
-	fmt.Printf("在事务中查询用户: %+v\n", foundUser)
-
-	// 提交事务
-	err = db.CtxCommit(newCtx)
+	err = db.CtxTransaction(ctx, func(txCtx context.Context) error {
+		dbWithCtx := db.WithContext(txCtx)
+		foundUser, err := Get[TestUser](txCtx, dbWithCtx, WithWhere(map[string]interface{}{"name": "孙八"}))
+		if err != nil {
+			return err
+		}
+		fmt.Printf("在事务中查询用户: %+v\n", foundUser)
+		return nil
+	})
 	assert.NoError(t, err)
 }
 
@@ -297,20 +283,20 @@ func TestGormDrive_CtxTx_WithOptions(t *testing.T) {
 		ReadOnly:  false,
 	}
 
-	tx, newCtx := db.CtxTx(ctx, txOptions)
 	fmt.Println("=== 测试事务选项 ===")
-
-	user := &TestUser{
-		Name:  "周九",
-		Email: "zhoujiu@example.com",
-		Age:   50,
-	}
-
-	err := Insert(newCtx, tx, user)
-	assert.NoError(t, err)
-	fmt.Printf("使用事务选项插入用户: %+v\n", user)
-
-	err = db.CtxCommit(newCtx)
+	err := db.CtxTransaction(ctx, func(txCtx context.Context) error {
+		tx := db.WithContext(txCtx)
+		user := &TestUser{
+			Name:  "周九",
+			Email: "zhoujiu@example.com",
+			Age:   50,
+		}
+		if err := Insert(txCtx, tx, user); err != nil {
+			return err
+		}
+		fmt.Printf("使用事务选项插入用户: %+v\n", user)
+		return nil
+	}, txOptions)
 	assert.NoError(t, err)
 }
 
@@ -321,7 +307,8 @@ func TestGormDrive_ComplexTransaction(t *testing.T) {
 
 	fmt.Println("=== 测试复杂事务场景 ===")
 
-	err := db.CtxTransaction(ctx, func(ctx context.Context, tx *gorm.DB) error {
+	err := db.CtxTransaction(ctx, func(txCtx context.Context) error {
+		tx := db.WithContext(txCtx)
 		// 1. 插入用户
 		user := &TestUser{
 			Name:  "吴十",
@@ -329,7 +316,7 @@ func TestGormDrive_ComplexTransaction(t *testing.T) {
 			Age:   55,
 		}
 
-		err := Insert(ctx, tx, user)
+		err := Insert(txCtx, tx, user)
 		if err != nil {
 			return err
 		}
@@ -352,7 +339,7 @@ func TestGormDrive_ComplexTransaction(t *testing.T) {
 		}
 
 		for _, order := range orders {
-			err = Insert(ctx, tx, order)
+			err = Insert(txCtx, tx, order)
 			if err != nil {
 				return err
 			}
@@ -363,20 +350,20 @@ func TestGormDrive_ComplexTransaction(t *testing.T) {
 		updateData := map[string]interface{}{
 			"age": 56,
 		}
-		err = Update(ctx, tx, updateData, []string{"age"}, map[string]interface{}{"id": user.ID})
+		err = Update(txCtx, tx, updateData, []string{"age"}, map[string]interface{}{"id": user.ID})
 		if err != nil {
 			return err
 		}
 		fmt.Printf("更新用户年龄: %d\n", 56)
 
 		// 4. 查询验证
-		foundUser, err := Get[TestUser](ctx, tx, WithWhere(map[string]interface{}{"id": user.ID}))
+		foundUser, err := Get[TestUser](txCtx, tx, WithWhere(map[string]interface{}{"id": user.ID}))
 		if err != nil {
 			return err
 		}
 		fmt.Printf("查询用户: %+v\n", foundUser)
 
-		foundOrders, err := List[TestOrder](ctx, tx, WithWhere(map[string]interface{}{"user_id": user.ID}))
+		foundOrders, err := List[TestOrder](txCtx, tx, WithWhere(map[string]interface{}{"user_id": user.ID}))
 		if err != nil {
 			return err
 		}
@@ -401,14 +388,15 @@ func TestGormDrive_ConcurrentTransactions(t *testing.T) {
 	// 第一个事务
 	go func() {
 		ctx := context.Background()
-		err := db.CtxTransaction(ctx, func(ctx context.Context, tx *gorm.DB) error {
+		err := db.CtxTransaction(ctx, func(txCtx context.Context) error {
+			tx := db.WithContext(txCtx)
 			user := &TestUser{
 				Name:  "并发用户1",
 				Email: "concurrent1@example.com",
 				Age:   25,
 			}
 
-			err := Insert(ctx, tx, user)
+			err := Insert(txCtx, tx, user)
 			if err != nil {
 				return err
 			}
@@ -427,14 +415,15 @@ func TestGormDrive_ConcurrentTransactions(t *testing.T) {
 	// 第二个事务
 	go func() {
 		ctx := context.Background()
-		err := db.CtxTransaction(ctx, func(ctx context.Context, tx *gorm.DB) error {
+		err := db.CtxTransaction(ctx, func(txCtx context.Context) error {
+			tx := db.WithContext(txCtx)
 			user := &TestUser{
 				Name:  "并发用户2",
 				Email: "concurrent2@example.com",
 				Age:   30,
 			}
 
-			err := Insert(ctx, tx, user)
+			err := Insert(txCtx, tx, user)
 			if err != nil {
 				return err
 			}
@@ -479,16 +468,17 @@ func TestGormDrive_TransactionQueries(t *testing.T) {
 
 	fmt.Println("=== 测试事务中的查询操作 ===")
 
-	err = db.CtxTransaction(ctx, func(ctx context.Context, tx *gorm.DB) error {
+	err = db.CtxTransaction(ctx, func(txCtx context.Context) error {
+		tx := db.WithContext(txCtx)
 		// 1. 基本查询
-		foundUser, err := Get[TestUser](ctx, tx, WithWhere(map[string]interface{}{"id": user.ID}))
+		foundUser, err := Get[TestUser](txCtx, tx, WithWhere(map[string]interface{}{"id": user.ID}))
 		if err != nil {
 			return err
 		}
 		fmt.Printf("基本查询: %+v\n", foundUser)
 
 		// 2. 条件查询
-		users, err := List[TestUser](ctx, tx, WithWhere(map[string]interface{}{"age": 35}))
+		users, err := List[TestUser](txCtx, tx, WithWhere(map[string]interface{}{"age": 35}))
 		if err != nil {
 			return err
 		}
@@ -499,7 +489,7 @@ func TestGormDrive_TransactionQueries(t *testing.T) {
 			Page:     1,
 			PageSize: 10,
 		}
-		pagedUsers, err := List[TestUser](ctx, tx, WithPaging(paging))
+		pagedUsers, err := List[TestUser](txCtx, tx, WithPaging(paging))
 		if err != nil {
 			return err
 		}
@@ -510,7 +500,7 @@ func TestGormDrive_TransactionQueries(t *testing.T) {
 			OrderField: "age",
 			OrderType:  "desc",
 		}
-		orderedUsers, err := List[TestUser](ctx, tx, WithOrders(order))
+		orderedUsers, err := List[TestUser](txCtx, tx, WithOrders(order))
 		if err != nil {
 			return err
 		}
@@ -539,20 +529,21 @@ func TestGormDrive_TransactionUpdates(t *testing.T) {
 
 	fmt.Println("=== 测试事务中的更新操作 ===")
 
-	err = db.CtxTransaction(ctx, func(ctx context.Context, tx *gorm.DB) error {
+	err = db.CtxTransaction(ctx, func(txCtx context.Context) error {
+		tx := db.WithContext(txCtx)
 		// 1. 更新操作
 		updateData := map[string]interface{}{
 			"age":   41,
 			"email": "updated@example.com",
 		}
-		err := Update(ctx, tx, updateData, []string{"age", "email"}, map[string]interface{}{"id": user.ID})
+		err := Update(txCtx, tx, updateData, []string{"age", "email"}, map[string]interface{}{"id": user.ID})
 		if err != nil {
 			return err
 		}
 		fmt.Printf("更新用户: ID=%d, 新年龄=%d, 新邮箱=%s\n", user.ID, 41, "updated@example.com")
 
 		// 2. 查询验证更新
-		updatedUser, err := Get[TestUser](ctx, tx, WithWhere(map[string]interface{}{"id": user.ID}))
+		updatedUser, err := Get[TestUser](txCtx, tx, WithWhere(map[string]interface{}{"id": user.ID}))
 		if err != nil {
 			return err
 		}
@@ -564,7 +555,7 @@ func TestGormDrive_TransactionUpdates(t *testing.T) {
 			Email: "save@example.com",
 			Age:   45,
 		}
-		result := Save(ctx, tx, newUser, []string{"name", "email", "age"}, []string{"email"})
+		result := Save(txCtx, tx, newUser, []string{"name", "email", "age"}, []string{"email"})
 		if result.Error != nil {
 			return result.Error
 		}
@@ -584,7 +575,8 @@ func TestGormDrive_TransactionQueryAndSave(t *testing.T) {
 
 	fmt.Println("=== 测试事务中的QueryAndSave操作 ===")
 
-	err := db.CtxTransaction(ctx, func(ctx context.Context, tx *gorm.DB) error {
+	err := db.CtxTransaction(ctx, func(txCtx context.Context) error {
+		tx := db.WithContext(txCtx)
 		// 1. 测试插入新记录
 		newUser := &TestUser{
 			Name:  "QueryAndSave用户",
@@ -592,7 +584,7 @@ func TestGormDrive_TransactionQueryAndSave(t *testing.T) {
 			Age:   50,
 		}
 
-		operation, err := QueryAndSave(ctx, tx, newUser, []string{"name", "email", "age"}, map[string]interface{}{"email": "queryandsave@example.com"})
+		operation, err := QueryAndSave(txCtx, tx, newUser, []string{"name", "email", "age"}, map[string]interface{}{"email": "queryandsave@example.com"})
 		if err != nil {
 			return err
 		}
@@ -604,7 +596,7 @@ func TestGormDrive_TransactionQueryAndSave(t *testing.T) {
 			Email: "queryandsave@example.com",
 			Age:   51,
 		}
-		operation, err = QueryAndSave(ctx, tx, updateUser, []string{"name", "age"}, map[string]interface{}{"email": "queryandsave@example.com"})
+		operation, err = QueryAndSave(txCtx, tx, updateUser, []string{"name", "age"}, map[string]interface{}{"email": "queryandsave@example.com"})
 		if err != nil {
 			return err
 		}
