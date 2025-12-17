@@ -303,7 +303,7 @@ func TestListTWithModel(t *testing.T) {
 		Paging community.Paging
 	}
 	opts = append(opts,
-		WithPagination(&req.Paging),
+		Pagination(&req.Paging),
 	)
 
 	users, stmt := ListT[User](ctx, dbModel, opts...)
@@ -343,8 +343,8 @@ func TestListTWithModelMap(t *testing.T) {
 		Paging community.Paging
 	}
 	opts = append(opts,
-		WithTable("vvv"),
-		WithPagination(&req.Paging),
+		Table("vvv"),
+		Pagination(&req.Paging),
 	)
 
 	type UserMap map[string]interface{}

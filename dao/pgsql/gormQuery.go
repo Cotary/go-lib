@@ -19,8 +19,8 @@ const (
 // QueryOption 是对 *gorm.DB 的装饰器
 type QueryOption func(*gorm.DB) *gorm.DB
 
-// WithPagination 先计算 TotalCount，再根据 Paging 做分页
-func WithPagination(p *community.Paging) QueryOption {
+// Pagination 先计算 TotalCount，再根据 Paging 做分页
+func Pagination(p *community.Paging) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		// 1. 设置默认分页参数
 		if p.PageSize < 1 {
@@ -48,7 +48,7 @@ func WithPagination(p *community.Paging) QueryOption {
 	}
 }
 
-func WithPaging(p *community.Paging) QueryOption {
+func Paging(p *community.Paging) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		if p.PageSize < 1 {
 			p.PageSize = 20
@@ -64,7 +64,7 @@ func WithPaging(p *community.Paging) QueryOption {
 			Offset((p.Page - 1) * p.PageSize)
 	}
 }
-func WithTotal(count *int64) QueryOption {
+func Total(count *int64) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		// 设置为 -1 避免分页影响总数
 		return db.
@@ -73,7 +73,7 @@ func WithTotal(count *int64) QueryOption {
 			Count(count)
 	}
 }
-func WithOrders(o community.Order, bindMaps ...map[string]string) QueryOption {
+func Orders(o community.Order, bindMaps ...map[string]string) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		var clauses []string
 		bind := map[string]string{}
@@ -110,50 +110,50 @@ func WithOrders(o community.Order, bindMaps ...map[string]string) QueryOption {
 	}
 }
 
-func WithTable(tableName string) QueryOption {
+func Table(tableName string) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Table(tableName)
 	}
 }
 
-func WithWhere(query interface{}, args ...interface{}) QueryOption {
+func Where(query interface{}, args ...interface{}) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Where(query, args...)
 	}
 }
 
-func WithOrder(order string) QueryOption {
+func Order(order string) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Order(order)
 	}
 }
-func WithLimit(n int) QueryOption {
+func Limit(n int) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Limit(n)
 	}
 }
 
-func WithOffset(n int) QueryOption {
+func Offset(n int) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Offset(n)
 	}
 }
 
-func WithID(id int64) QueryOption {
+func ID(id int64) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Where("id = ?", id)
 	}
 }
 
-// WithForUpdate 在查询中加 FOR UPDATE
-func WithForUpdate() QueryOption {
+// ForUpdate 在查询中加 FOR UPDATE
+func ForUpdate() QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Clauses(clause.Locking{Strength: "UPDATE"})
 	}
 }
 
-// WithShare 在查询中加 FOR SHARE（共享锁）
-func WithShare() QueryOption {
+// ForShare 在查询中加 FOR SHARE（共享锁）
+func ForShare() QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Clauses(clause.Locking{Strength: "SHARE"})
 	}

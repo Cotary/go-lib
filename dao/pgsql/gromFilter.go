@@ -208,15 +208,15 @@ func BuildQueryOptions(criteria interface{}, bindOrders ...map[string]string) []
 		switch {
 		case g.hasStart && g.hasEnd:
 			opts = append(opts,
-				WithWhere(fmt.Sprintf("%s BETWEEN ? AND ?", g.colExpr), g.start, g.end),
+				Where(fmt.Sprintf("%s BETWEEN ? AND ?", g.colExpr), g.start, g.end),
 			)
 		case g.hasStart:
 			opts = append(opts,
-				WithWhere(fmt.Sprintf("%s >= ?", g.colExpr), g.start),
+				Where(fmt.Sprintf("%s >= ?", g.colExpr), g.start),
 			)
 		case g.hasEnd:
 			opts = append(opts,
-				WithWhere(fmt.Sprintf("%s <= ?", g.colExpr), g.end),
+				Where(fmt.Sprintf("%s <= ?", g.colExpr), g.end),
 			)
 		}
 	}
@@ -229,13 +229,13 @@ func BuildQueryOptions(criteria interface{}, bindOrders ...map[string]string) []
 		// 分页
 		if ft.Type == reflect.TypeOf(community.Paging{}) {
 			p := fv.Interface().(community.Paging)
-			opts = append(opts, WithPagination(&p))
+			opts = append(opts, Pagination(&p))
 			continue
 		}
 		// 排序
 		if ft.Type == reflect.TypeOf(community.Order{}) {
 			o := fv.Interface().(community.Order)
-			opts = append(opts, WithOrders(o, bindOrders...))
+			opts = append(opts, Orders(o, bindOrders...))
 			continue
 		}
 
@@ -249,7 +249,7 @@ func BuildQueryOptions(criteria interface{}, bindOrders ...map[string]string) []
 			}
 			clause, args := buildClauseAndArgs(colExpr, opExpr, fv.Interface())
 			if clause != "" {
-				opts = append(opts, WithWhere(clause, args...))
+				opts = append(opts, Where(clause, args...))
 			}
 			continue
 		}
