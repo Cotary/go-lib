@@ -1,9 +1,12 @@
 package e
 
 const (
+	NeedLoginErrCode = iota + 1
+	CustomErrCode
+)
+const (
 	SystemErrCode = iota + 10001
 	FailedErrCode
-	NeedLoginErrCode
 	ParamErrCode
 	DataNotExistCode
 	DataExistCode
@@ -20,9 +23,11 @@ const (
 )
 
 var (
+	NeedLoginErr = NewCodeErr(NeedLoginErrCode, "Need Login", InfoLevel)
+	CustomErr    = NewCodeErr(CustomErrCode, "Custom Error", InfoLevel)
+
 	SystemErr            = NewCodeErr(SystemErrCode, "System abnormality", PanicLevel)
 	FailedErr            = NewCodeErr(FailedErrCode, "Operation failed", ErrorLevel)
-	NeedLoginErr         = NewCodeErr(NeedLoginErrCode, "Need Login", InfoLevel)
 	ParamErr             = NewCodeErr(ParamErrCode, "Params Error", InfoLevel)
 	DataNotExist         = NewCodeErr(DataNotExistCode, "Data Not Exist", InfoLevel)
 	DataExist            = NewCodeErr(DataExistCode, "Data Exist", InfoLevel)
@@ -37,3 +42,7 @@ var (
 	RequestLimitExceeded = NewCodeErr(LimitExceedCode, "Request limit exceeded", InfoLevel)
 	ConfigErr            = NewCodeErr(ConfigErrCode, "Config Error", InfoLevel)
 )
+
+func NewCustomErr(msg string) *CodeErr {
+	return NewCodeErr(CustomErrCode, msg, InfoLevel)
+}

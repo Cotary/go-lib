@@ -1,8 +1,6 @@
 package e
 
 import (
-	"runtime"
-
 	"github.com/pkg/errors"
 )
 
@@ -30,27 +28,6 @@ const (
 	TraceLevel
 )
 
-type stack []uintptr
-
-func callers() *stack {
-	const depth = 32
-	var pcs [depth]uintptr
-	n := runtime.Callers(3, pcs[:])
-	var st stack = pcs[0:n]
-	return &st
-}
-
-func (s *stack) StackTrace() errors.StackTrace {
-	if s == nil {
-		return nil
-	}
-	f := make([]errors.Frame, len(*s))
-	for i := 0; i < len(f); i++ {
-		f[i] = errors.Frame((*s)[i])
-	}
-	return f
-}
-
 type CodeErr struct {
 	Code  int    `json:"code"`    //内置的http错误
 	Msg   string `json:"message"` //内置的http错误
@@ -76,19 +53,10 @@ type HttpErr struct {
 	Data     interface{} `json:"data"`
 }
 
-func HErr(codeErr *CodeErr, err ...error) *HttpErr {
-	if len(err) > 0 {
-		return NewHttpErr(codeErr, err[0])
-	}
-	return NewHttpErr(codeErr, nil)
-}
-
-func NewHttpErr(codeErr *CodeErr, err error) *HttpErr {
-	if err == nil {
-		return &HttpErr{
-			CodeErr: codeErr,
-			Err:     errors.New(""),
-		}
+func NewHttpErr(codeErr *CodeErr, errs ...error) *HttpErr {
+	err := errors.New("") //补充堆栈信息
+	if len(errs) > 0 {
+		err = errs[0]
 	}
 	return &HttpErr{
 		CodeErr: codeErr,

@@ -6,6 +6,8 @@ import (
 )
 
 // KeySlice 提取结构体切片中的某个字段，返回字段值的切片
+// lo.FilterMap  过滤并且转换
+// lo.Map 转换
 func KeySlice[T any, U any](src []T, mapper func(int, T) U) []U {
 	result := make([]U, len(src))
 	for i, v := range src {
@@ -15,6 +17,7 @@ func KeySlice[T any, U any](src []T, mapper func(int, T) U) []U {
 }
 
 // KeyMap 将结构体切片按某个字段作为键，返回键值对映射
+// lo.SliceToMap
 func KeyMap[T any, K comparable](src []T, keySelector func(int, T) K) map[K]T {
 	result := make(map[K]T, len(src))
 	for i, v := range src {
@@ -24,6 +27,7 @@ func KeyMap[T any, K comparable](src []T, keySelector func(int, T) K) map[K]T {
 }
 
 // InArray 判断某个值是否在切片中
+// lo.Contains(arr, val)
 func InArray[T comparable](val T, arr []T) bool {
 	for _, item := range arr {
 		if item == val {
@@ -47,7 +51,15 @@ func ToSlice[T any](items ...T) []T {
 }
 
 // DefaultIfZero 如果值为零值，则返回默认值
-func DefaultIfZero[T any](value, defaultValue T) T {
+func DefaultIfZero[T comparable](value, defaultValue T) T {
+	var zero T
+	if value == zero {
+		return defaultValue
+	}
+	return value
+}
+
+func DefaultIfZeroReflect[T any](value, defaultValue T) T {
 	if reflect.DeepEqual(value, reflect.Zero(reflect.TypeOf(value)).Interface()) {
 		return defaultValue
 	}
@@ -55,6 +67,7 @@ func DefaultIfZero[T any](value, defaultValue T) T {
 }
 
 // Chunk 将切片按指定大小分割
+// lo.Chunk(slice, size)
 func Chunk[T any](slice []T, size int) [][]T {
 	if size <= 0 {
 		return nil
@@ -88,6 +101,7 @@ func EnsureLen[T any](s *[]T, length int) {
 }
 
 // Unique 去重
+// lo.Uniq(s)
 func Unique[T comparable](s []T) []T {
 	seen := make(map[T]struct{}, len(s))
 	result := make([]T, 0, len(s))
@@ -101,6 +115,7 @@ func Unique[T comparable](s []T) []T {
 }
 
 // Intersect 交集
+// lo.Intersect
 func Intersect[T comparable](a, b []T) []T {
 	m := make(map[T]struct{}, len(a))
 	for _, item := range a {
@@ -116,6 +131,7 @@ func Intersect[T comparable](a, b []T) []T {
 }
 
 // Union 并集
+// lo.Union
 func Union[T comparable](a, b []T) []T {
 	m := make(map[T]struct{}, len(a)+len(b))
 	for _, item := range a {
@@ -132,6 +148,7 @@ func Union[T comparable](a, b []T) []T {
 }
 
 // Difference 差集（a - b）
+// lo.Difference
 func Difference[T comparable](a, b []T) []T {
 	m := make(map[T]struct{}, len(b))
 	for _, item := range b {
