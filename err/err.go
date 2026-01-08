@@ -86,6 +86,7 @@ func GetErrMessage(err error) string {
 
 		// 打印 StackTrace：最外层全部，中间层跳过首帧
 		if stackErr, ok := e.(interface{ StackTrace() errors.StackTrace }); ok {
+			sb.WriteString("\n")
 			isOuter := i == len(stackList)-1
 			for si, frame := range stackErr.StackTrace() {
 				if !isOuter && si == 0 {
