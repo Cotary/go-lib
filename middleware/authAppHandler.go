@@ -7,11 +7,8 @@ import (
 	"github.com/Cotary/go-lib/common/defined"
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
-	"github.com/Cotary/go-lib/response"
 	"github.com/eko/gocache/lib/v4/store"
 	"github.com/gin-gonic/gin"
-	"github.com/pkg/errors"
-	"net/http"
 	"time"
 )
 
@@ -28,8 +25,7 @@ type SignatureFunc func(c *gin.Context, signTime int64, secret, signType, nonce 
 func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if conf.SecretGetter == nil {
-			c.JSON(http.StatusOK, response.Error(c, e.NewHttpErr(e.ConfigErr, nil)))
-			c.Abort()
+			AbortWithError(c, e.ConfigErr)
 			return
 		}
 		ctx := c.Request.Context()
@@ -41,13 +37,11 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 		signTime := utils.AnyToInt(timestamp)
 
 		if signature == "" || timestamp == "" {
-			c.JSON(http.StatusOK, response.Error(c, e.NewHttpErr(e.SignErr, errors.New(fmt.Sprintf("signature or timestamp not found")))))
-			c.Abort()
+			AbortWithError(c, e.SignErr)
 			return
 		}
 		if conf.SignType != "" && conf.SignType != signatureType {
-			c.JSON(http.StatusOK, response.Error(c, e.NewHttpErr(e.SignErr, errors.New(fmt.Sprintf("signature type error, expect %s, got %s", conf.SignType, signatureType)))))
-			c.Abort()
+			AbortWithError(c, e.SignErr)
 			return
 		}
 		//检查sign重放
@@ -65,8 +59,7 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 					e.SendMessage(ctx, e.Err(err, "AuthSign cache get error"))
 				}
 			} else {
-				c.JSON(http.StatusOK, response.Error(c, e.NewHttpErr(e.SignReplayErr, nil)))
-				c.Abort()
+				AbortWithError(c, e.SignReplayErr)
 				return
 			}
 		}
@@ -74,15 +67,13 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 		// 这里应该使用你的方法来获取appID对应的secret
 		secret := conf.SecretGetter(ctx, appID)
 		if secret == "" {
-			c.JSON(http.StatusOK, response.Error(c, e.NewHttpErr(e.SignErr, errors.New(fmt.Sprintf("secret not found")))))
-			c.Abort()
+			AbortWithError(c, e.SignErr)
 			return
 		}
 
 		// 验证时间戳
 		if !validateTimestamp(signTime, conf.Expire) {
-			c.JSON(http.StatusOK, response.Error(c, e.NewHttpErr(e.SignTimeErr, errors.New(fmt.Sprintf("timestamp validate error")))))
-			c.Abort()
+			AbortWithError(c, e.SignTimeErr)
 			return
 		}
 		// 计算签名
@@ -92,15 +83,13 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 		}
 		signatureCalculated, err := validateFunc(c, signTime, secret, signatureType, nonce)
 		if err != nil {
-			c.JSON(http.StatusOK, response.Error(c, e.NewHttpErr(e.SignErr, err)))
-			c.Abort()
+			AbortWithError(c, e.SignErr)
 			return
 		}
 
 		// 验证签名
 		if signature != signatureCalculated {
-			c.JSON(http.StatusOK, response.Error(c, e.NewHttpErr(e.SignErr, nil)))
-			c.Abort()
+			AbortWithError(c, e.SignErr)
 			return
 		}
 

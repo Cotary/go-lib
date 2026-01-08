@@ -25,7 +25,7 @@ func Success(c *gin.Context, data any) *Response {
 
 }
 
-// Fail Response
+// Error Response
 func Error(c *gin.Context, err error) *Response {
 	var standardErr *e.HttpErr
 	ok := errors.As(err, &standardErr)

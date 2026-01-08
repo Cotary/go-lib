@@ -23,16 +23,14 @@ func C(wrapper HandlerFuncWrapper) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resp, err := wrapper(c)
 		if err != nil {
-			c.JSON(http.StatusOK, response.Error(c, e.HTTPErrHandler(c, err)))
-			c.Abort()
+			AbortWithError(c, err)
 			return
 		}
 		// 检查是否为导出请求
 		if exporter.IsDownload(c) {
 			exp := exporter.NewExporter()
 			if exportErr := exp.Run(c, resp); exportErr != nil {
-				c.JSON(http.StatusOK, response.Error(c, e.HTTPErrHandler(c, exportErr)))
-				c.Abort()
+				AbortWithError(c, exportErr)
 				return
 			}
 			return

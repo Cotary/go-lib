@@ -7,7 +7,6 @@ import (
 	"github.com/Cotary/go-lib/log"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
-	"net/http"
 	"os"
 	"runtime"
 )
@@ -20,7 +19,7 @@ func RecoveryHandler() gin.RecoveryFunc {
 		fullErrStr := fmt.Sprintf("%v\n%v", errStr, string(stackByte))
 		log.WithContext(ctx).Error(fullErrStr)
 		e.SendMessage(ctx, errors.New(fullErrStr))
-		c.AbortWithStatus(http.StatusInternalServerError)
+		AbortWithError(c, e.SystemErr)
 	}
 }
 
