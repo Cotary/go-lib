@@ -29,13 +29,17 @@ const (
 )
 
 type CodeErr struct {
-	Code  int    `json:"code"`    //内置的http错误
-	Msg   string `json:"message"` //内置的http错误
-	Level Level  `json:"-"`       //内置的http错误等级
+	Code  int    `json:"code"`
+	Msg   string `json:"message"`
+	Level Level  `json:"-"`
 }
 
 func (e *CodeErr) Error() string {
 	return e.Msg
+}
+
+func (e *CodeErr) RewriteMsg(msg string) *CodeErr {
+	return NewCodeErr(e.Code, msg, e.Level)
 }
 
 func NewCodeErr(code int, msg string, level Level) *CodeErr {

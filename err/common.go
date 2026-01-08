@@ -42,7 +42,3 @@ var (
 	RequestLimitExceeded = NewCodeErr(LimitExceedCode, "Request limit exceeded", InfoLevel)
 	ConfigErr            = NewCodeErr(ConfigErrCode, "Config Error", InfoLevel)
 )
-
-func NewCustomErr(msg string) *CodeErr {
-	return NewCodeErr(CustomErrCode, msg, InfoLevel)
-}
