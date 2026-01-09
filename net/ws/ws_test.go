@@ -45,7 +45,9 @@ func TestWebSocket_Reconnect_And_Continuous_Send_With_Close_Every_5(t *testing.T
 	s := New(srvCfg)
 
 	r := gin.New()
-	r.GET("/ws", s.Handler())
+	r.GET("/ws", func(c *gin.Context) {
+		s.ServeHTTP(c.Writer, c.Request)
+	})
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()

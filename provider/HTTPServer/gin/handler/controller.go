@@ -4,15 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/Cotary/go-lib/provider/HTTPServer/gin/exporter"
+	"github.com/Cotary/go-lib/provider/HTTPServer/response"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/Cotary/go-lib/cache"
-	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
-	"github.com/Cotary/go-lib/provider/exporter"
-	"github.com/Cotary/go-lib/response"
+	"github.com/Cotary/go-lib/provider/HTTPServer/gin/utils"
 	"github.com/eko/gocache/lib/v4/store"
 	"github.com/gin-gonic/gin"
 )
@@ -28,14 +28,13 @@ func C(wrapper HandlerFuncWrapper) gin.HandlerFunc {
 		}
 		// 检查是否为导出请求
 		if exporter.IsDownload(c) {
-			exp := exporter.NewExporter()
-			if exportErr := exp.Run(c, resp); exportErr != nil {
+			if exportErr := exporter.Export(c, resp); exportErr != nil {
 				AbortWithError(c, exportErr)
 				return
 			}
 			return
 		}
-		c.JSON(http.StatusOK, response.Success(c, resp))
+		c.JSON(http.StatusOK, response.Success(resp))
 	}
 }
 

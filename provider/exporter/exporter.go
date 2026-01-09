@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"strings"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/Cotary/go-lib/common/utils"
 	baseExport "github.com/Cotary/go-lib/export"
-	"github.com/gin-gonic/gin"
 )
 
 // 请求头常量
@@ -30,19 +30,73 @@ var (
 	ErrNoExportFields = errors.New("no fields with 'export' tag found")
 )
 
-// IsDownload 检查请求是否为下载请求
-func IsDownload(c *gin.Context) bool {
-	return c.Request.Header.Get(HeaderDownload) == "TRUE"
+// ExportContext 导出上下文接口，用于抽象 HTTP 框架
+type ExportContext interface {
+	// Context 返回请求的 context.Context
+	Context() context.Context
+	// GetHeader 获取请求头
+	GetHeader(key string) string
+	// SetHeader 设置响应头
+	SetHeader(key, value string)
+	// SendFile 发送文件到客户端
+	SendFile(filePath string, contentType string) error
 }
 
-// GetExportFormat 获取导出格式，默认为excel
-func GetExportFormat(c *gin.Context) string {
-	format := c.Request.Header.Get(HeaderExportFormat)
+// IsDownloadFromContext 检查请求是否为下载请求
+func IsDownloadFromContext(ctx ExportContext) bool {
+	return ctx.GetHeader(HeaderDownload) == "TRUE"
+}
+
+// GetExportFormatFromContext 获取导出格式，默认为excel
+func GetExportFormatFromContext(ctx ExportContext) string {
+	format := ctx.GetHeader(HeaderExportFormat)
 	format = strings.ToLower(format)
 	if format == "" {
 		return baseExport.FormatExcel
 	}
 	return format
+}
+
+// ExportOptions 导出选项
+type ExportOptions struct {
+	Format   string // 导出格式: excel, csv
+	FileName string // 文件名
+}
+
+// DefaultExportOptions 从上下文获取默认导出选项
+func DefaultExportOptions(ctx ExportContext) ExportOptions {
+	fileName := ctx.GetHeader(HeaderDownloadName)
+	if fileName == "" {
+		fileName = utils.MD5Sum(time.Now().String())
+	}
+	return ExportOptions{
+		Format:   GetExportFormatFromContext(ctx),
+		FileName: fileName,
+	}
+}
+
+// ExportResult 导出结果
+type ExportResult struct {
+	FilePath    string // 文件路径
+	ContentType string // 内容类型
+}
+
+// WriteTo 将导出结果写入到 writer
+func (r *ExportResult) WriteTo(w io.Writer) error {
+	f, err := os.Open(r.FilePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(w, f)
+	return err
+}
+
+// Cleanup 清理临时文件
+func (r *ExportResult) Cleanup() {
+	if r.FilePath != "" {
+		_ = os.Remove(r.FilePath)
+	}
 }
 
 // escapeInfo 转义函数信息
@@ -81,23 +135,12 @@ func NewExporter() *Exporter {
 	return &Exporter{}
 }
 
-// Run 执行导出操作
-func (e *Exporter) Run(c *gin.Context, res interface{}) error {
-	ctx := c.Request.Context()
-
-	// 获取导出格式
-	format := GetExportFormat(c)
-
-	// 获取文件名
-	fileName := c.Request.Header.Get(HeaderDownloadName)
-	if fileName == "" {
-		fileName = utils.MD5Sum(time.Now().String())
-	}
-
+// Export 执行导出操作，返回导出结果（不依赖具体 HTTP 框架）
+func (e *Exporter) Export(ctx context.Context, opts ExportOptions, res interface{}) (*ExportResult, error) {
 	// 创建写入器
-	writer, err := baseExport.NewWriter(ctx, format, fileName)
+	writer, err := baseExport.NewWriter(ctx, opts.Format, opts.FileName)
 	if err != nil {
-		return fmt.Errorf("create writer error: %w", err)
+		return nil, fmt.Errorf("create writer error: %w", err)
 	}
 	e.writer = writer
 
@@ -105,26 +148,38 @@ func (e *Exporter) Run(c *gin.Context, res interface{}) error {
 	if err := e.analysis(ctx, res); err != nil {
 		_ = writer.Close()
 		_ = os.Remove(writer.FileName())
-		return err
+		return nil, err
 	}
 
 	// 关闭写入器
 	if err := writer.Close(); err != nil {
 		_ = os.Remove(writer.FileName())
-		return fmt.Errorf("close writer error: %w", err)
+		return nil, fmt.Errorf("close writer error: %w", err)
 	}
 
-	// 设置响应头并发送文件
-	defer func() {
-		_ = os.Remove(writer.FileName())
-	}()
+	return &ExportResult{
+		FilePath:    writer.FileName(),
+		ContentType: writer.ContentType(),
+	}, nil
+}
 
-	c.Header("Content-Description", "File Transfer")
-	c.Header("Content-Transfer-Encoding", "binary")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", writer.FileName()))
-	c.Header("Content-Type", writer.ContentType())
-	c.File(writer.FileName())
-	return nil
+// Run 使用 ExportContext 执行导出操作（框架无关）
+func (e *Exporter) Run(ctx ExportContext, res interface{}) error {
+	opts := DefaultExportOptions(ctx)
+
+	result, err := e.Export(ctx.Context(), opts, res)
+	if err != nil {
+		return err
+	}
+	defer result.Cleanup()
+
+	// 设置响应头并发送文件
+	ctx.SetHeader("Content-Description", "File Transfer")
+	ctx.SetHeader("Content-Transfer-Encoding", "binary")
+	ctx.SetHeader("Content-Disposition", fmt.Sprintf("attachment; filename=%s", result.FilePath))
+	ctx.SetHeader("Content-Type", result.ContentType)
+
+	return ctx.SendFile(result.FilePath, result.ContentType)
 }
 
 func (e *Exporter) analysis(ctx context.Context, res interface{}) error {

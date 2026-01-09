@@ -1,11 +1,11 @@
 package e
 
 import (
-	"github.com/gin-gonic/gin"
+	"context"
 	"github.com/pkg/errors"
 )
 
-func HTTPErrHandler(c *gin.Context, err error) *HttpErr {
+func HTTPErrHandler(ctx context.Context, err error) *HttpErr {
 
 	var httpErr *HttpErr
 	var asHttpErr *HttpErr
@@ -19,7 +19,7 @@ func HTTPErrHandler(c *gin.Context, err error) *HttpErr {
 		httpErr = NewHttpErr(FailedErr, err)
 	}
 	if httpErr.Level <= WarnLevel {
-		SendMessage(c.Request.Context(), err)
+		SendMessage(ctx, err)
 	}
 	return httpErr
 }

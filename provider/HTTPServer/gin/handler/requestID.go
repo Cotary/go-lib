@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"github.com/Cotary/go-lib"
 	"github.com/Cotary/go-lib/common/defined"
-	"github.com/Cotary/go-lib/common/utils"
+	"github.com/Cotary/go-lib/provider/HTTPServer/gin/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )

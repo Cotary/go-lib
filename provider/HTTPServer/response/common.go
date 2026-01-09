@@ -5,7 +5,6 @@ import (
 	"github.com/Cotary/go-lib"
 	"github.com/Cotary/go-lib/common/defined"
 	e "github.com/Cotary/go-lib/err"
-	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 )
 
@@ -20,13 +19,13 @@ func NewResponse(code int, message string, data interface{}) *Response {
 }
 
 // Success Response
-func Success(c *gin.Context, data any) *Response {
+func Success(data any) *Response {
 	return NewResponse(0, "success", data)
 
 }
 
 // Error Response
-func Error(c *gin.Context, err error) *Response {
+func Error(err error) *Response {
 	var standardErr *e.HttpErr
 	ok := errors.As(err, &standardErr)
 	if !ok {
