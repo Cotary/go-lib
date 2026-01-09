@@ -1,4 +1,4 @@
-package middleware
+package handler
 
 import (
 	"github.com/Cotary/go-lib/net/ws"
