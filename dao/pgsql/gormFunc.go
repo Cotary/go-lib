@@ -3,10 +3,11 @@ package pgsql
 import (
 	"context"
 	"errors"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	"reflect"
 	"time"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const RowsAffectedZero = SqlRowsAffectedZero("RowsAffectedZero")
@@ -82,7 +83,7 @@ func (g *GormDrive) MustGet(ctx context.Context, res interface{}, opts ...QueryO
 }
 
 func (g *GormDrive) Get(ctx context.Context, res interface{}, opts ...QueryOption) error {
-	return g.prepareQuery(ctx, res, opts...).First(res).Error
+	return g.prepareQuery(ctx, res, opts...).Take(res).Error
 }
 
 func (g *GormDrive) List(ctx context.Context, res interface{}, opts ...QueryOption) error {
@@ -134,7 +135,7 @@ func (g *GormDrive) QueryAndSave(ctx context.Context, data interface{}, updateFi
 		db := g.WithContext(ctx)
 
 		queryStruct := newStruct(data)
-		err = db.Clauses(clause.Locking{Strength: "UPDATE"}).Where(condition).First(queryStruct).Error
+		err = db.Clauses(clause.Locking{Strength: "UPDATE"}).Where(condition).Take(queryStruct).Error
 
 		// 1. 如果没找到，尝试插入 (Save 包含 Upsert 逻辑)
 		if err != nil {
