@@ -2,10 +2,11 @@ package pgsql
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/Cotary/go-lib/common/community"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"strings"
 )
 
 const (
@@ -35,7 +36,7 @@ func Pagination(p *community.Paging) QueryOption {
 			Session(&gorm.Session{}).
 			Limit(-1).
 			Offset(-1).
-			Count(&p.TotalCount)
+			Count(&p.Total)
 		// 3. 如果请求全部，则不再加分页
 		if p.All {
 			return db

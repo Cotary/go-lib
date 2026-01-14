@@ -32,8 +32,8 @@ type Order struct {
 }
 
 type Paging struct {
-	Page       int   `json:"page" form:"page"`
-	PageSize   int   `json:"page_size" form:"page_size"`
-	All        bool  `json:"all" form:"all"`
-	TotalCount int64 `json:"total_count"`
+	Page     int   `json:"page" form:"page"`
+	PageSize int   `json:"page_size" form:"page_size"`
+	All      bool  `json:"all" form:"all"`
+	Total    int64 `json:"total"`
 }

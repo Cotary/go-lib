@@ -46,6 +46,16 @@ func DbErr(err error) error {
 	return err
 }
 
+func DbCheckErr(err error) (has bool, dbErr error) {
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, err
+		}
+		return false, nil
+	}
+	return true, nil
+}
+
 func DbAffectedErr(db *gorm.DB) error {
 	if db.RowsAffected == 0 && db.Error == nil {
 		return RowsAffectedZero
