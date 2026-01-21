@@ -3,6 +3,9 @@ package pgsql
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"time"
+
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
@@ -31,21 +34,59 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
+	// 记录事务开始时间
+	beginTime := time.Now()
+
 	// 1. 检查是否已有事务（处理嵌套）
 	if tx := g.getTxFromCtx(ctx); tx != nil {
 		// 如果已有事务，使用 GORM 的原生嵌套事务支持 (SavePoint)
-		return tx.Transaction(func(subTx *gorm.DB) error {
+		// 记录嵌套事务开始
+		if g.Logger != nil {
+			g.Logger.Info(ctx, fmt.Sprintf("[TRANSACTION] [NESTED] [BEGIN] SavePoint created at %s", time.Now().Format(time.DateTime)))
+		}
+
+		err := tx.Transaction(func(subTx *gorm.DB) error {
 			newCtx := context.WithValue(ctx, ctxTransactionKey{DbID: g.ID}, subTx)
 			return fn(newCtx)
 		}, opts...)
+
+		// 记录嵌套事务结束
+		if g.Logger != nil {
+			elapsed := time.Since(beginTime)
+			if err != nil {
+				g.Logger.Warn(ctx, fmt.Sprintf("[TRANSACTION] [NESTED] [ROLLBACK] SavePoint rollback after %.3fms, error: %v", float64(elapsed.Nanoseconds())/1e6, err))
+			} else {
+				g.Logger.Info(ctx, fmt.Sprintf("[TRANSACTION] [NESTED] [COMMIT] SavePoint released after %.3fms", float64(elapsed.Nanoseconds())/1e6))
+			}
+		}
+
+		return err
 	}
 
 	// 2. 开启新事务，使用 GORM 的 Transaction 方法，它自动处理 Commit/Rollback/Panic
-	return g.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	// 记录事务开始
+	if g.Logger != nil {
+		g.Logger.Info(ctx, fmt.Sprintf("[TRANSACTION] [BEGIN] Transaction started at %s", time.Now().Format(time.DateTime)))
+	}
+
+	err := g.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 将 tx 注入到新的 Context 中
 		newCtx := context.WithValue(ctx, ctxTransactionKey{DbID: g.ID}, tx)
 		return fn(newCtx)
 	}, opts...)
+
+	// 记录事务结束
+	if g.Logger != nil {
+		elapsed := time.Since(beginTime)
+		if err != nil {
+			g.Logger.Warn(ctx, fmt.Sprintf("[TRANSACTION] [ROLLBACK] Transaction rollback after %.3fms, error: %v", float64(elapsed.Nanoseconds())/1e6, err))
+		} else {
+			g.Logger.Info(ctx, fmt.Sprintf("[TRANSACTION] [COMMIT] Transaction committed after %.3fms", float64(elapsed.Nanoseconds())/1e6))
+		}
+	}
+
+	return err
 }
 
 // WithContext 获取当前可用的 DB（如果有事务用事务，没事务用原生 DB）
