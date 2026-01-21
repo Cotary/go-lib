@@ -17,10 +17,10 @@ type Config struct {
 	Host       string   `mapstructure:"host" yaml:"host"`   // 单机模式主机
 	Port       string   `mapstructure:"port" yaml:"port"`   // 单机模式端口
 	Nodes      []string `mapstructure:"nodes" yaml:"nodes"` // 集群模式节点列表（host:port）
-	Username   string   `mapstructure:"userName" yaml:"username"`
+	Username   string   `mapstructure:"userName" yaml:"userName"`
 	Auth       string   `mapstructure:"auth" yaml:"auth"`
 	DB         int      `mapstructure:"db" yaml:"db"`
-	PoolSize   int      `mapstructure:"poolSize" yaml:"pool_size"`
+	PoolSize   int      `mapstructure:"poolSize" yaml:"poolSize"`
 	Encryption uint8    `mapstructure:"encryption" yaml:"encryption"`
 	Framework  string   `mapstructure:"framework" yaml:"framework"` // "standalone" / "cluster"，不填默认单机
 	Prefix     string   `mapstructure:"prefix" yaml:"prefix"`
