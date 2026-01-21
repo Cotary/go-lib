@@ -40,7 +40,7 @@ func newStruct(s interface{}) interface{} {
 }
 
 func DbErr(err error) error {
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, RowsAffectedZero) {
 		return nil
 	}
 	return err
