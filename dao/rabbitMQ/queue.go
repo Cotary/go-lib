@@ -217,8 +217,62 @@ func returnToPublishing(ret amqp091.Return) amqp091.Publishing {
 	}
 }
 
+// SendMessagesTx 使用事务模式发送消息到队列
+// 事务模式保证所有消息要么全部成功，要么全部失败（原子性）
+// 注意：事务模式性能较低，建议仅在需要严格原子性的场景使用
+func (c *Queue) SendMessagesTx(ctx context.Context, messages []amqp091.Publishing) error {
+	ch, err := c.GetCh()
+	if err != nil {
+		return e.Err(err)
+	}
+	defer func() {
+		_ = ch.Close()
+	}()
+
+	// 开启事务模式
+	err = ch.Tx()
+	if err != nil {
+		return e.Err(err)
+	}
+
+	// 批量发送消息
+	for i := range messages {
+		messages[i].DeliveryMode = amqp091.Persistent //消息持久化
+
+		err = ch.Publish(
+			c.ExchangeName, // 交换机
+			c.RouteKey,     // 路由键（队列名称）
+			false,          //mandatory 是否强制发送
+			false,          //immediate 是否立即发送
+			messages[i],
+		)
+		if err != nil {
+			// 发送失败，回滚事务
+			_ = ch.TxRollback()
+			return e.Err(err)
+		}
+	}
+
+	// 提交事务
+	err = ch.TxCommit()
+	if err != nil {
+		// 提交失败，尝试回滚
+		_ = ch.TxRollback()
+		return e.Err(err)
+	}
+
+	return nil
+}
+
 // SendMessagesEvery 持续发送消息，直到消息发送成功为止
-func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp091.Publishing) error {
+// useTransaction: 是否使用事务模式发送（默认 false，使用 Publisher Confirms 模式）
+// 事务模式保证原子性但性能较低，Publisher Confirms 模式性能较高但不保证原子性
+func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp091.Publishing, useTransaction ...bool) error {
+	useTx := false
+	if len(useTransaction) > 0 {
+		useTx = useTransaction[0]
+	}
+
 	pending := messages
 	for {
 		select {
@@ -226,13 +280,34 @@ func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp091.Publis
 			return ctx.Err()
 		default:
 		}
-		failed, err := c.SendMessages(ctx, pending)
-		if err == nil && len(failed) == 0 {
-			return nil
+
+		var err error
+		if useTx {
+			// 使用事务模式发送
+			err = c.SendMessagesTx(ctx, pending)
+			if err == nil {
+				return nil
+			}
+		} else {
+			// 使用 Publisher Confirms 模式发送
+			failed, sendErr := c.SendMessages(ctx, pending)
+			err = sendErr
+			if err == nil && len(failed) == 0 {
+				return nil
+			}
+			if err == nil {
+				// 部分消息失败，只重试失败的消息
+				pending = failed
+			} else {
+				// 发送出错，重试所有消息
+				pending = messages
+			}
 		}
+
 		// 发送失败（包含重新路由），先报警再重试
-		e.SendMessage(ctx, err)
-		pending = failed // 如果 SendMessages 在 publish 前直接出错，则 failed==orig slice
+		if err != nil {
+			e.SendMessage(ctx, err)
+		}
 		time.Sleep(5 * time.Second)
 	}
 }

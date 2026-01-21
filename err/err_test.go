@@ -40,7 +40,7 @@ func TestErr_NoStackNoMessage(t *testing.T) {
 		t.Fatal("expected stack trace, got none")
 	}
 	// 打印栈信息，确认包含当前测试函数名
-	out := GetErrMessage(err)
+	out := GetErrMessage(err, false)
 	t.Logf("stack:\n%s", out)
 }
 
@@ -57,7 +57,7 @@ func TestErr_NoStackWithMessage(t *testing.T) {
 		t.Fatal("expected stack trace after wrap")
 	}
 	// 打印栈
-	out := GetErrMessage(err)
+	out := GetErrMessage(err, false)
 	t.Logf("wrapped stack:\n%s", out)
 
 }
@@ -89,6 +89,6 @@ func TestErr_WithStackWithMessage(t *testing.T) {
 		t.Fatal("expected stack trace after WithMessage")
 	}
 	// 打印栈，确认函数名
-	out := GetErrMessage(err)
+	out := GetErrMessage(err, false)
 	t.Logf("message+stack:\n%s", out)
 }

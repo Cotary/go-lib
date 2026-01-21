@@ -2,6 +2,7 @@ package e
 
 import (
 	"context"
+
 	"github.com/Cotary/go-lib"
 	"github.com/Cotary/go-lib/common/defined"
 	"github.com/Cotary/go-lib/common/utils"
@@ -16,7 +17,7 @@ func SetSender(s message.Sender) {
 }
 
 func SendMessage(ctx context.Context, err error) {
-	errMsg := GetErrMessage(Err(err))
+	errMsg := GetErrMessage(Err(err), false)
 	env := lib.Env
 	serverName := lib.ServerName
 	requestID, _ := ctx.Value(defined.RequestID).(string)

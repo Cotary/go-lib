@@ -52,12 +52,12 @@ func GetStackErr(err error) error {
 	return nil
 }
 
-func GetErrMessage(err error) string {
+func GetErrMessage(err error, stopAtFirstStack bool) string {
 	if err == nil {
 		return ""
 	}
 
-	// 收集从最外层到最里层的错误链
+	// 1. 收集从最外层到最里层的错误链
 	var stackList []error
 	for e := err; e != nil; {
 		stackList = append(stackList, e)
@@ -73,7 +73,8 @@ func GetErrMessage(err error) string {
 
 	for i, e := range stackList {
 		// 判断当前错误是否带有 StackTrace
-		_, hasStack := e.(interface{ StackTrace() errors.StackTrace })
+		type stackTracer interface{ StackTrace() errors.StackTrace }
+		sErr, hasStack := e.(stackTracer)
 
 		// 如果和上一个错误消息一致且无 stack，则跳过打印该行
 		isSameAsPrev := i > 0 && e.Error() == stackList[i-1].Error()
@@ -81,23 +82,33 @@ func GetErrMessage(err error) string {
 			continue
 		}
 
-		// 打印错误消息
+		// 2. 打印错误消息
 		sb.WriteString(fmt.Sprintf("[%d]: %s\n", i+1, e.Error()))
 
-		// 打印 StackTrace：最外层全部，中间层跳过首帧
-		if stackErr, ok := e.(interface{ StackTrace() errors.StackTrace }); ok {
+		// 3. 处理堆栈打印
+		if hasStack {
 			sb.WriteString("\n")
 			isOuter := i == len(stackList)-1
-			for si, frame := range stackErr.StackTrace() {
+			st := sErr.StackTrace()
+
+			for si, frame := range st {
+				// 非最外层跳过首帧（通常是 pkg/errors 的包装点）
 				if !isOuter && si == 0 {
 					continue
 				}
 				pc := uintptr(frame) - 1
 				fn := runtime.FuncForPC(pc)
-				file, line := fn.FileLine(pc)
-				sb.WriteString(fmt.Sprintf("%s:%d\n", file, line))
+				if fn != nil {
+					file, line := fn.FileLine(pc)
+					sb.WriteString(fmt.Sprintf("%s:%d\n", file, line))
+				}
 			}
 			sb.WriteString("\n")
+
+			// --- 新增逻辑：如果开启了截断且找到了堆栈，直接结束循环 ---
+			if stopAtFirstStack {
+				break
+			}
 		}
 	}
 
