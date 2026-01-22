@@ -3,13 +3,14 @@ package rabbitMQ
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
+	"time"
+
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/rabbitmq/amqp091-go"
-	"runtime/debug"
-	"time"
 )
 
 //RabbitMQ 的 TTL 是基于队列头部消息来检查的。如果队列前面有过期时间很长的消息，后面过期时间短的消息，那么短消息的 TTL 可能不会立即生效。这是因为 RabbitMQ 只有在队头消息过期后，才会检查下一个。
