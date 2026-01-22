@@ -38,8 +38,8 @@ func (TestOrder) TableName() string {
 // 创建测试数据库连接
 func createTestDB(t *testing.T) *GormDrive {
 	config := &GormConfig{
-		Driver:      "sqlite",
-		Dsn:         []string{":memory:"},
+		Driver:      "postgres",
+		Dsn:         []string{"postgres://postgres:QAZplm123@127.0.0.1:5432/postgres?sslmode=disable"},
 		LogLevel:    "info",
 		MaxOpens:    10,
 		MaxIdles:    5,

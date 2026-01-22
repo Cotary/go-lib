@@ -3,25 +3,17 @@ package pgsql
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/Cotary/go-lib"
 	"github.com/Cotary/go-lib/common/defined"
 	utils2 "github.com/Cotary/go-lib/common/utils"
 	"github.com/Cotary/go-lib/log"
 	"github.com/Cotary/go-lib/provider/message"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/utils"
-	"time"
 )
-
-// RawLogFormatter is a custom logrus.Formatter for outputting raw log messages
-type RawLogFormatter struct{}
-
-// Format formats log messages, returning the raw message
-func (f *RawLogFormatter) Format(entry *logrus.Entry) ([]byte, error) {
-	return []byte(entry.Message + "\n\n"), nil
-}
 
 // NewGormLogger creates a custom GORM logger
 func NewGormLogger(log log.Logger) *GormLogWriter {
@@ -35,7 +27,7 @@ type GormLogWriter struct {
 
 // Printf implements the GORM logger interface
 func (l *GormLogWriter) Printf(format string, v ...any) {
-	l.Log.Info(fmt.Sprintf(format, v...))
+	l.Log.Raw(fmt.Sprintf(format+"\r\n", v...))
 }
 
 type GormLogger struct {
@@ -53,21 +45,21 @@ func (l *GormLogger) SetSender(s message.Sender) {
 // New creates a new GORM logger with custom configurations
 func New(writer logger.Writer, config logger.Config) *GormLogger {
 	var (
-		infoStr      = "%s %s [%s] [info] "
-		warnStr      = "%s %s [%s] [warn] "
-		errStr       = "%s %s [%s] [error] "
-		traceStr     = "%s %s [%s] [%.3fms] [rows:%v] %s"
-		traceWarnStr = "%s %s [%s] %s [%.3fms] [rows:%v] %s"
-		traceErrStr  = "%s %s [%s] %s [%.3fms] [rows:%v] %s"
+		infoStr      = "%s %s [%s] \n[info] "
+		warnStr      = "%s %s [%s] \n[warn] "
+		errStr       = "%s %s [%s] \n[error] "
+		traceStr     = "%s %s [%s] \n[%.3fms] [rows:%v] %s"
+		traceWarnStr = "%s %s [%s] %s \n[%.3fms] [rows:%v] %s"
+		traceErrStr  = "%s %s [%s] %s \n[%.3fms] [rows:%v] %s"
 	)
 
 	if config.Colorful {
-		infoStr = logger.Green + "%s %s [%s] " + logger.Reset + logger.Green + "[info] " + logger.Reset
-		warnStr = logger.BlueBold + "%s %s [%s] " + logger.Reset + logger.Magenta + "[warn] " + logger.Reset
-		errStr = logger.Magenta + "%s %s [%s] " + logger.Reset + logger.Red + "[error] " + logger.Reset
-		traceStr = logger.Green + "%s %s [%s] " + logger.Reset + logger.Yellow + "[%.3fms] " + logger.BlueBold + "[rows:%v]" + logger.Reset + " %s"
-		traceWarnStr = logger.Green + "%s %s [%s] " + logger.Yellow + "%s " + logger.Reset + logger.RedBold + "[%.3fms] " + logger.Yellow + "[rows:%v]" + logger.Magenta + " %s" + logger.Reset
-		traceErrStr = logger.RedBold + "%s %s [%s] " + logger.MagentaBold + "%s " + logger.Reset + logger.Yellow + "[%.3fms] " + logger.BlueBold + "[rows:%v]" + logger.Reset + " %s"
+		infoStr = logger.Green + "%s %s [%s] \n" + logger.Reset + logger.Green + "[info] " + logger.Reset
+		warnStr = logger.BlueBold + "%s %s [%s] \n" + logger.Reset + logger.Magenta + "[warn] " + logger.Reset
+		errStr = logger.Magenta + "%s %s [%s] \n" + logger.Reset + logger.Red + "[error] " + logger.Reset
+		traceStr = logger.Green + "%s %s [%s] \n" + logger.Reset + logger.Yellow + "[%.3fms] " + logger.BlueBold + "[rows:%v]" + logger.Reset + " %s"
+		traceWarnStr = logger.Green + "%s %s [%s] " + logger.Yellow + "%s \n" + logger.Reset + logger.RedBold + "[%.3fms] " + logger.Yellow + "[rows:%v]" + logger.Magenta + " %s" + logger.Reset
+		traceErrStr = logger.RedBold + "%s %s [%s] " + logger.MagentaBold + "%s \n" + logger.Reset + logger.Yellow + "[%.3fms] " + logger.BlueBold + "[rows:%v]" + logger.Reset + " %s"
 	}
 
 	return &GormLogger{
@@ -82,7 +74,7 @@ func New(writer logger.Writer, config logger.Config) *GormLogger {
 	}
 }
 
-// LogMode sets the log mode
+// LogMode sets the logger mode
 func (l *GormLogger) LogMode(level logger.LogLevel) logger.Interface {
 	newlogger := *l
 	newlogger.LogLevel = level
@@ -120,6 +112,7 @@ func (l GormLogger) Error(ctx context.Context, msg string, data ...interface{}) 
 
 // Trace prints SQL trace messages
 func (l GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	fmt.Println("trace")
 	if l.LogLevel <= logger.Silent {
 		return
 	}

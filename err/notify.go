@@ -52,6 +52,6 @@ func SendMessage(ctx context.Context, err error) {
 	}
 	sendErr := errSender.Send(ctx, "Running Error", zMap)
 	if sendErr != nil {
-		log.WithContext(ctx).WithField("action", "SendMessage Error").Error(sendErr.Error())
+		log.WithContext(ctx).WithFields("action", "SendMessage Error").Error(sendErr.Error())
 	}
 }

@@ -43,7 +43,7 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 		// 如果已有事务，使用 GORM 的原生嵌套事务支持 (SavePoint)
 		// 记录嵌套事务开始
 		if g.Logger != nil {
-			g.Logger.Info(ctx, fmt.Sprintf("[TRANSACTION] [NESTED] [BEGIN] SavePoint created at %s", time.Now().Format(time.DateTime)))
+			g.Logger.Info(ctx, fmt.Sprintf("TRANSACTION BEGIN NESTED"))
 		}
 
 		err := tx.Transaction(func(subTx *gorm.DB) error {
@@ -55,9 +55,9 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 		if g.Logger != nil {
 			elapsed := time.Since(beginTime)
 			if err != nil {
-				g.Logger.Warn(ctx, fmt.Sprintf("[TRANSACTION] [NESTED] [ROLLBACK] SavePoint rollback after %.3fms, error: %v", float64(elapsed.Nanoseconds())/1e6, err))
+				g.Logger.Warn(ctx, fmt.Sprintf("TRANSACTION ROLLBACK NESTED :%s", err.Error()))
 			} else {
-				g.Logger.Info(ctx, fmt.Sprintf("[TRANSACTION] [NESTED] [COMMIT] SavePoint released after %.3fms", float64(elapsed.Nanoseconds())/1e6))
+				g.Logger.Info(ctx, fmt.Sprintf("TRANSACTION COMMIT NESTED"))
 			}
 		}
 
@@ -67,7 +67,7 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 	// 2. 开启新事务，使用 GORM 的 Transaction 方法，它自动处理 Commit/Rollback/Panic
 	// 记录事务开始
 	if g.Logger != nil {
-		g.Logger.Info(ctx, fmt.Sprintf("[TRANSACTION] [BEGIN] Transaction started at %s", time.Now().Format(time.DateTime)))
+		g.Logger.Info(ctx, fmt.Sprintf("TRANSACTION BEGIN"))
 	}
 
 	err := g.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -80,9 +80,9 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 	if g.Logger != nil {
 		elapsed := time.Since(beginTime)
 		if err != nil {
-			g.Logger.Warn(ctx, fmt.Sprintf("[TRANSACTION] [ROLLBACK] Transaction rollback after %.3fms, error: %v", float64(elapsed.Nanoseconds())/1e6, err))
+			g.Logger.Warn(ctx, fmt.Sprintf("TRANSACTION ROLLBACK :%s", err.Error()))
 		} else {
-			g.Logger.Info(ctx, fmt.Sprintf("[TRANSACTION] [COMMIT] Transaction committed after %.3fms", float64(elapsed.Nanoseconds())/1e6))
+			g.Logger.Info(ctx, fmt.Sprintf("TRANSACTION COMMIT"))
 		}
 	}
 
