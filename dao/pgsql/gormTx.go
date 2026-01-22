@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Cotary/go-lib/common/defined"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
@@ -41,13 +43,21 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 	// 1. 检查是否已有事务（处理嵌套）
 	if tx := g.getTxFromCtx(ctx); tx != nil {
 		// 如果已有事务，使用 GORM 的原生嵌套事务支持 (SavePoint)
+		// 嵌套事务使用父事务的 ID，如果没有则生成新的
+		txID, _ := ctx.Value(defined.TransactionID).(string)
+		if txID == "" {
+			txID = uuid.NewString()
+		}
+		newCtx := context.WithValue(ctx, defined.TransactionID, txID)
+
 		// 记录嵌套事务开始
 		if g.Logger != nil {
-			g.Logger.Info(ctx, fmt.Sprintf("TRANSACTION BEGIN NESTED"))
+			g.Logger.Info(newCtx, fmt.Sprintf("TRANSACTION BEGIN NESTED "))
 		}
 
 		err := tx.Transaction(func(subTx *gorm.DB) error {
-			newCtx := context.WithValue(ctx, ctxTransactionKey{DbID: g.ID}, subTx)
+			// 将 tx 和事务 ID 注入到新的 Context 中
+			newCtx = context.WithValue(newCtx, ctxTransactionKey{DbID: g.ID}, subTx)
 			return fn(newCtx)
 		}, opts...)
 
@@ -55,9 +65,9 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 		if g.Logger != nil {
 			elapsed := time.Since(beginTime)
 			if err != nil {
-				g.Logger.Warn(ctx, fmt.Sprintf("TRANSACTION ROLLBACK NESTED :%s", err.Error()))
+				g.Logger.Warn(newCtx, fmt.Sprintf("[%v] TRANSACTION ROLLBACK NESTED :%s", elapsed, err.Error()))
 			} else {
-				g.Logger.Info(ctx, fmt.Sprintf("TRANSACTION COMMIT NESTED"))
+				g.Logger.Info(newCtx, fmt.Sprintf("[%v] TRANSACTION COMMIT NESTED", elapsed))
 			}
 		}
 
@@ -65,14 +75,21 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 	}
 
 	// 2. 开启新事务，使用 GORM 的 Transaction 方法，它自动处理 Commit/Rollback/Panic
+	// 为新事务生成唯一的事务 ID（如果 context 中已有则使用已有的）
+	txID, _ := ctx.Value(defined.TransactionID).(string)
+	if txID == "" {
+		txID = uuid.NewString()
+	}
+	newCtx := context.WithValue(ctx, defined.TransactionID, txID)
+
 	// 记录事务开始
 	if g.Logger != nil {
-		g.Logger.Info(ctx, fmt.Sprintf("TRANSACTION BEGIN"))
+		g.Logger.Info(newCtx, fmt.Sprintf("TRANSACTION BEGIN "))
 	}
 
-	err := g.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 将 tx 注入到新的 Context 中
-		newCtx := context.WithValue(ctx, ctxTransactionKey{DbID: g.ID}, tx)
+	err := g.DB.WithContext(newCtx).Transaction(func(tx *gorm.DB) error {
+		// 将 tx 和事务 ID 注入到新的 Context 中
+		newCtx = context.WithValue(newCtx, ctxTransactionKey{DbID: g.ID}, tx)
 		return fn(newCtx)
 	}, opts...)
 
@@ -80,9 +97,9 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 	if g.Logger != nil {
 		elapsed := time.Since(beginTime)
 		if err != nil {
-			g.Logger.Warn(ctx, fmt.Sprintf("TRANSACTION ROLLBACK :%s", err.Error()))
+			g.Logger.Warn(newCtx, fmt.Sprintf("[%v] TRANSACTION ROLLBACK :%s", elapsed, err.Error()))
 		} else {
-			g.Logger.Info(ctx, fmt.Sprintf("TRANSACTION COMMIT"))
+			g.Logger.Info(newCtx, fmt.Sprintf("[%v] TRANSACTION COMMIT", elapsed))
 		}
 	}
 

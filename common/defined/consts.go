@@ -19,6 +19,7 @@ const (
 	ServerName          = "server-name"
 	ContextType         = "context_type"
 	ENV                 = "env"
+	TransactionID       = "transaction_id"
 )
 
 // language
