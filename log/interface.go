@@ -8,6 +8,7 @@ type Logger interface {
 	Warn(msg string, args ...any)
 	Error(msg string, args ...any)
 	Raw(data string) // 纯记录，不带任何格式化信息
+	WithField(key string, val any) Logger
 	WithFields(fields map[string]any) Logger
 	WithContext(ctx context.Context) Logger
 }
