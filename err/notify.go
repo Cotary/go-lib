@@ -16,6 +16,13 @@ func SetSender(s message.Sender) {
 	sender = s
 }
 
+func SendMessageWithLevel(ctx context.Context, err error) {
+	codeErr := AsCodeErr(err)
+	if codeErr != nil && codeErr.Level <= WarnLevel {
+		SendMessage(ctx, err)
+	}
+}
+
 func SendMessage(ctx context.Context, err error) {
 	errMsg := GetErrMessage(Err(err), false)
 	env := lib.Env

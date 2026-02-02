@@ -50,6 +50,24 @@ func NewCodeErr(code int, msg string, level Level) *CodeErr {
 	}
 }
 
+func AsCodeErr(err error) *CodeErr {
+	if err == nil {
+		return nil
+	}
+	var asCodeErr *CodeErr
+	var asHttpErr *HttpErr
+
+	if errors.As(err, &asCodeErr) {
+		return asCodeErr
+	}
+
+	if errors.As(err, &asHttpErr) {
+		return asHttpErr.CodeErr
+	}
+
+	return FailedErr
+}
+
 // HttpErr http错误,把data放在这个里面，避免污染CodeErr指针
 type HttpErr struct {
 	*CodeErr             //内置的http错误
@@ -80,4 +98,21 @@ func (t *HttpErr) Unwrap() error {
 func (t *HttpErr) SetData(data interface{}) error {
 	t.Data = data
 	return t
+}
+
+func AsHttpErr(err error) *HttpErr {
+	if err == nil {
+		return nil
+	}
+	var (
+		asHttp *HttpErr
+		asCode *CodeErr
+	)
+	if errors.As(err, &asHttp) {
+		return asHttp
+	}
+	if errors.As(err, &asCode) {
+		return NewHttpErr(asCode, nil)
+	}
+	return NewHttpErr(FailedErr, err)
 }
