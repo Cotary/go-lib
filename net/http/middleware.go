@@ -31,7 +31,7 @@ func RequestLogMiddleware() Middleware {
 			return
 		}
 
-		logMap := buildLogMap(ctx)
+		logMap := ctx.BuildLogMap()
 		logger := log.WithContext(ctx.Ctx)
 
 		if ctx.Error != nil {
@@ -57,46 +57,6 @@ func getLogConfig(ctx *Context) *logConfig {
 		}
 	}
 	return nil
-}
-
-// buildLogMap 构建日志字段映射
-func buildLogMap(ctx *Context) map[string]interface{} {
-	logMap := map[string]interface{}{
-		"Context ID": ctx.Ctx.Value(defined.RequestID),
-	}
-
-	if ctx.Request != nil {
-		logMap["Request URL"] = ctx.Request.URL
-		logMap["Request Method"] = ctx.Request.Method
-		logMap["Request Headers"] = ctx.Request.Headers
-		logMap["Request Query"] = ctx.Request.Query
-		if ctx.Request.Body != nil {
-			logMap["Request Body"] = ctx.Request.Body
-		}
-	}
-
-	if ctx.Response != nil {
-		logMap["Response Status Code"] = ctx.Response.StatusCode
-		logMap["Response Headers"] = ctx.Response.Header
-		logMap["Response Body"] = string(ctx.Response.Body)
-
-		if ctx.Response.Stats != nil {
-			logMap["Total Time"] = ctx.Response.Stats.TotalTime.String()
-		}
-	}
-
-	if ctx.Error != nil {
-		logMap["Request Error"] = ctx.Error.Error()
-	}
-
-	if duration, ok := ctx.Get("request_duration"); ok {
-		logMap["Duration"] = duration
-	}
-	if traceID, ok := ctx.Get("trace_id"); ok {
-		logMap["Trace ID"] = traceID
-	}
-
-	return logMap
 }
 
 // ============================================================================
@@ -199,19 +159,18 @@ func TracingMiddleware() Middleware {
 
 // RetryMiddleware 重试中间件，自动重试失败的请求
 //
-// 注意: 4xx 错误不会重试
+// 重试条件：存在传输错误（ctx.Error != nil）或响应状态码为 5xx。
+// 4xx 错误不会重试。重试时只重新发起 HTTP 请求，不重新执行中间件链。
 func RetryMiddleware(maxRetries int, retryDelay time.Duration) Middleware {
 	return func(ctx *Context) {
-		for attempt := 0; attempt <= maxRetries; attempt++ {
-			if attempt > 0 {
-				time.Sleep(retryDelay)
-				ctx.Error = nil
-				ctx.Errors = nil
+		ctx.Next()
+
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			needRetry := ctx.Error != nil
+			if !needRetry && ctx.Response != nil && ctx.Response.StatusCode >= 500 {
+				needRetry = true
 			}
-
-			ctx.Next()
-
-			if ctx.Error == nil {
+			if !needRetry {
 				return
 			}
 
@@ -220,11 +179,9 @@ func RetryMiddleware(maxRetries int, retryDelay time.Duration) Middleware {
 				return
 			}
 
-			// 重置 index 以便重试
-			ctx.index = -1
+			time.Sleep(retryDelay)
+			ctx.RetryRequest()
 		}
-
-		ctx.AddError(fmt.Errorf("max retries (%d) exceeded", maxRetries))
 	}
 }
 

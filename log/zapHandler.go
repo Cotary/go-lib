@@ -68,6 +68,9 @@ func (h *ZapHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		attrs: newAttrs,
 	}
 }
+
+// WithGroup 当前未实现 group 前缀拼接，调用无效果。
+// slog group 功能在本封装中不常用，如需支持请扩展此方法。
 func (h *ZapHandler) WithGroup(name string) slog.Handler { return h }
 
 func getZapLevelFromSlog(l slog.Level) zapcore.Level {

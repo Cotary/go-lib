@@ -323,7 +323,47 @@ if result.Response.StatusCode >= 400 {
 
 ## 注意事项
 
-- FastHTTP 和 Resty 的超时处理方式不同
+- FastHTTP 和 Resty 的超时处理方式不同（详见下方对比）
 - 中间件按注册顺序执行，请求时从外到内，响应时从内到外
 - 默认启用日志记录和错误消息发送，可以通过配置关闭
 - 如果某个中间件返回错误，后续中间件的"前置"逻辑不会执行，但已执行中间件的"后置"逻辑仍会执行
+
+## FastHTTP vs Resty 选择指南
+
+两个客户端都实现了 `IClient` 接口，API 完全一致，但底层行为有差异：
+
+|  | FastHTTP | Resty |
+|--|----------|-------|
+| **性能** | 高（零分配优化、连接池复用） | 中（基于标准库 net/http） |
+| **适用场景** | 高并发、大量短连接、对延迟敏感 | 通用场景、需要完整 HTTP 特性 |
+| **HTTP/2** | 不支持 | 支持（标准库内置） |
+| **Context 取消** | 支持（通过 goroutine 监听实现） | 原生支持 |
+| **超时机制** | `fasthttp.Request.SetTimeout` + context deadline | `context.WithTimeout` |
+| **默认连接池** | `MaxConnsPerHost: 1000` | 标准库默认值 |
+| **Cookie 管理** | 需手动处理 | 内置支持 |
+| **重定向** | 需手动处理 | 内置支持（可配置） |
+
+### 推荐选择
+
+- **需要极致性能**（如请求池、大量并发 RPC 调用）：使用 `FastHTTP()`
+- **通用业务请求**（如调用第三方 API、需要 HTTP/2）：使用 `RestyHTTP()`
+- **不确定时**：优先使用 `FastHTTP()`，性能更好且功能已覆盖大部分场景
+
+### Context 取消行为
+
+两个客户端均支持通过 `context.Context` 取消请求：
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+// 两种客户端都会在 context 取消时中断请求
+result := http.FastHTTP().Execute(ctx, "GET", url, nil, nil, nil)
+result := http.RestyHTTP().Execute(ctx, "GET", url, nil, nil, nil)
+```
+
+**实现差异**：
+- **Resty**: 原生通过 `http.Request.WithContext` 实现，标准库直接响应取消
+- **FastHTTP**: 通过独立 goroutine 监听 `ctx.Done()`，取消时关闭连接中断请求。极端情况下响应速度略慢于 Resty
+
+两种客户端的 `IsTimeout()` 方法都能正确识别 context 超时错误。

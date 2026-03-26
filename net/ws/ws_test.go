@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -171,4 +172,180 @@ CollectLoop:
 	assert.GreaterOrEqual(t, sc, int32(1), "server should have closed at least once due to 'close'")
 	// 服务端应当收到不少普通消息（close 不会入列）
 	assert.GreaterOrEqual(t, len(collected), 5, "server should have received multiple normal messages")
+}
+
+// TestServer_Broadcast 验证服务端广播消息能送达所有客户端
+func TestServer_Broadcast(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	srvCfg := Config{
+		OnMessage: func(ctx context.Context, c *Conn, mt int, data []byte) {},
+	}
+	s := New(srvCfg)
+
+	r := gin.New()
+	r.GET("/ws", func(c *gin.Context) {
+		s.ServeHTTP(c.Writer, c.Request)
+	})
+
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	u, _ := url.Parse(ts.URL)
+	u.Scheme = "ws"
+	u.Path = "/ws"
+	wsURL := u.String()
+
+	const clientCount = 3
+	received := make([]chan string, clientCount)
+
+	var clients []*Client
+	for i := 0; i < clientCount; i++ {
+		idx := i
+		received[idx] = make(chan string, 10)
+
+		c := NewClient(wsURL)
+		c.retryBase = 20 * time.Millisecond
+		c.retryMax = 200 * time.Millisecond
+
+		c.OnMessage(func(ctx context.Context, mt int, data []byte) {
+			select {
+			case received[idx] <- string(data):
+			default:
+			}
+		})
+
+		connected := make(chan struct{})
+		c.OnConnect(func(ctx context.Context) {
+			select {
+			case connected <- struct{}{}:
+			default:
+			}
+		})
+
+		c.Start()
+		defer c.Stop()
+		clients = append(clients, c)
+
+		select {
+		case <-connected:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("client %d did not connect", idx)
+		}
+	}
+
+	// 等待服务端注册所有连接
+	time.Sleep(100 * time.Millisecond)
+
+	assert.Equal(t, clientCount, s.Count(), "server should have %d connections", clientCount)
+
+	s.BroadcastText("hello-all")
+
+	for i := 0; i < clientCount; i++ {
+		select {
+		case msg := <-received[i]:
+			assert.Equal(t, "hello-all", msg)
+		case <-time.After(2 * time.Second):
+			t.Errorf("client %d did not receive broadcast", i)
+		}
+	}
+}
+
+// TestClient_ConcurrentSend 验证客户端并发发送不 panic
+func TestClient_ConcurrentSend(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var serverMsgCount int32
+	srvCfg := Config{
+		OnMessage: func(ctx context.Context, c *Conn, mt int, data []byte) {
+			atomic.AddInt32(&serverMsgCount, 1)
+		},
+	}
+	s := New(srvCfg)
+
+	r := gin.New()
+	r.GET("/ws", func(c *gin.Context) {
+		s.ServeHTTP(c.Writer, c.Request)
+	})
+
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	u, _ := url.Parse(ts.URL)
+	u.Scheme = "ws"
+	u.Path = "/ws"
+	wsURL := u.String()
+
+	client := NewClient(wsURL)
+	client.retryBase = 20 * time.Millisecond
+	client.retryMax = 200 * time.Millisecond
+
+	connected := make(chan struct{})
+	client.OnConnect(func(ctx context.Context) {
+		select {
+		case connected <- struct{}{}:
+		default:
+		}
+	})
+	client.Start()
+	defer client.Stop()
+
+	select {
+	case <-connected:
+	case <-time.After(2 * time.Second):
+		t.Fatal("client did not connect")
+	}
+
+	const goroutines = 10
+	const msgsPerGoroutine = 20
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for g := 0; g < goroutines; g++ {
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < msgsPerGoroutine; i++ {
+				_ = client.Send([]byte(fmt.Sprintf("g%d-m%d", id, i)))
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	time.Sleep(500 * time.Millisecond)
+
+	count := atomic.LoadInt32(&serverMsgCount)
+	t.Logf("server received %d messages", count)
+	assert.Greater(t, count, int32(0), "server should have received some messages")
+}
+
+// TestClient_Backoff 验证退避时间在预期范围内
+func TestClient_Backoff(t *testing.T) {
+	client := NewClient("ws://localhost:0")
+	client.retryBase = 100 * time.Millisecond
+	client.retryMax = 5 * time.Second
+
+	tests := []struct {
+		attempt int
+		minMs   float64
+		maxMs   float64
+	}{
+		{0, 50, 150},     // base=100ms, jitter 0.5x~1.5x => 50~150ms
+		{1, 100, 300},    // base*2=200ms => 100~300ms
+		{2, 200, 600},    // base*4=400ms => 200~600ms
+		{3, 400, 1200},   // base*8=800ms => 400~1200ms
+		{10, 2500, 7500}, // capped at 5s => 2500~7500ms
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("attempt_%d", tt.attempt), func(t *testing.T) {
+			for trial := 0; trial < 50; trial++ {
+				d := client.backoff(tt.attempt)
+				ms := float64(d) / float64(time.Millisecond)
+				assert.GreaterOrEqual(t, ms, tt.minMs,
+					"attempt %d trial %d: %v too short", tt.attempt, trial, d)
+				assert.LessOrEqual(t, ms, tt.maxMs,
+					"attempt %d trial %d: %v too long", tt.attempt, trial, d)
+			}
+		})
+	}
 }

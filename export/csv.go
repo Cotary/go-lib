@@ -3,6 +3,7 @@ package export
 import (
 	"context"
 	"encoding/csv"
+	"io"
 	"os"
 
 	"github.com/Cotary/go-lib/common/utils"
@@ -18,14 +19,20 @@ type CSVWriter struct {
 
 // NewCSVWriter 创建CSV写入器
 func NewCSVWriter(ctx context.Context, fileName string) (Writer, error) {
+	if err := ValidateFileName(fileName); err != nil {
+		return nil, err
+	}
 	fullName := fileName + ".csv"
 	file, err := os.Create(fullName)
 	if err != nil {
 		return nil, err
 	}
 
-	// 写入UTF-8 BOM，确保Excel正确识别中文
-	_, _ = file.Write([]byte{0xEF, 0xBB, 0xBF})
+	// UTF-8 BOM，确保 Excel 正确识别中文
+	if _, err := file.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
+		file.Close()
+		return nil, err
+	}
 
 	return &CSVWriter{
 		ctx:      ctx,
@@ -45,17 +52,19 @@ func (w *CSVWriter) WriteRow(row []interface{}) error {
 	return w.writeRow(row)
 }
 
-// WriteRows 批量写入多行数据
+// WriteRows 批量写入多行数据，支持 context 取消
 func (w *CSVWriter) WriteRows(rows [][]interface{}) error {
-	records := make([][]string, 0, len(rows))
 	for _, row := range rows {
-		record := make([]string, len(row))
-		for i, v := range row {
-			record[i] = utils.AnyToString(v)
+		select {
+		case <-w.ctx.Done():
+			return w.ctx.Err()
+		default:
 		}
-		records = append(records, record)
+		if err := w.writeRow(row); err != nil {
+			return err
+		}
 	}
-	return w.writer.WriteAll(records)
+	return nil
 }
 
 func (w *CSVWriter) writeRow(data []interface{}) error {
@@ -66,9 +75,26 @@ func (w *CSVWriter) writeRow(data []interface{}) error {
 	return w.writer.Write(record)
 }
 
+// WriteTo 将 CSV 内容写入 io.Writer，调用后不可再写入数据
+func (w *CSVWriter) WriteTo(wr io.Writer) error {
+	w.writer.Flush()
+	if err := w.writer.Error(); err != nil {
+		return err
+	}
+	if _, err := w.file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	_, err := io.Copy(wr, w.file)
+	return err
+}
+
 // Close 关闭并保存文件
 func (w *CSVWriter) Close() error {
 	w.writer.Flush()
+	if err := w.writer.Error(); err != nil {
+		w.file.Close()
+		return err
+	}
 	return w.file.Close()
 }
 

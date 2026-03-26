@@ -34,8 +34,6 @@ type Client struct {
 	retryMax     time.Duration
 	readLimit    int64
 
-	rng *rand.Rand
-
 	mu      sync.Mutex
 	writeMu sync.Mutex
 	conn    *websocket.Conn
@@ -58,7 +56,6 @@ func NewClient(url string, opts ...Option) *Client {
 		retryBase:    1 * time.Second,
 		retryMax:     30 * time.Second,
 		readLimit:    0,
-		rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 	for _, o := range opts {
 		o(c)
@@ -393,10 +390,7 @@ func (c *Client) backoff(attempt int) time.Duration {
 	}
 
 	// 抖动 0.5x ~ 1.5x
-	jitter := 0.5
-	if c.rng != nil {
-		jitter += c.rng.Float64()
-	}
+	jitter := 0.5 + rand.Float64()
 	d *= jitter
 
 	if d <= 0 {

@@ -237,7 +237,7 @@ func (c *Conn) GetString(key string) string {
 func (c *Conn) run() {
 	cfg := c.server.cfg
 	var closeErr error
-	defer c.Close(closeErr)
+	defer func() { c.Close(closeErr) }()
 
 	_ = c.ws.SetReadDeadline(time.Now().Add(cfg.ReadTimeout))
 

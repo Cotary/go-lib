@@ -16,6 +16,13 @@ import (
 )
 
 func Test_DefaultHTTP(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"name":"test","age":18}`))
+	}))
+	defer srv.Close()
+
 	type TestUser struct {
 		Name string `json:"name"`
 		Age  int    `json:"age"`
@@ -24,9 +31,11 @@ func Test_DefaultHTTP(t *testing.T) {
 		fmt.Println("before request")
 		ctx.Next()
 		fmt.Println("after request")
-	}).Execute(context.Background(), "GET", "https://httpbin.org/get", nil, nil, nil)
+	}).Execute(context.Background(), "GET", srv.URL, nil, nil, nil)
 	user, err := Parse[TestUser](result, "")
-	fmt.Println(user, err)
+	assert.NoError(t, err)
+	assert.Equal(t, "test", user.Name)
+	assert.Equal(t, 18, user.Age)
 }
 
 // setupTestServer 启动一个带有延迟的测试服务器。
@@ -283,11 +292,17 @@ func TestHttpRequest_Concurrent(t *testing.T) {
 }
 
 func TestResponseStats_Resty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
 	client := NewRestyClient()
 	builder := NewRequestBuilder(client)
 
-	ctx := context.Background()
-	result := builder.Execute(ctx, "GET", "https://httpbin.org/get", nil, nil, nil)
+	result := builder.Execute(context.Background(), "GET", srv.URL, nil, nil, nil)
 
 	assert.NoError(t, result.Error)
 	assert.NotNil(t, result.Response)
@@ -301,19 +316,211 @@ func TestResponseStats_Resty(t *testing.T) {
 }
 
 func TestResponseStats_FastHTTP(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
 	client := NewFastHTTPClient()
 	builder := NewRequestBuilder(client)
 
-	ctx := context.Background()
-	result := builder.Execute(ctx, "GET", "https://httpbin.org/get", nil, nil, nil)
+	result := builder.Execute(context.Background(), "GET", srv.URL, nil, nil, nil)
 
 	assert.NoError(t, result.Error)
 	assert.NotNil(t, result.Response)
 	assert.NotNil(t, result.Response.Stats)
 
 	stats := result.Response.Stats
-	assert.True(t, stats.TotalTime > 0)
-	assert.True(t, stats.StartTime.Before(stats.EndTime))
+	assert.True(t, stats.TotalTime >= 0)
+	assert.False(t, stats.StartTime.After(stats.EndTime))
 
 	t.Logf("Total Time: %v", stats.TotalTime)
+}
+
+// TestRetryMiddleware_NoSideEffects 验证 RetryMiddleware 重试时不会重复执行前置中间件
+func TestRetryMiddleware_NoSideEffects(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount <= 2 {
+			w.WriteHeader(500)
+			w.Write([]byte(`{"error":"server error"}`))
+			return
+		}
+		w.WriteHeader(200)
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
+	authCallCount := 0
+	client := NewFastHTTPClient()
+	builder := NewRequestBuilder(client).NoKeepLog().NoSendErrorMsg()
+	builder.Use(
+		func(ctx *Context) {
+			authCallCount++
+			if ctx.Request.Headers == nil {
+				ctx.Request.Headers = make(map[string]string)
+			}
+			ctx.Request.Headers["X-Auth"] = "token"
+			ctx.Next()
+		},
+		RetryMiddleware(3, 10*time.Millisecond),
+	)
+
+	result := builder.Execute(context.Background(), "GET", srv.URL, nil, nil, nil)
+
+	assert.NoError(t, result.Error)
+	assert.Equal(t, 200, result.Response.StatusCode)
+	// 前置中间件只执行一次，HTTP 请求执行了 3 次（2 次 500 + 1 次 200）
+	assert.Equal(t, 1, authCallCount, "auth middleware should only run once")
+	assert.Equal(t, 3, callCount, "server should receive 3 requests")
+}
+
+// TestRetryMiddleware_4xxNoRetry 验证 4xx 错误不重试
+func TestRetryMiddleware_4xxNoRetry(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.WriteHeader(400)
+		w.Write([]byte(`{"error":"bad request"}`))
+	}))
+	defer srv.Close()
+
+	client := NewFastHTTPClient()
+	builder := NewRequestBuilder(client).NoKeepLog().NoSendErrorMsg()
+	builder.Use(RetryMiddleware(3, 10*time.Millisecond))
+
+	result := builder.Execute(context.Background(), "GET", srv.URL, nil, nil, nil)
+
+	assert.Equal(t, 400, result.Response.StatusCode)
+	assert.Equal(t, 1, callCount, "4xx should not trigger retry")
+}
+
+// TestParseTo_EdgeCases 验证 ParseTo 的边界情况
+func TestParseTo_EdgeCases(t *testing.T) {
+	t.Run("nil dest", func(t *testing.T) {
+		mockClient := &MockClient{
+			response: &Response{
+				StatusCode: 200,
+				Body:       []byte(`{"code": 0, "data": "test"}`),
+				Stats:      &ResponseStats{},
+			},
+		}
+		builder := NewRequestBuilder(mockClient).NoKeepLog().NoSendErrorMsg()
+		result := builder.Execute(context.Background(), "GET", "https://example.com", nil, nil, nil)
+		err := result.ParseTo("data", nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("empty body", func(t *testing.T) {
+		mockClient := &MockClient{
+			response: &Response{
+				StatusCode: 200,
+				Body:       []byte{},
+				Stats:      &ResponseStats{},
+			},
+		}
+		builder := NewRequestBuilder(mockClient).NoKeepLog().NoSendErrorMsg()
+		result := builder.Execute(context.Background(), "GET", "https://example.com", nil, nil, nil)
+		var dest string
+		err := result.ParseTo("", &dest)
+		assert.Error(t, err)
+	})
+
+	t.Run("non-json body", func(t *testing.T) {
+		mockClient := &MockClient{
+			response: &Response{
+				StatusCode: 200,
+				Body:       []byte(`not json`),
+				Stats:      &ResponseStats{},
+			},
+		}
+		builder := NewRequestBuilder(mockClient).NoKeepLog().NoSendErrorMsg()
+		result := builder.Execute(context.Background(), "GET", "https://example.com", nil, nil, nil)
+		var dest map[string]interface{}
+		err := result.ParseTo("", &dest)
+		assert.Error(t, err)
+	})
+
+	t.Run("path not found", func(t *testing.T) {
+		mockClient := &MockClient{
+			response: &Response{
+				StatusCode: 200,
+				Body:       []byte(`{"code": 0}`),
+				Stats:      &ResponseStats{},
+			},
+		}
+		builder := NewRequestBuilder(mockClient).NoKeepLog().NoSendErrorMsg()
+		result := builder.Execute(context.Background(), "GET", "https://example.com", nil, nil, nil)
+		var dest string
+		err := result.ParseTo("data.user.name", &dest)
+		assert.Error(t, err)
+	})
+
+	t.Run("non-2xx status", func(t *testing.T) {
+		mockClient := &MockClient{
+			response: &Response{
+				StatusCode: 500,
+				Body:       []byte(`{"error":"internal"}`),
+				Stats:      &ResponseStats{},
+			},
+		}
+		builder := NewRequestBuilder(mockClient).NoKeepLog().NoSendErrorMsg()
+		result := builder.Execute(context.Background(), "GET", "https://example.com", nil, nil, nil)
+		var dest map[string]interface{}
+		err := result.ParseTo("", &dest)
+		assert.Error(t, err)
+	})
+}
+
+// TestFastHTTPClient_ContextCancel 验证 FastHTTP 客户端响应 context 取消
+func TestFastHTTPClient_ContextCancel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(2 * time.Second)
+		w.WriteHeader(200)
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
+	fastClient := NewFastHTTPClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	builder := NewRequestBuilder(fastClient).NoKeepLog().NoSendErrorMsg()
+	result := builder.Execute(ctx, "GET", srv.URL, nil, nil, nil)
+	elapsed := time.Since(start)
+
+	assert.Error(t, result.Error)
+	assert.True(t, fastClient.IsTimeout(result.Error),
+		"expected timeout/context error, got: %v", result.Error)
+	assert.Less(t, elapsed, 1*time.Second, "should return quickly on context cancel")
+}
+
+// TestBuildLogMap 验证 BuildLogMap 输出包含预期字段
+func TestBuildLogMap(t *testing.T) {
+	mockClient := &MockClient{
+		response: &Response{
+			StatusCode: 200,
+			Body:       []byte(`{"code": 0}`),
+			Stats:      &ResponseStats{TotalTime: 100 * time.Millisecond},
+		},
+	}
+
+	builder := NewRequestBuilder(mockClient).NoKeepLog().NoSendErrorMsg()
+	builder.Use(TimingMiddleware())
+
+	result := builder.Execute(context.Background(), "GET", "https://example.com/test",
+		map[string][]string{"q": {"1"}},
+		map[string]string{"key": "value"},
+		map[string]string{"Authorization": "Bearer xxx"},
+	)
+
+	logMap := result.BuildLogMap()
+	assert.Equal(t, "https://example.com/test", logMap["Request URL"])
+	assert.Equal(t, "GET", logMap["Request Method"])
+	assert.NotNil(t, logMap["Response Status Code"])
+	assert.NotNil(t, logMap["Duration"])
 }

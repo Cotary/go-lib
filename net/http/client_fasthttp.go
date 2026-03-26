@@ -1,6 +1,8 @@
 package http
 
 import (
+	"context"
+	"net"
 	"time"
 
 	"github.com/Cotary/go-lib/common/utils"
@@ -39,18 +41,39 @@ func NewFastHTTPClient(args ...*fasthttp.Client) *FastHTTPClient {
 }
 
 // Do 执行 HTTP 请求
+//
+// 支持通过 req.Ctx 取消请求。由于 FastHTTP 不原生支持 context，
+// 当 context 被取消时立即返回 context 错误，后台 goroutine 自行清理资源。
 func (fc *FastHTTPClient) Do(req *Request) (*Response, error) {
 	startTime := time.Now()
-
-	fastReq := fasthttp.AcquireRequest()
-	fastResp := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseRequest(fastReq)
-	defer fasthttp.ReleaseResponse(fastResp)
 
 	if req.URL == "" {
 		return nil, errors.New("URL cannot be empty")
 	}
 
+	fastReq := fasthttp.AcquireRequest()
+	fastResp := fasthttp.AcquireResponse()
+
+	fc.setupRequest(fastReq, req)
+
+	ctx := req.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if ctx.Done() == nil {
+		err := fc.client.Do(fastReq, fastResp)
+		resp := fc.buildResponse(startTime, fastResp, err)
+		fasthttp.ReleaseRequest(fastReq)
+		fasthttp.ReleaseResponse(fastResp)
+		return resp, err
+	}
+
+	return fc.doWithContext(ctx, startTime, fastReq, fastResp)
+}
+
+// setupRequest 将通用 Request 设置到 fasthttp.Request 上
+func (fc *FastHTTPClient) setupRequest(fastReq *fasthttp.Request, req *Request) {
 	fastReq.Header.SetMethod(req.Method)
 	fastReq.SetRequestURI(req.URL)
 
@@ -81,10 +104,11 @@ func (fc *FastHTTPClient) Do(req *Request) (*Response, error) {
 	if req.Timeout > 0 {
 		fastReq.SetTimeout(req.Timeout)
 	}
+}
 
-	err := fc.client.Do(fastReq, fastResp)
+// buildResponse 从 fasthttp.Response 构建通用 Response
+func (fc *FastHTTPClient) buildResponse(startTime time.Time, fastResp *fasthttp.Response, err error) *Response {
 	endTime := time.Now()
-
 	resp := &Response{
 		Stats: &ResponseStats{
 			StartTime: startTime,
@@ -103,12 +127,54 @@ func (fc *FastHTTPClient) Do(req *Request) (*Response, error) {
 		})
 	}
 
-	return resp, err
+	return resp
+}
+
+// doWithContext 在独立 goroutine 中执行 fasthttp 请求，同时监听 context 取消。
+// context 取消时立即返回，后台 goroutine 完成后自行释放资源。
+func (fc *FastHTTPClient) doWithContext(ctx context.Context, startTime time.Time, fastReq *fasthttp.Request, fastResp *fasthttp.Response) (*Response, error) {
+	ch := make(chan error, 1)
+
+	go func() {
+		ch <- fc.client.Do(fastReq, fastResp)
+	}()
+
+	select {
+	case err := <-ch:
+		resp := fc.buildResponse(startTime, fastResp, err)
+		fasthttp.ReleaseRequest(fastReq)
+		fasthttp.ReleaseResponse(fastResp)
+		return resp, err
+	case <-ctx.Done():
+		go func() {
+			<-ch
+			fasthttp.ReleaseRequest(fastReq)
+			fasthttp.ReleaseResponse(fastResp)
+		}()
+		endTime := time.Now()
+		return &Response{
+			Stats: &ResponseStats{
+				StartTime: startTime,
+				EndTime:   endTime,
+				TotalTime: endTime.Sub(startTime),
+			},
+		}, ctx.Err()
+	}
 }
 
 // IsTimeout 判断是否为超时错误
 func (fc *FastHTTPClient) IsTimeout(err error) bool {
-	return errors.Is(err, fasthttp.ErrTimeout)
+	if errors.Is(err, fasthttp.ErrTimeout) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	return false
 }
 
 // ============================================================================

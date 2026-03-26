@@ -47,9 +47,6 @@ func SendMessage(ctx context.Context, err error) {
 		"requestJson": requestJson,
 		"error":       errMsg,
 	}).Error("SendMessage Record")
-	if err != nil {
-
-	}
 	errSender := sender
 	if errSender == nil {
 		errSender = message.GetGlobalSender()

@@ -3,6 +3,9 @@ package http
 import (
 	"context"
 	"math"
+
+	"github.com/Cotary/go-lib/common/defined"
+	"github.com/pkg/errors"
 )
 
 // ============================================================================
@@ -28,6 +31,7 @@ type Context struct {
 	// 中间件链控制
 	handlers []Middleware // 中间件列表
 	index    int8         // 当前执行索引
+	client   IClient      // HTTP 客户端引用，供 RetryRequest 使用
 }
 
 // Next 执行下一个中间件
@@ -111,6 +115,67 @@ func (c *Context) GetInt64(key string) int64 {
 		}
 	}
 	return 0
+}
+
+// RetryRequest 重新执行 HTTP 请求（不重新执行中间件链）
+//
+// 用于 RetryMiddleware 等场景，只重试实际的 HTTP 请求部分，
+// 避免重复执行认证、日志等前置中间件的副作用。
+func (c *Context) RetryRequest() {
+	if c.client == nil {
+		c.AddError(errors.New("HTTP client is nil, cannot retry"))
+		return
+	}
+	c.Error = nil
+	c.Errors = nil
+	resp, err := c.client.Do(c.Request)
+	c.Response = resp
+	if err != nil {
+		c.AddError(err)
+	}
+}
+
+// BuildLogMap 构建日志字段映射
+//
+// 收集请求、响应、错误和中间件附加信息，返回结构化的日志字段。
+// 供日志中间件和 Result 共用。
+func (c *Context) BuildLogMap() map[string]interface{} {
+	logMap := map[string]interface{}{
+		"Context ID": c.Ctx.Value(defined.RequestID),
+	}
+
+	if c.Request != nil {
+		logMap["Request URL"] = c.Request.URL
+		logMap["Request Method"] = c.Request.Method
+		logMap["Request Headers"] = c.Request.Headers
+		logMap["Request Query"] = c.Request.Query
+		if c.Request.Body != nil {
+			logMap["Request Body"] = c.Request.Body
+		}
+	}
+
+	if c.Response != nil {
+		logMap["Response Status Code"] = c.Response.StatusCode
+		logMap["Response Headers"] = c.Response.Header
+		logMap["Response Body"] = string(c.Response.Body)
+
+		if c.Response.Stats != nil {
+			logMap["Total Time"] = c.Response.Stats.TotalTime.String()
+		}
+	}
+
+	if c.Error != nil {
+		logMap["Request Error"] = c.Error.Error()
+	}
+
+	if duration, ok := c.Get("request_duration"); ok {
+		logMap["Duration"] = duration
+	}
+	if traceID, ok := c.Get("trace_id"); ok {
+		logMap["Trace ID"] = traceID
+	}
+
+	return logMap
 }
 
 // ============================================================================

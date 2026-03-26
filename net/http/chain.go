@@ -41,6 +41,7 @@ func (c *middlewareChain) execute(ctx *Context) {
 	// 设置中间件链到上下文
 	ctx.handlers = handlers
 	ctx.index = -1
+	ctx.client = c.client
 
 	// 开始执行
 	ctx.Next()
