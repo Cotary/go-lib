@@ -1,7 +1,10 @@
+// Deprecated: 本文件为兼容 XORM 的 FromDB/ToDB 接口而保留。
+// 如已全面迁移到 GORM，建议使用 GORM 原生的 datatypes 或 pgtype 替代。
 package pgsql
 
 import "github.com/lib/pq"
 
+// Deprecated: 使用 GORM datatypes 或 pgtype 替代。
 type XormStringArray pq.StringArray
 
 func (s *XormStringArray) FromDB(bts []byte) error {
@@ -28,6 +31,7 @@ func (s XormStringArray) ToDB() ([]byte, error) {
 	return []byte(val.(string)), nil
 }
 
+// Deprecated: 使用 GORM datatypes 或 pgtype 替代。
 type XormInt64Array pq.Int64Array
 
 func (s *XormInt64Array) FromDB(bts []byte) error {

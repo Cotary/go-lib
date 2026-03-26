@@ -3,12 +3,12 @@ package pgsql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/Cotary/go-lib/common/defined"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
 
@@ -30,7 +30,7 @@ func (g *GormDrive) getTxFromCtx(ctx context.Context) *gorm.DB {
 
 // CtxTransaction 推荐只保留这一个入口，强制用户使用闭包模式，防止忘记 Commit/Rollback
 func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Context) error, opts ...*sql.TxOptions) error {
-	if g.DB == nil {
+	if g.db == nil {
 		return errors.New("database is nil")
 	}
 	if ctx == nil {
@@ -87,7 +87,7 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 		g.Logger.Info(newCtx, fmt.Sprintf("TRANSACTION BEGIN "))
 	}
 
-	err := g.DB.WithContext(newCtx).Transaction(func(tx *gorm.DB) error {
+	err := g.db.WithContext(newCtx).Transaction(func(tx *gorm.DB) error {
 		// 将 tx 和事务 ID 注入到新的 Context 中
 		newCtx = context.WithValue(newCtx, ctxTransactionKey{DbID: g.ID}, tx)
 		return fn(newCtx)
@@ -111,5 +111,5 @@ func (g *GormDrive) WithContext(ctx context.Context) *gorm.DB {
 	if tx := g.getTxFromCtx(ctx); tx != nil {
 		return tx.WithContext(ctx)
 	}
-	return g.DB.WithContext(ctx)
+	return g.db.WithContext(ctx)
 }

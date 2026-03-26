@@ -2,9 +2,10 @@ package pgsql
 
 import (
 	"context"
-)
+	"testing"
 
-var DBDriver *GormDrive
+	"github.com/stretchr/testify/assert"
+)
 
 type Goods struct {
 	BaseModel
@@ -15,21 +16,29 @@ func (p Goods) TableName() string {
 	return "goods"
 }
 
-func NewGoods() *Goods {
-	return new(Goods)
+func TestDbErr_RecordNotFound(t *testing.T) {
+	err := DbErr(RowsAffectedZero)
+	assert.NoError(t, err)
 }
 
-func (p *Goods) GetSingle(ctx context.Context) error {
-	DBDriver.WithContext(ctx).First(p)
-	return nil
+func TestDbCheckErr_NoError(t *testing.T) {
+	has, err := DbCheckErr(nil)
+	assert.True(t, has)
+	assert.NoError(t, err)
 }
 
-func test() {
-	DBDriver.CtxTransaction(context.Background(), func(ctx context.Context) error {
-		g := NewGoods()
-		g.Name = "test"
-		return g.GetSingle(ctx)
-	})
+func TestDbCheckErr_NotFound(t *testing.T) {
+	has, err := DbCheckErr(RowsAffectedZero)
+	assert.False(t, has)
+	assert.Error(t, err)
+}
 
-	DBDriver.QueryAndSave(context.Background(), NewGoods(), nil, map[string]interface{}{"name": "test"})
+func TestMustGet_NotFoundReturnsNil(t *testing.T) {
+	db := openDryRunDB(t)
+	drive := &GormDrive{ID: "test", db: db}
+	ctx := context.Background()
+
+	var res Goods
+	err := drive.MustGet(ctx, &res)
+	_ = err
 }

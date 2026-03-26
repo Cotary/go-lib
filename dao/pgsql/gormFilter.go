@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"strings"
 
-	// import community 仅剩 Paging 和 Order
 	"github.com/Cotary/go-lib/common/community"
 )
 
@@ -18,7 +17,6 @@ func isZeroValue(v reflect.Value) bool {
 		return true
 	}
 
-	// 如果是实现了 IsZero() 的类型，优先调用它
 	if v.CanInterface() {
 		if z, ok := v.Interface().(isZeroer); ok {
 			return z.IsZero()
@@ -41,7 +39,6 @@ func isZeroValue(v reflect.Value) bool {
 	case reflect.Ptr, reflect.Interface:
 		return v.IsNil()
 	case reflect.Struct:
-		// 对结构体递归判断所有字段是否都是零值
 		for i := 0; i < v.NumField(); i++ {
 			if !isZeroValue(v.Field(i)) {
 				return false
@@ -79,7 +76,6 @@ var opSymMap = map[string]string{
 	"ge": ">=", "le": "<=",
 }
 
-// buildClauseAndArgs 按列和操作符组合 SQL 及参数
 func buildClauseAndArgs(colExpr, opExpr string, val interface{}) (string, []interface{}) {
 	cols, _ := parseExpr(colExpr)
 	ops, opConns := parseExpr(opExpr)
@@ -114,7 +110,6 @@ func buildClauseAndArgs(colExpr, opExpr string, val interface{}) (string, []inte
 			}
 		}
 
-		// 组内 OR
 		var clause string
 		if len(colClauses) > 1 {
 			clause = "(" + strings.Join(colClauses, " OR ") + ")"
@@ -128,7 +123,6 @@ func buildClauseAndArgs(colExpr, opExpr string, val interface{}) (string, []inte
 		return "", nil
 	}
 
-	// 组间 &/| 串联
 	result := groupClauses[0]
 	for i, conn := range opConns {
 		next := groupClauses[i+1]
@@ -141,7 +135,25 @@ func buildClauseAndArgs(colExpr, opExpr string, val interface{}) (string, []inte
 	return result, args
 }
 
-// BuildQueryOptions 支持 bs.xxx / be.xxx 自动配对，并生成 BETWEEN 或 >=/<= 子句
+// BuildQueryOptions 从带 filter tag 的结构体自动构建 QueryOption 切片。
+//
+// filter tag 格式: `filter:"column,operator"`
+//
+// 支持的操作符:
+//   - 比较: eq, ne, gt, lt, ge, le (或直接用 =, <>, >, <, >=, <=)
+//   - 模糊: like, ilike
+//   - 集合: in, not_in
+//   - 区间: bs (begin start), be (begin end) — 配对使用生成 BETWEEN
+//   - 组合: 用 & (AND) 和 | (OR) 连接多个操作符，如 ge&le
+//   - 多列: 列名也可用 | 分隔，如 name|description,like
+//
+// 特殊字段:
+//   - community.Paging 类型字段自动应用 Pagination
+//   - community.Order 类型字段自动应用 Orders（bindOrders 可选）
+//   - 嵌套结构体递归处理
+//
+// 重要：要让 Pagination 的 Total 回写到原始结构体，criteria 必须传指针。
+// 传值时 Paging 会降级为仅分页（不计 Total）。
 func BuildQueryOptions(criteria interface{}, bindOrders ...map[string]string) []QueryOption {
 	var opts []QueryOption
 
@@ -151,7 +163,6 @@ func BuildQueryOptions(criteria interface{}, bindOrders ...map[string]string) []
 	}
 	rt := rv.Type()
 
-	// 1) 预扫描 bs/be 配对字段
 	type pair struct {
 		colExpr    string
 		start, end interface{}
@@ -168,11 +179,12 @@ func BuildQueryOptions(criteria interface{}, bindOrders ...map[string]string) []
 			continue
 		}
 		parts := strings.SplitN(tag, ",", 2)
+		if len(parts) < 2 {
+			continue
+		}
 		colExpr, opExpr := parts[0], parts[1]
 
-		// bs / be / bs.id / be.id
-		if strings.HasPrefix(opExpr, "bs") {
-			// bs or bs.<id>
+		if opExpr == "bs" || strings.HasPrefix(opExpr, "bs.") {
 			key := ""
 			if idx := strings.Index(opExpr, "."); idx >= 0 {
 				key = opExpr[idx+1:]
@@ -184,7 +196,7 @@ func BuildQueryOptions(criteria interface{}, bindOrders ...map[string]string) []
 			}
 			g.start = fv.Interface()
 			g.hasStart = true
-		} else if strings.HasPrefix(opExpr, "be") {
+		} else if opExpr == "be" || strings.HasPrefix(opExpr, "be.") {
 			key := ""
 			if idx := strings.Index(opExpr, "."); idx >= 0 {
 				key = opExpr[idx+1:]
@@ -199,9 +211,7 @@ func BuildQueryOptions(criteria interface{}, bindOrders ...map[string]string) []
 		}
 	}
 
-	// 2) 生成所有 between / >= / <= 子句
 	for _, g := range groups {
-		// 只在至少一个端点非零时才处理
 		if !g.hasStart && !g.hasEnd {
 			continue
 		}
@@ -221,18 +231,20 @@ func BuildQueryOptions(criteria interface{}, bindOrders ...map[string]string) []
 		}
 	}
 
-	// 第二遍：常规过滤、分页、排序、嵌套 struct
 	for i := 0; i < rt.NumField(); i++ {
 		ft := rt.Field(i)
 		fv := rv.Field(i)
 
-		// 分页
 		if ft.Type == reflect.TypeOf(community.Paging{}) {
-			p := fv.Interface().(community.Paging)
-			opts = append(opts, Pagination(&p))
+			if fv.CanAddr() {
+				p := fv.Addr().Interface().(*community.Paging)
+				opts = append(opts, Pagination(p))
+			} else {
+				p := fv.Interface().(community.Paging)
+				opts = append(opts, Paging(&p))
+			}
 			continue
 		}
-		// 排序
 		if ft.Type == reflect.TypeOf(community.Order{}) {
 			o := fv.Interface().(community.Order)
 			opts = append(opts, Orders(o, bindOrders...))
@@ -242,9 +254,12 @@ func BuildQueryOptions(criteria interface{}, bindOrders ...map[string]string) []
 		tag := ft.Tag.Get("filter")
 		if tag != "" && !isZeroValue(fv) {
 			parts := strings.SplitN(tag, ",", 2)
+			if len(parts) < 2 {
+				continue
+			}
 			colExpr, opExpr := parts[0], parts[1]
-			if strings.HasPrefix(opExpr, "bs.") || strings.HasPrefix(opExpr, "be.") {
-				// 已在配对阶段处理，跳过
+			if opExpr == "bs" || strings.HasPrefix(opExpr, "bs.") ||
+				opExpr == "be" || strings.HasPrefix(opExpr, "be.") {
 				continue
 			}
 			clause, args := buildClauseAndArgs(colExpr, opExpr, fv.Interface())
@@ -254,7 +269,6 @@ func BuildQueryOptions(criteria interface{}, bindOrders ...map[string]string) []
 			continue
 		}
 
-		// 嵌套 struct
 		if ft.Type.Kind() == reflect.Struct {
 			nested := fv.Interface()
 			opts = append(opts, BuildQueryOptions(nested, bindOrders...)...)

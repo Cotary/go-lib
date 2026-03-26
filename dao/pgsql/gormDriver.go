@@ -1,6 +1,7 @@
 package pgsql
 
 import (
+	"fmt"
 	"time"
 
 	log2 "github.com/Cotary/go-lib/log"
@@ -15,20 +16,26 @@ import (
 type GormConfig struct {
 	Driver      string   `mapstructure:"driver" yaml:"driver"`
 	Dsn         []string `mapstructure:"dsn" yaml:"dsn"`
-	IdleTimeout int      `mapstructure:"idleTimeout" yaml:"idleTimeout"` //秒,设置连接的最大生命周期,超过这个时间的连接将被关闭并重新建立。默认值为 0，表示连接不会过期。
-	MaxOpens    int      `mapstructure:"maxOpens" yaml:"maxOpens"`       //设置数据库的最大打开连接数。 默认值为 0，表示没有限制。
-	MaxIdles    int      `mapstructure:"maxIdles" yaml:"maxIdles"`       //设置连接池中保持空闲状态的最大连接数。默认值为 2
+	ConnMaxLife int      `mapstructure:"connMaxLife" yaml:"connMaxLife"` // 秒,连接最大生命周期,超过后将被关闭并重建。0 表示不限制。
+	ConnMaxIdle int      `mapstructure:"connMaxIdle" yaml:"connMaxIdle"` // 秒,空闲连接最大存活时间。0 表示不限制。
+	MaxOpens    int      `mapstructure:"maxOpens" yaml:"maxOpens"`       // 最大打开连接数。0 表示不限制。
+	MaxIdles    int      `mapstructure:"maxIdles" yaml:"maxIdles"`       // 连接池最大空闲连接数。默认 2。
+	IdleTimeout int      `mapstructure:"idleTimeout" yaml:"idleTimeout"` // Deprecated: 请使用 ConnMaxLife
 
 	LogDir        string `mapstructure:"log_dir" yaml:"log_dir"`
-	LogLevel      string `mapstructure:"log_level" yaml:"log_level"`           //日志等级 silent error warn info
-	SlowThreshold int64  `mapstructure:"slow_threshold" yaml:"slow_threshold"` // 慢sql阈值 ms
-	LogSaveDay    int64  `mapstructure:"log_save_day" yaml:"log_save_day"`     //日志保留天数
+	LogLevel      string `mapstructure:"log_level" yaml:"log_level"`           // 日志等级 silent error warn info
+	SlowThreshold int64  `mapstructure:"slow_threshold" yaml:"slow_threshold"` // 慢 SQL 阈值(ms)
+	LogSaveDay    int64  `mapstructure:"log_save_day" yaml:"log_save_day"`     // 日志保留天数
 }
 
 type GormDrive struct {
 	ID     string
 	Logger *GormLogger
-	*gorm.DB
+	db     *gorm.DB
+}
+
+func (g *GormDrive) DB() *gorm.DB {
+	return g.db
 }
 
 func handleConfig(config *GormConfig) {
@@ -43,6 +50,10 @@ func handleConfig(config *GormConfig) {
 	}
 	if config.SlowThreshold == 0 {
 		config.SlowThreshold = 1000
+	}
+	// 兼容旧字段
+	if config.ConnMaxLife == 0 && config.IdleTimeout > 0 {
+		config.ConnMaxLife = config.IdleTimeout
 	}
 }
 
@@ -72,7 +83,7 @@ func getDriver(driver string, dsn []string) gorm.Dialector {
 	}
 }
 
-func NewGorm(config *GormConfig) *GormDrive {
+func NewGorm(config *GormConfig) (*GormDrive, error) {
 	handleConfig(config)
 
 	logConfig := log2.Config{
@@ -89,42 +100,54 @@ func NewGorm(config *GormConfig) *GormDrive {
 	}
 	writer := log2.NewLogger(&logConfig)
 	newLogger := New(
-		NewGormLogger(writer), // io writer
+		NewGormLogger(writer),
 		logger.Config{
-			SlowThreshold:             time.Duration(config.SlowThreshold) * time.Millisecond, // Slow SQL threshold
-			LogLevel:                  getLogLevelEnum(config.LogLevel),                       // Log level
-			IgnoreRecordNotFoundError: false,                                                  // Ignore ErrRecordNotFound error for logger
+			SlowThreshold:             time.Duration(config.SlowThreshold) * time.Millisecond,
+			LogLevel:                  getLogLevelEnum(config.LogLevel),
+			IgnoreRecordNotFoundError: false,
 			ParameterizedQueries:      false,
 			Colorful:                  false,
 		},
 	)
 	driver := getDriver(config.Driver, config.Dsn)
 	if driver == nil {
-		panic("driver not support:" + config.Driver)
+		return nil, fmt.Errorf("unsupported database driver: %s", config.Driver)
 	}
 
 	db, err := gorm.Open(driver, &gorm.Config{
-		SkipDefaultTransaction: true, //禁用默认事务
-		PrepareStmt:            true, //缓存预编译语句
+		SkipDefaultTransaction: true,
+		PrepareStmt:            true,
 		Logger:                 newLogger,
 	})
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("failed to get underlying sql.DB: %w", err)
 	}
 	sqlDB.SetMaxIdleConns(config.MaxIdles)
 	sqlDB.SetMaxOpenConns(config.MaxOpens)
-	sqlDB.SetConnMaxLifetime(time.Duration(config.IdleTimeout) * time.Second)
+	sqlDB.SetConnMaxLifetime(time.Duration(config.ConnMaxLife) * time.Second)
+	if config.ConnMaxIdle > 0 {
+		sqlDB.SetConnMaxIdleTime(time.Duration(config.ConnMaxIdle) * time.Second)
+	}
 
 	if err = sqlDB.Ping(); err != nil {
-		panic(err)
+		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 	return &GormDrive{
 		ID:     uuid.NewString(),
-		DB:     db,
+		db:     db,
 		Logger: newLogger,
+	}, nil
+}
+
+// MustNewGorm 与 NewGorm 相同，但遇到错误时 panic。适合在 init 阶段使用。
+func MustNewGorm(config *GormConfig) *GormDrive {
+	drive, err := NewGorm(config)
+	if err != nil {
+		panic(err)
 	}
+	return drive
 }

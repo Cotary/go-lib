@@ -1,7 +1,6 @@
 package pgsql
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/Cotary/go-lib/common/community"
@@ -20,7 +19,8 @@ const (
 // QueryOption 是对 *gorm.DB 的装饰器
 type QueryOption func(*gorm.DB) *gorm.DB
 
-// Pagination 先计算 TotalCount，再根据 Paging 做分页
+// Pagination 先计算 TotalCount，再根据 Paging 做分页。
+// 注意：Pagination 必须放在所有 Where 条件之后使用，否则 COUNT 结果不包含后续条件。
 func Pagination(p *community.Paging) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		// 1. 设置默认分页参数
@@ -74,14 +74,19 @@ func Total(count *int64) QueryOption {
 			Count(count)
 	}
 }
+
+// Orders 根据 Order 结构体生成排序子句（白名单模式）。
+// bindMaps 必须提供，key 为前端传入的排序字段名，value 为实际 SQL 模板（可含 {order_type} 占位符）。
+// 只有 bindMaps 中声明的字段才允许排序，未声明的字段直接忽略。
+// 当 bindMaps 为空或未提供时，不做任何排序。
 func Orders(o community.Order, bindMaps ...map[string]string) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
-		var clauses []string
-		bind := map[string]string{}
-		if len(bindMaps) > 0 {
-			bind = bindMaps[0]
+		if len(bindMaps) == 0 || bindMaps[0] == nil || len(bindMaps[0]) == 0 {
+			return db
 		}
+		bind := bindMaps[0]
 
+		var clauses []string
 		fields := strings.Split(o.OrderField, ",")
 		types := strings.Split(o.OrderType, ",")
 
@@ -96,11 +101,7 @@ func Orders(o community.Order, bindMaps ...map[string]string) QueryOption {
 			}
 
 			if tpl, ok := bind[f]; ok {
-				// 自定义模板里有 {order_type} 占位
 				clauses = append(clauses, strings.ReplaceAll(tpl, orderType, ord))
-			} else {
-				// 默认拼 field + " " + ord
-				clauses = append(clauses, fmt.Sprintf("%s %s", f, ord))
 			}
 		}
 
@@ -143,6 +144,58 @@ func Offset(n int) QueryOption {
 func ID(id int64) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Where("id = ?", id)
+	}
+}
+
+func Select(fields ...string) QueryOption {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Select(fields)
+	}
+}
+
+func Group(field string) QueryOption {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Group(field)
+	}
+}
+
+func Having(query string, args ...interface{}) QueryOption {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Having(query, args...)
+	}
+}
+
+func Joins(query string, args ...interface{}) QueryOption {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Joins(query, args...)
+	}
+}
+
+func Preload(column string, conditions ...interface{}) QueryOption {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Preload(column, conditions...)
+	}
+}
+
+func Unscoped() QueryOption {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Unscoped()
+	}
+}
+
+func Count(count *int64) QueryOption {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Count(count)
+	}
+}
+
+func Distinct(fields ...string) QueryOption {
+	return func(db *gorm.DB) *gorm.DB {
+		args := make([]interface{}, len(fields))
+		for i, f := range fields {
+			args[i] = f
+		}
+		return db.Distinct(args...)
 	}
 }
 

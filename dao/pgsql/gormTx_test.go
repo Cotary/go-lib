@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// 测试用的模型
 type TestUser struct {
 	BaseModel
 	Name  string `gorm:"column:name;type:varchar(100)"`
@@ -35,30 +35,36 @@ func (TestOrder) TableName() string {
 	return "test_orders"
 }
 
-// 创建测试数据库连接
 func createTestDB(t *testing.T) *GormDrive {
+	t.Helper()
+
+	dsn := os.Getenv("TEST_PG_DSN")
+	if dsn == "" {
+		dsn = "postgres://postgres:QAZplm123@127.0.0.1:5432/postgres?sslmode=disable"
+	}
+
 	config := &GormConfig{
 		Driver:      "postgres",
-		Dsn:         []string{"postgres://postgres:QAZplm123@127.0.0.1:5432/postgres?sslmode=disable"},
+		Dsn:         []string{dsn},
 		LogLevel:    "info",
 		MaxOpens:    10,
 		MaxIdles:    5,
-		IdleTimeout: 3600,
+		ConnMaxLife: 3600,
 	}
 
-	var db *GormDrive
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Skipf("skip sqlite tests: %v", r)
-			}
-		}()
-		db = NewGorm(config)
-	}()
+	db, err := NewGorm(config)
+	if err != nil {
+		t.Skipf("skip postgres tests: %v", err)
+		return nil
+	}
 
-	// 创建测试表
-	err := db.AutoMigrate(&TestUser{}, &TestOrder{})
+	err = db.db.AutoMigrate(&TestUser{}, &TestOrder{})
 	assert.NoError(t, err)
+
+	t.Cleanup(func() {
+		db.db.Exec("DELETE FROM test_orders")
+		db.db.Exec("DELETE FROM test_users")
+	})
 
 	return db
 }
@@ -543,11 +549,11 @@ func TestGormDrive_TransactionUpdates(t *testing.T) {
 			Email: "save@example.com",
 			Age:   45,
 		}
-		result := db.Save(txCtx, newUser, []string{"name", "email", "age"}, []string{"email"})
-		if result.Error != nil {
-			return result.Error
+		saveErr := db.Save(txCtx, newUser, []string{"name", "email", "age"}, []string{"email"})
+		if saveErr != nil {
+			return saveErr
 		}
-		fmt.Printf("Save操作结果: RowsAffected=%d\n", result.RowsAffected)
+		fmt.Printf("Save操作完成\n")
 
 		return nil
 	})

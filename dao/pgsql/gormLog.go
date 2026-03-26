@@ -162,7 +162,7 @@ func (l GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (strin
 		slowLog := fmt.Sprintf("SLOW SQL >= %v", l.SlowThreshold)
 		msg := fmt.Sprintf(l.traceWarnStr, currTime, fileLine, reqInfo, slowLog, elapsedMs, rows, sql)
 		l.Printf(msg)
-		SendMessage(ctx, l.Sender, msg)
+		sendMessage(ctx, l.Sender, msg)
 
 	case l.LogLevel == logger.Info:
 		// 常规查询日志
@@ -170,7 +170,7 @@ func (l GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (strin
 	}
 }
 
-func SendMessage(ctx context.Context, sender message.Sender, msg string) {
+func sendMessage(ctx context.Context, sender message.Sender, msg string) {
 	if sender == nil {
 		sender = message.GetGlobalSender()
 	}

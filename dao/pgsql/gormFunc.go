@@ -116,8 +116,14 @@ func (g *GormDrive) Delete(ctx context.Context, data interface{}, opts ...QueryO
 	return DbAffectedErr(db.Delete(data))
 }
 
-// Save (Upsert) 批量或单条保存，处理冲突
-func (g *GormDrive) Save(ctx context.Context, data interface{}, updateFields []string, clausesFields []string) *gorm.DB {
+// Save (Upsert) 批量或单条保存，处理冲突。
+//   - updateFields: 冲突时要更新的字段列表。空=DoNothing; ["*"]=更新全部字段; 其他=指定字段。
+//   - clausesFields: 用于判断冲突的字段（如唯一索引列）。
+func (g *GormDrive) Save(ctx context.Context, data interface{}, updateFields []string, clausesFields []string) error {
+	return DbAffectedErr(g.saveRaw(ctx, data, updateFields, clausesFields))
+}
+
+func (g *GormDrive) saveRaw(ctx context.Context, data interface{}, updateFields []string, clausesFields []string) *gorm.DB {
 	notUpdate := len(updateFields) == 0
 	updateAll := len(updateFields) == 1 && updateFields[0] == "*"
 	if updateAll {
@@ -154,8 +160,7 @@ func (g *GormDrive) QueryAndSave(ctx context.Context, data interface{}, updateFi
 				for key := range condition {
 					clausesFields = append(clausesFields, key)
 				}
-				// 调用自身的 Save 方法
-				insertResult := g.Save(ctx, data, updateFields, clausesFields)
+				insertResult := g.saveRaw(ctx, data, updateFields, clausesFields)
 				if insertResult.Error != nil {
 					return insertResult.Error
 				}
