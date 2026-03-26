@@ -1,9 +1,9 @@
 package cache
 
 import (
-	"github.com/Cotary/go-lib/common/utils"
 	"github.com/eko/gocache/lib/v4/store"
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 	"sync"
 )
 
@@ -15,7 +15,7 @@ func StoreInstance[T any](config Config[T], store store.StoreInterface) Cache[T]
 	}
 
 	var storeInstance Cache[T]
-	if utils.InArray(store.GetType(), UseString) {
+	if lo.Contains(UseString, store.GetType()) {
 		storeInstance = NewStore[T, string](config, store)
 	} else {
 		storeInstance = NewStore[T, T](config, store)

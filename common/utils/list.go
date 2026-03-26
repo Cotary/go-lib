@@ -5,37 +5,15 @@ import (
 	"strings"
 )
 
-// KeySlice 提取结构体切片中的某个字段，返回字段值的切片
-// lo.FilterMap  过滤并且转换
-// lo.Map 转换
-func KeySlice[T any, U any](src []T, mapper func(int, T) U) []U {
-	result := make([]U, len(src))
-	for i, v := range src {
-		result[i] = mapper(i, v)
-	}
-	return result
-}
-
-// KeyMap 将结构体切片按某个字段作为键，返回键值对映射
-// lo.SliceToMap
-func KeyMap[T any, K comparable](src []T, keySelector func(int, T) K) map[K]T {
-	result := make(map[K]T, len(src))
-	for i, v := range src {
-		result[keySelector(i, v)] = v
-	}
-	return result
-}
-
-// InArray 判断某个值是否在切片中
-// lo.Contains(arr, val)
-func InArray[T comparable](val T, arr []T) bool {
-	for _, item := range arr {
-		if item == val {
-			return true
-		}
-	}
-	return false
-}
+// 以下函数已迁移至 github.com/samber/lo：
+//   KeySlice  -> lo.Map
+//   KeyMap    -> lo.Associate / lo.SliceToMap
+//   InArray   -> lo.Contains
+//   Chunk     -> lo.Chunk
+//   Unique    -> lo.Uniq
+//   Intersect -> lo.Intersect
+//   Union     -> lo.Union
+//   Difference -> lo.Difference
 
 func Join[T any](nums []T, sep string) string {
 	strList := make([]string, len(nums))
@@ -66,23 +44,6 @@ func DefaultIfZeroReflect[T any](value, defaultValue T) T {
 	return value
 }
 
-// Chunk 将切片按指定大小分割
-// lo.Chunk(slice, size)
-func Chunk[T any](slice []T, size int) [][]T {
-	if size <= 0 {
-		return nil
-	}
-	result := make([][]T, 0, (len(slice)+size-1)/size)
-	for i := 0; i < len(slice); i += size {
-		end := i + size
-		if end > len(slice) {
-			end = len(slice)
-		}
-		result = append(result, slice[i:end])
-	}
-	return result
-}
-
 // SafeSet 安全地向切片指定索引赋值（自动扩容）
 func SafeSet[T any](s *[]T, index int, value T) {
 	EnsureLen(s, index+1)
@@ -98,67 +59,4 @@ func EnsureLen[T any](s *[]T, length int) {
 	} else {
 		*s = (*s)[:length]
 	}
-}
-
-// Unique 去重
-// lo.Uniq(s)
-func Unique[T comparable](s []T) []T {
-	seen := make(map[T]struct{}, len(s))
-	result := make([]T, 0, len(s))
-	for _, v := range s {
-		if _, ok := seen[v]; !ok {
-			seen[v] = struct{}{}
-			result = append(result, v)
-		}
-	}
-	return result
-}
-
-// Intersect 交集
-// lo.Intersect
-func Intersect[T comparable](a, b []T) []T {
-	m := make(map[T]struct{}, len(a))
-	for _, item := range a {
-		m[item] = struct{}{}
-	}
-	out := make([]T, 0)
-	for _, item := range b {
-		if _, ok := m[item]; ok {
-			out = append(out, item)
-		}
-	}
-	return out
-}
-
-// Union 并集
-// lo.Union
-func Union[T comparable](a, b []T) []T {
-	m := make(map[T]struct{}, len(a)+len(b))
-	for _, item := range a {
-		m[item] = struct{}{}
-	}
-	for _, item := range b {
-		m[item] = struct{}{}
-	}
-	out := make([]T, 0, len(m))
-	for item := range m {
-		out = append(out, item)
-	}
-	return out
-}
-
-// Difference 差集（a - b）
-// lo.Difference
-func Difference[T comparable](a, b []T) []T {
-	m := make(map[T]struct{}, len(b))
-	for _, item := range b {
-		m[item] = struct{}{}
-	}
-	out := make([]T, 0)
-	for _, item := range a {
-		if _, ok := m[item]; !ok {
-			out = append(out, item)
-		}
-	}
-	return out
 }

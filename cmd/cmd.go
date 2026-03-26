@@ -137,8 +137,8 @@ func cmdHandle(id string, handle Handler) {
 				err = e.Err(err, fmt.Sprintf(
 					"funcName: %s is still running\nstart: %s\nnow:   %s",
 					funcName,
-					utils2.NewTime(runInfo.StartTime).Format(time.DateTime),
-					utils2.NewLocal().Format(time.DateTime),
+					runInfo.StartTime.Format(time.DateTime),
+					time.Now().Format(time.DateTime),
 				))
 			}
 			e.SendMessage(ctx, err)
