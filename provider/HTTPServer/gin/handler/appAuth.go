@@ -2,18 +2,19 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
+
 	"github.com/Cotary/go-lib/cache"
 	"github.com/Cotary/go-lib/common/defined"
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
-	"github.com/eko/gocache/lib/v4/store"
 	"github.com/gin-gonic/gin"
-	"time"
 )
 
 type AuthConf struct {
-	CacheStore    store.StoreInterface
+	Cache         cache.Cache[int64]
 	Expire        time.Duration
 	SignType      string
 	SecretGetter  SecretGetter
@@ -44,23 +45,14 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 			AbortWithError(c, e.SignErr)
 			return
 		}
-		//检查sign重放
-		var cacheInstance cache.Cache[int64]
-		if conf.CacheStore != nil {
-			cacheInstance = cache.StoreInstance(
-				cache.Config[int64]{
-					Prefix: "AuthSign",
-					Expire: conf.Expire,
-				},
-				conf.CacheStore)
-			_, err := cacheInstance.Get(ctx, signature)
-			if err != nil {
-				if err.Error() != store.NOT_FOUND_ERR {
-					e.SendMessage(ctx, e.Err(err, "AuthSign cache get error"))
-				}
-			} else {
+		if conf.Cache != nil {
+			_, err := conf.Cache.Get(ctx, signature)
+			if err == nil {
 				AbortWithError(c, e.SignReplayErr)
 				return
+			}
+			if !errors.Is(err, cache.ErrNotFound) {
+				e.SendMessage(ctx, e.Err(err, "AuthSign cache get error"))
 			}
 		}
 
@@ -93,9 +85,8 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 			return
 		}
 
-		if conf.CacheStore != nil {
-			err := cacheInstance.Set(ctx, signature, signTime)
-			if err != nil {
+		if conf.Cache != nil {
+			if err := conf.Cache.Set(ctx, signature, signTime); err != nil {
 				e.SendMessage(ctx, e.Err(err, "AuthSign set cache error"))
 			}
 		}

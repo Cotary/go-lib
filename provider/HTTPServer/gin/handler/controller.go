@@ -3,17 +3,15 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
-	"github.com/Cotary/go-lib/provider/HTTPServer/gin/exporter"
-	"github.com/Cotary/go-lib/provider/HTTPServer/response"
+	"errors"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/Cotary/go-lib/cache"
 	e "github.com/Cotary/go-lib/err"
+	"github.com/Cotary/go-lib/provider/HTTPServer/gin/exporter"
 	"github.com/Cotary/go-lib/provider/HTTPServer/gin/utils"
-	"github.com/eko/gocache/lib/v4/store"
+	"github.com/Cotary/go-lib/provider/HTTPServer/response"
 	"github.com/gin-gonic/gin"
 )
 
@@ -40,15 +38,13 @@ func C(wrapper HandlerFuncWrapper) gin.HandlerFunc {
 
 type ServiceFuncWrapper[T any, R any] func(c *gin.Context, req T) (resp R, err error)
 
-type ControllerOptions struct {
-	CacheStore  store.StoreInterface
-	CacheExpire time.Duration
+type ControllerOptions[R any] struct {
+	Cache cache.Cache[R]
 }
 
-func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOptions) gin.HandlerFunc {
+func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOptions[R]) gin.HandlerFunc {
 	return C(func(c *gin.Context) (any, error) {
-
-		option := ControllerOptions{}
+		var option ControllerOptions[R]
 		if len(options) > 0 {
 			option = options[0]
 		}
@@ -56,52 +52,41 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOpt
 		ctx := c.Request.Context()
 		req := new(T)
 
-		//reload body
 		bodyBytes, err := utils.GetRequestBody(c)
 		if err != nil {
 			return nil, e.Err(err)
 		}
 
-		//bind
 		if err = c.ShouldBind(req); err != nil {
 			return nil, e.NewHttpErr(e.ParamErr, err).SetData(err.Error())
 		}
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
-		//cache
-		var cacheInstance cache.Cache[R]
-		var reqJson []byte
-		if option.CacheExpire > 0 {
-			reqJson, err = json.Marshal(*req)
+		var cacheKey string
+		if option.Cache != nil {
+			reqJson, err := json.Marshal(*req)
 			if err != nil {
 				e.SendMessage(ctx, e.Err(err, "request cache marshal error"))
-			}
-			prefix := fmt.Sprintf("Request-%s", c.Request.URL.Path)
-			cacheInstance = cache.StoreInstance[R](
-				cache.Config[R]{
-					Prefix: prefix,
-					Expire: option.CacheExpire,
-				},
-				option.CacheStore)
-
-			resp, err := cacheInstance.Get(ctx, string(reqJson))
-			if err != nil {
-				if err.Error() != store.NOT_FOUND_ERR {
+			} else {
+				cacheKey = c.Request.URL.Path + ":" + string(reqJson)
+				resp, err := option.Cache.Get(ctx, cacheKey)
+				if err == nil {
+					return resp, nil
+				}
+				if !errors.Is(err, cache.ErrNotFound) {
 					e.SendMessage(ctx, e.Err(err, "request cache get error"))
 				}
-			} else {
-				return resp, nil
 			}
 		}
-		//logic
+
 		resp, err := wrapper(c, *req)
 		if err != nil {
 			return nil, err
 		}
-		if option.CacheExpire > 0 {
-			err = cacheInstance.Set(ctx, string(reqJson), resp)
-			if err != nil {
-				e.SendMessage(ctx, e.Err(err, "request set cache error"))
+
+		if option.Cache != nil && cacheKey != "" {
+			if setErr := option.Cache.Set(ctx, cacheKey, resp); setErr != nil {
+				e.SendMessage(ctx, e.Err(setErr, "request set cache error"))
 			}
 		}
 

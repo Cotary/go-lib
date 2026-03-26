@@ -8,9 +8,6 @@ import (
 	"github.com/Cotary/go-lib/cache"
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
-	"github.com/eko/gocache/lib/v4/store"
-	gocache_store "github.com/eko/gocache/store/go_cache/v4"
-	gocache "github.com/patrickmn/go-cache"
 )
 
 type LarkSender struct {
@@ -20,7 +17,6 @@ type LarkSender struct {
 	robot          *LarkRobot
 	cacheInst      cache.Cache[bool]
 	language       string
-	cacheStore     store.StoreInterface
 	cacheExpireSec int
 }
 
@@ -87,27 +83,19 @@ func NewLarkSender(robotPath, secret string, atList []string) *LarkSender {
 
 // initCache 初始化缓存实例
 func (s *LarkSender) initCache() {
-	// 如果过期时间为 0，关闭缓存功能
 	if s.cacheExpireSec == 0 {
 		s.cacheInst = nil
 		return
 	}
 
-	// 确定缓存存储，如果为 nil 则使用默认的内存缓存
-	storeInstance := s.cacheStore
-	if storeInstance == nil {
-		gocacheClient := gocache.New(5*time.Minute, 10*time.Minute)
-		storeInstance = gocache_store.NewGoCache(gocacheClient)
+	c, err := cache.NewMemory[bool](cache.MemoryConfig{
+		MaxSize:    10000,
+		DefaultTTL: time.Duration(s.cacheExpireSec) * time.Second,
+	})
+	if err != nil {
+		return
 	}
-
-	// 初始化缓存
-	s.cacheInst = cache.StoreInstance[bool](
-		cache.Config[bool]{
-			Prefix: "lark_message",
-			Expire: time.Duration(s.cacheExpireSec) * time.Second,
-		},
-		storeInstance,
-	)
+	s.cacheInst = c
 }
 
 // SetCacheExpire 设置缓存过期时间（秒），如果设置为 0 则关闭缓存功能
