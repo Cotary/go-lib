@@ -76,7 +76,7 @@ func genMsg(language string, title string, zMap *utils.OrderedMap[string, string
 
 	// 处理键值对：每对键值在同一行，左右排列
 	if zMap != nil {
-		zMap.Each(func(p utils.Pair[string, string]) {
+		zMap.Each(func(p utils.Pair[string, string]) bool {
 			key := p.Key
 			value := p.Value
 			if key == "" {
@@ -85,11 +85,11 @@ func genMsg(language string, title string, zMap *utils.OrderedMap[string, string
 			if value == "" {
 				value = " "
 			}
-			// 键值对在同一行，左右排列
 			messageContent = append(messageContent, []content{
 				{Tag: "text", Text: key + ": "},
 				{Tag: "text", Text: value},
 			})
+			return true
 		})
 	}
 

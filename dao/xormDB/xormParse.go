@@ -1,6 +1,6 @@
 // Deprecated: 本文件为兼容 XORM 的 FromDB/ToDB 接口而保留。
 // 如已全面迁移到 GORM，建议使用 GORM 原生的 datatypes 或 pgtype 替代。
-package pgsql
+package xormDB
 
 import "github.com/lib/pq"
 

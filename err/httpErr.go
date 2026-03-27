@@ -76,15 +76,14 @@ type HttpErr struct {
 }
 
 func NewHttpErr(codeErr *CodeErr, errs ...error) *HttpErr {
-	err := errors.New("") //补充堆栈信息
-	if len(errs) > 0 {
-		err = errs[0]
+	var err error
+	if len(errs) > 0 && errs[0] != nil {
+		err = Err(errs[0])
 	}
 	return &HttpErr{
 		CodeErr: codeErr,
-		Err:     Err(err),
+		Err:     err,
 	}
-
 }
 
 func (t *HttpErr) Error() string {

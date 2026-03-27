@@ -78,8 +78,7 @@ func (c *Connect) watchDisconnect(ctx context.Context) {
 			}
 		}
 
-		// 重新创建一个 NotifyClose 通道，确保每次只消费本次连接的关闭事件
-		closeErrCh := make(chan *amqp091.Error)
+		closeErrCh := make(chan *amqp091.Error, 1)
 		conn.NotifyClose(closeErrCh)
 
 		select {
@@ -95,7 +94,7 @@ func (c *Connect) watchDisconnect(ctx context.Context) {
 			}
 		}
 
-		// 针对网络抖动或服务器断开，启动带退避的重连
+		attempt := 0
 		for {
 			select {
 			case <-c.closeCh:
@@ -105,7 +104,8 @@ func (c *Connect) watchDisconnect(ctx context.Context) {
 			if err := c.reconnect(); err == nil {
 				break
 			}
-			time.Sleep(5 * time.Second)
+			time.Sleep(backoff(attempt))
+			attempt++
 		}
 		// 重连成功之后，回到外层循环，重新注册 NotifyClose
 	}
@@ -116,33 +116,35 @@ func (c *Connect) reconnect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.pool != nil {
-		close(c.pool)
-		for ch := range c.pool {
-			ch.Close()
-		}
-		c.pool = nil
-	}
+	drainPool(c.pool)
+	c.pool = nil
 
-	tlsCfg := tls.Config{}
-	if c.cfg.CA != "" {
-		caPEM, err := os.ReadFile(c.cfg.CA)
-		if err != nil {
-			return fmt.Errorf("read CA: %w", err)
-		}
-		tlsCfg.RootCAs = x509.NewCertPool()
-		tlsCfg.RootCAs.AppendCertsFromPEM(caPEM)
+	if c.conn != nil && !c.conn.IsClosed() {
+		c.conn.Close()
 	}
-	if c.cfg.CertFile != "" && c.cfg.KeyFile != "" {
-		cert, err := tls.LoadX509KeyPair(c.cfg.CertFile, c.cfg.KeyFile)
-		if err != nil {
-			return fmt.Errorf("load client cert: %w", err)
-		}
-		tlsCfg.Certificates = []tls.Certificate{cert}
-	}
+	c.conn = nil
+
 	amqpCfg := amqp091.Config{
-		TLSClientConfig: &tlsCfg,
-		Heartbeat:       time.Duration(c.cfg.Heartbeat) * time.Second,
+		Heartbeat: time.Duration(c.cfg.Heartbeat) * time.Second,
+	}
+	if c.cfg.CA != "" || (c.cfg.CertFile != "" && c.cfg.KeyFile != "") {
+		tlsCfg := &tls.Config{}
+		if c.cfg.CA != "" {
+			caPEM, err := os.ReadFile(c.cfg.CA)
+			if err != nil {
+				return fmt.Errorf("read CA: %w", err)
+			}
+			tlsCfg.RootCAs = x509.NewCertPool()
+			tlsCfg.RootCAs.AppendCertsFromPEM(caPEM)
+		}
+		if c.cfg.CertFile != "" && c.cfg.KeyFile != "" {
+			cert, err := tls.LoadX509KeyPair(c.cfg.CertFile, c.cfg.KeyFile)
+			if err != nil {
+				return fmt.Errorf("load client cert: %w", err)
+			}
+			tlsCfg.Certificates = []tls.Certificate{cert}
+		}
+		amqpCfg.TLSClientConfig = tlsCfg
 	}
 
 	var lastErr error
@@ -159,13 +161,6 @@ func (c *Connect) reconnect() error {
 	}
 
 	c.pool = make(chan *amqp091.Channel, c.cfg.MaxChannel)
-	for i := 0; i < c.cfg.MaxChannel; i++ {
-		ch, err := c.conn.Channel()
-		if err != nil {
-			return fmt.Errorf("create channel[%d]: %w", i, err)
-		}
-		c.pool <- ch
-	}
 	return nil
 }
 
@@ -173,6 +168,7 @@ func (c *Connect) reconnect() error {
 func (c *Connect) GetCh() (*amqp091.Channel, error) {
 	c.mu.Lock()
 	conn := c.conn
+	pool := c.pool
 	c.mu.Unlock()
 	if conn == nil || conn.IsClosed() {
 		return nil, errors.New("rabbitmq connection is closed")
@@ -180,14 +176,10 @@ func (c *Connect) GetCh() (*amqp091.Channel, error) {
 
 	for {
 		select {
-		case ch, ok := <-c.pool:
-			if !ok { // pool 已关闭
-				return conn.Channel()
-			}
+		case ch := <-pool:
 			if ch != nil && !ch.IsClosed() {
 				return ch, nil
 			}
-			// 否则丢弃，继续 loop
 		default:
 			return conn.Channel()
 		}
@@ -199,17 +191,22 @@ func (c *Connect) PutCh(ch *amqp091.Channel) {
 	if ch == nil || ch.IsClosed() {
 		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			_ = ch.Close()
+		}
+	}()
 	c.mu.Lock()
 	pool := c.pool
 	c.mu.Unlock()
 	if pool == nil {
-		ch.Close()
+		_ = ch.Close()
 		return
 	}
 	select {
 	case pool <- ch:
 	default:
-		ch.Close()
+		_ = ch.Close()
 	}
 }
 
@@ -218,16 +215,36 @@ func (c *Connect) Close() {
 		close(c.closeCh)
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		if c.pool != nil {
-			close(c.pool)
-			for ch := range c.pool {
-				ch.Close()
-			}
-			c.pool = nil
-		}
+		drainPool(c.pool)
+		c.pool = nil
 		if c.conn != nil && !c.conn.IsClosed() {
-			c.conn.Close() //只能关闭一次
+			c.conn.Close()
 			c.conn = nil
 		}
 	})
+}
+
+func drainPool(pool chan *amqp091.Channel) {
+	if pool == nil {
+		return
+	}
+	for {
+		select {
+		case ch := <-pool:
+			if ch != nil {
+				_ = ch.Close()
+			}
+		default:
+			return
+		}
+	}
+}
+
+func backoff(attempt int) time.Duration {
+	d := time.Duration(1<<uint(attempt)) * time.Second
+	const maxBackoff = 60 * time.Second
+	if d > maxBackoff {
+		d = maxBackoff
+	}
+	return d
 }

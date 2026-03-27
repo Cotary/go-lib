@@ -2,8 +2,6 @@ package e
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -68,6 +66,11 @@ func GetErrMessage(err error, stopAtFirstStack bool) string {
 		e = unwrapper.Unwrap()
 	}
 
+	errMsgs := make([]string, len(stackList))
+	for i, e := range stackList {
+		errMsgs[i] = e.Error()
+	}
+
 	var sb strings.Builder
 	sb.WriteString("\n")
 
@@ -77,13 +80,12 @@ func GetErrMessage(err error, stopAtFirstStack bool) string {
 		sErr, hasStack := e.(stackTracer)
 
 		// 如果和上一个错误消息一致且无 stack，则跳过打印该行
-		isSameAsPrev := i > 0 && e.Error() == stackList[i-1].Error()
-		if isSameAsPrev && !hasStack {
+		if i > 0 && errMsgs[i] == errMsgs[i-1] && !hasStack {
 			continue
 		}
 
 		// 2. 打印错误消息
-		sb.WriteString(fmt.Sprintf("[%d]: %s\n", i+1, e.Error()))
+		sb.WriteString(fmt.Sprintf("[%d]: %s\n", i+1, errMsgs[i]))
 
 		// 3. 处理堆栈打印
 		if hasStack {
@@ -113,34 +115,4 @@ func GetErrMessage(err error, stopAtFirstStack bool) string {
 	}
 
 	return sb.String()
-}
-func formatFilePath(file string) string {
-	wd, err := os.Getwd()
-	if err != nil {
-		return file
-	}
-
-	// 将工作目录和文件路径都转为统一的正斜杠分隔格式
-	normalizedWD := filepath.ToSlash(wd)
-	normalizedFile := filepath.ToSlash(file)
-	// 获取项目目录名称
-	projectDirName := filepath.Base(normalizedWD)
-
-	// 如果文件路径以当前工作目录开头，则返回形如 "项目目录/后续路径"
-	if strings.HasPrefix(normalizedFile, normalizedWD) {
-		relPath := strings.TrimPrefix(normalizedFile, normalizedWD)
-		relPath = strings.TrimLeft(relPath, "/")
-		return fmt.Sprintf("%s/%s", projectDirName, relPath)
-	}
-
-	parts := strings.Split(normalizedFile, "/")
-	n := len(parts)
-	var offset int
-
-	if n >= 8 {
-		offset = 3
-	} else if n >= 1 {
-		offset = 1
-	}
-	return strings.Join(parts[offset:], "/")
 }

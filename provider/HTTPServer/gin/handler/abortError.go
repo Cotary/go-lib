@@ -16,10 +16,8 @@ func AbortWithError(c *gin.Context, err error) {
 
 func HTTPErrHandler(ctx context.Context, err error) *e.HttpErr {
 	httpErr := e.AsHttpErr(err)
-	if httpErr != nil {
-		if httpErr.Level <= e.WarnLevel {
-			e.SendMessage(ctx, err)
-		}
+	if httpErr.Level <= e.WarnLevel {
+		e.SendMessage(ctx, err)
 	}
 	return httpErr
 }

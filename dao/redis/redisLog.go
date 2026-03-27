@@ -3,33 +3,36 @@ package redis
 import (
 	"context"
 	"fmt"
-	"github.com/Cotary/go-lib/log"
-	"github.com/redis/go-redis/v9"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/Cotary/go-lib/log"
+	"github.com/redis/go-redis/v9"
 )
 
 type LogHook struct{}
 
-// DialHook：连接建立时触发
 func (LogHook) DialHook(next redis.DialHook) redis.DialHook {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		start := time.Now()
 		conn, err := next(ctx, network, addr)
-		log.WithContext(ctx).WithFields(map[string]interface{}{
+		fields := map[string]interface{}{
 			"event":   "redis_dial",
 			"network": network,
 			"addr":    addr,
 			"cost_ms": time.Since(start).Milliseconds(),
-			"error":   err,
-		}).Info("Redis Dial")
-
+		}
+		entry := log.WithContext(ctx).WithFields(fields)
+		if err != nil {
+			entry.WithField("error", err).Error("Redis Dial failed")
+		} else {
+			entry.Info("Redis Dial")
+		}
 		return conn, err
 	}
 }
 
-// ProcessHook：单条命令执行时触发
 func (LogHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 	return func(ctx context.Context, cmd redis.Cmder) error {
 		start := time.Now()
@@ -41,25 +44,27 @@ func (LogHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 		cmdStr := strings.Join(parts, " ")
 		err := next(ctx, cmd)
 
-		log.WithContext(ctx).WithFields(map[string]interface{}{
+		fields := map[string]interface{}{
 			"event":   "redis_cmd",
 			"command": cmd.Name(),
 			"args":    parts[1:],
 			"raw":     cmdStr,
 			"cost_ms": time.Since(start).Milliseconds(),
-			"error":   err,
-		}).Info("Redis command")
-
+		}
+		entry := log.WithContext(ctx).WithFields(fields)
+		if err != nil {
+			entry.WithField("error", err).Error("Redis command failed")
+		} else {
+			entry.Info("Redis command")
+		}
 		return err
 	}
 }
 
-// ProcessPipelineHook：Pipeline 批量命令执行时触发
 func (LogHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
 	return func(ctx context.Context, cmds []redis.Cmder) error {
 		start := time.Now()
 
-		// 收集 pipeline 命令
 		cmdList := make([]string, len(cmds))
 		for i, cmd := range cmds {
 			args := cmd.Args()
@@ -70,14 +75,19 @@ func (LogHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.Process
 			cmdList[i] = strings.Join(parts, " ")
 		}
 		err := next(ctx, cmds)
-		log.WithContext(ctx).WithFields(map[string]interface{}{
+
+		fields := map[string]interface{}{
 			"event":     "redis_pipeline",
 			"cmd_count": len(cmds),
 			"commands":  cmdList,
 			"cost_ms":   time.Since(start).Milliseconds(),
-			"error":     err,
-		}).Info("Redis pipeline")
-
+		}
+		entry := log.WithContext(ctx).WithFields(fields)
+		if err != nil {
+			entry.WithField("error", err).Error("Redis pipeline failed")
+		} else {
+			entry.Info("Redis pipeline")
+		}
 		return err
 	}
 }

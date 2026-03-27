@@ -49,16 +49,9 @@ func (s *LarkSender) Send(ctx context.Context, title string, zMap *utils.Ordered
 
 // generateCacheKey 生成缓存键，基于消息内容
 func (s *LarkSender) generateCacheKey(title string, zMap *utils.OrderedMap[string, string]) string {
-	// 构建缓存键：title + zMap 的 JSON 序列化
 	keyData := map[string]interface{}{
-		"title": title,
-	}
-	if zMap != nil {
-		content := make(map[string]string)
-		zMap.Each(func(p utils.Pair[string, string]) {
-			content[p.Key] = p.Value
-		})
-		keyData["content"] = content
+		"title":   title,
+		"content": zMap,
 	}
 	keyBytes, _ := json.Marshal(keyData)
 	return utils.MD5Sum(string(keyBytes))

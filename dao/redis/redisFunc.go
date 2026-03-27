@@ -2,11 +2,11 @@ package redis
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"github.com/pkg/errors"
-	"github.com/redis/go-redis/v9"
-	"strings"
 	"sync"
+
+	"github.com/redis/go-redis/v9"
 )
 
 func DbErr(err error) error {
@@ -16,7 +16,6 @@ func DbErr(err error) error {
 	return err
 }
 
-// ScanKeys 扫描单机或集群 keys
 func (t Client) ScanKeys(ctx context.Context, prefix string) ([]string, error) {
 	switch c := t.UniversalClient.(type) {
 	case *redis.ClusterClient:
@@ -49,16 +48,7 @@ func scanClusterKeys(
 	errChan := make(chan error, 1)
 
 	sem := make(chan struct{}, 10)
-	err := cluster.ForEachShard(ctx, func(ctx context.Context, shard *redis.Client) error {
-		// 只扫描主节点
-		info, err := shard.Info(ctx, "replication").Result()
-		if err != nil {
-			return err
-		}
-		if strings.Contains(info, "role:slave") {
-			return nil
-		}
-
+	err := cluster.ForEachMaster(ctx, func(ctx context.Context, shard *redis.Client) error {
 		sem <- struct{}{}
 		wg.Add(1)
 		go func() {
@@ -67,6 +57,14 @@ func scanClusterKeys(
 
 			var cursor uint64
 			for {
+				if err := ctx.Err(); err != nil {
+					select {
+					case errChan <- fmt.Errorf("context cancelled: %w", err):
+					default:
+					}
+					return
+				}
+
 				keysBatch, nextCursor, err := shard.Scan(ctx, cursor, matchPattern, 1000).Result()
 				if err != nil {
 					select {
@@ -110,6 +108,10 @@ func scanKeys(
 	var cursor uint64
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("context cancelled: %w", err)
+		}
+
 		keysBatch, nextCursor, err := scanFunc(cursor)
 		if err != nil {
 			return nil, fmt.Errorf("scan error: %w", err)

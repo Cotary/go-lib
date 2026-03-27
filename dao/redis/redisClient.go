@@ -11,30 +11,37 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const defaultTLSVersion = tls.VersionTLS12
+const (
+	defaultTLSVersion   = tls.VersionTLS12
+	defaultReadTimeout  = 3 * time.Second
+	defaultWriteTimeout = 3 * time.Second
+	defaultPoolSize     = 20
+)
 
 type Config struct {
-	Host       string   `mapstructure:"host" yaml:"host"`   // 单机模式主机
-	Port       string   `mapstructure:"port" yaml:"port"`   // 单机模式端口
-	Nodes      []string `mapstructure:"nodes" yaml:"nodes"` // 集群模式节点列表（host:port）
-	Username   string   `mapstructure:"userName" yaml:"userName"`
-	Auth       string   `mapstructure:"auth" yaml:"auth"`
-	DB         int      `mapstructure:"db" yaml:"db"`
-	PoolSize   int      `mapstructure:"poolSize" yaml:"poolSize"`
-	Encryption uint8    `mapstructure:"encryption" yaml:"encryption"`
-	Framework  string   `mapstructure:"framework" yaml:"framework"` // "standalone" / "cluster"，不填默认单机
-	Prefix     string   `mapstructure:"prefix" yaml:"prefix"`
-	Tls        bool     `mapstructure:"tls" yaml:"tls"`
-	MinVersion uint16   `mapstructure:"minVersion" yaml:"minVersion"`
+	Host         string   `mapstructure:"host" yaml:"host"`
+	Port         string   `mapstructure:"port" yaml:"port"`
+	Nodes        []string `mapstructure:"nodes" yaml:"nodes"`
+	Username     string   `mapstructure:"userName" yaml:"userName"`
+	Auth         string   `mapstructure:"auth" yaml:"auth"`
+	DB           int      `mapstructure:"db" yaml:"db"`
+	PoolSize     int      `mapstructure:"poolSize" yaml:"poolSize"`         // 连接池大小，0 时使用默认值 20
+	Encryption   uint8    `mapstructure:"encryption" yaml:"encryption"`     // 1=MD5 密码
+	Framework    string   `mapstructure:"framework" yaml:"framework"`       // "standalone"(默认) / "cluster"
+	Prefix       string   `mapstructure:"prefix" yaml:"prefix"`             // key 前缀
+	Tls          bool     `mapstructure:"tls" yaml:"tls"`                   // 是否启用 TLS
+	MinVersion   uint16   `mapstructure:"minVersion" yaml:"minVersion"`     // TLS 最低版本，默认 TLS1.2
+	ReadTimeout  int64    `mapstructure:"readTimeout" yaml:"readTimeout"`   // 读超时(ms)，默认 3000
+	WriteTimeout int64    `mapstructure:"writeTimeout" yaml:"writeTimeout"` // 写超时(ms)，默认 3000
 }
 
 type Client struct {
 	redis.UniversalClient
-	Config
+	config Config
 }
 
 func (t Client) Key(key string) string {
-	return fmt.Sprintf("%s%s", t.Config.Prefix, key)
+	return fmt.Sprintf("%s%s", t.config.Prefix, key)
 }
 
 func (t Client) Close() error {
@@ -65,15 +72,16 @@ func NewRedis(config *Config) (client Client, err error) {
 func createClusterClient(config *Config, auth string) (Client, error) {
 	var addrArr []string
 	if len(config.Nodes) == 0 {
-		// 如果没配置 Nodes，就用 Host+Port
 		addrArr = []string{normalizeAddr(config.Host, config.Port)}
 	} else {
 		addrArr = normalizeAddrs(config.Nodes)
 	}
 	clusterOptions := &redis.ClusterOptions{
-		Addrs:       addrArr,
-		PoolSize:    config.PoolSize,
-		DialTimeout: 10 * time.Second,
+		Addrs:        addrArr,
+		PoolSize:     poolSize(config.PoolSize),
+		DialTimeout:  10 * time.Second,
+		ReadTimeout:  duration(config.ReadTimeout, defaultReadTimeout),
+		WriteTimeout: duration(config.WriteTimeout, defaultWriteTimeout),
 	}
 
 	if auth != "" {
@@ -82,7 +90,7 @@ func createClusterClient(config *Config, auth string) (Client, error) {
 	}
 
 	if config.Tls {
-		setTLSConfig(clusterOptions.TLSConfig, config.MinVersion)
+		clusterOptions.TLSConfig = newTLSConfig(config.MinVersion)
 	}
 
 	clusterClient := redis.NewClusterClient(clusterOptions)
@@ -92,16 +100,18 @@ func createClusterClient(config *Config, auth string) (Client, error) {
 
 	return Client{
 		UniversalClient: clusterClient,
-		Config:          *config,
+		config:          *config,
 	}, nil
 }
 
 func createStandaloneClient(config *Config, auth string) (Client, error) {
 	addr := normalizeAddr(config.Host, config.Port)
 	options := &redis.Options{
-		Addr:     addr,
-		PoolSize: config.PoolSize,
-		DB:       config.DB,
+		Addr:         addr,
+		PoolSize:     poolSize(config.PoolSize),
+		DB:           config.DB,
+		ReadTimeout:  duration(config.ReadTimeout, defaultReadTimeout),
+		WriteTimeout: duration(config.WriteTimeout, defaultWriteTimeout),
 	}
 
 	if auth != "" {
@@ -110,7 +120,7 @@ func createStandaloneClient(config *Config, auth string) (Client, error) {
 	}
 
 	if config.Tls {
-		setTLSConfig(options.TLSConfig, config.MinVersion)
+		options.TLSConfig = newTLSConfig(config.MinVersion)
 	}
 
 	client := redis.NewClient(options)
@@ -120,15 +130,31 @@ func createStandaloneClient(config *Config, auth string) (Client, error) {
 
 	return Client{
 		UniversalClient: client,
-		Config:          *config,
+		config:          *config,
 	}, nil
 }
 
-func setTLSConfig(tlsConfig *tls.Config, minVersion uint16) {
+func newTLSConfig(minVersion uint16) *tls.Config {
 	if minVersion == 0 {
 		minVersion = defaultTLSVersion
 	}
-	tlsConfig.MinVersion = minVersion
+	return &tls.Config{
+		MinVersion: minVersion,
+	}
+}
+
+func poolSize(size int) int {
+	if size <= 0 {
+		return defaultPoolSize
+	}
+	return size
+}
+
+func duration(ms int64, defaultVal time.Duration) time.Duration {
+	if ms <= 0 {
+		return defaultVal
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 func normalizeAddr(host, port string) string {

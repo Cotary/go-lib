@@ -57,11 +57,12 @@ func (s *TGSender) buildMessage(title string, zMap *utils.OrderedMap[string, str
 	builder.WriteString("***\n\n")
 
 	if zMap != nil {
-		zMap.Each(func(p utils.Pair[string, string]) {
+		zMap.Each(func(p utils.Pair[string, string]) bool {
 			builder.WriteString(utils.EscapeMarkdownV2(p.Key))
 			builder.WriteString(": ")
 			builder.WriteString(utils.EscapeMarkdownV2(p.Value))
 			builder.WriteString("\n")
+			return true
 		})
 	}
 
@@ -70,17 +71,10 @@ func (s *TGSender) buildMessage(title string, zMap *utils.OrderedMap[string, str
 
 // generateCacheKey 生成缓存键，基于消息内容
 func (s *TGSender) generateCacheKey(title string, zMap *utils.OrderedMap[string, string]) string {
-	// 构建缓存键：title + zMap 的 JSON 序列化
 	keyData := map[string]interface{}{
 		"title":   title,
 		"chat_id": s.GroupChatID,
-	}
-	if zMap != nil {
-		content := make(map[string]string)
-		zMap.Each(func(p utils.Pair[string, string]) {
-			content[p.Key] = p.Value
-		})
-		keyData["content"] = content
+		"content": zMap,
 	}
 	keyBytes, _ := json.Marshal(keyData)
 	return utils.MD5Sum(string(keyBytes))

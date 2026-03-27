@@ -1,4 +1,4 @@
-package pgsql
+package gormDB
 
 import (
 	"strings"

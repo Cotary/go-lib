@@ -7,7 +7,7 @@
 ### 初始化
 
 ```go
-import "github.com/Cotary/go-lib/dao/pgsql"
+import "github.com/Cotary/go-lib/dao/gormDB"
 
 config := &pgsql.GormConfig{
     Driver:      "postgres",                             // 支持: postgres, mysql, sqlite
