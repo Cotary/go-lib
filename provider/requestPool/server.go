@@ -7,6 +7,7 @@ import (
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	http2 "github.com/Cotary/go-lib/net/http"
+	"github.com/Cotary/go-lib/notify"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/tidwall/gjson"
@@ -261,7 +262,7 @@ func (p *Pool) CheckStatus(ctx context.Context) {
 			}
 
 			if noSuccess {
-				e.SendMessage(ctx, errors.New("all url no success: "+pointInfoStr))
+				notify.SendErrMessage(ctx, errors.New("all url no success: "+pointInfoStr))
 			}
 			fmt.Println(pointInfoStr)
 			p.mu.Unlock()
@@ -418,7 +419,7 @@ func (r routines) handleErrorRequest(req Request, err error) {
 	}
 
 	if req.errorNum > 20 && req.errorNum%20 == 0 {
-		e.SendMessage(coroutines.NewContext("Error Request"),
+		notify.SendErrMessage(coroutines.NewContext("Error Request"),
 			errors.New(fmt.Sprintf("ErrorNumBigErr:%d,url:%s ,path:%s,body:%v,lastError:%v", req.errorNum, r.point.Url, req.Path, req.Body, req.Error)))
 	}
 

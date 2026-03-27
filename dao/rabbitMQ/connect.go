@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Cotary/go-lib/common/coroutines"
-	e "github.com/Cotary/go-lib/err"
+	"github.com/Cotary/go-lib/notify"
 	"os"
 	"sync"
 	"time"
@@ -90,7 +90,7 @@ func (c *Connect) watchDisconnect(ctx context.Context) {
 				return
 			}
 			if err != nil {
-				e.SendMessage(ctx, err)
+				notify.SendErrMessage(ctx, err)
 			}
 		}
 

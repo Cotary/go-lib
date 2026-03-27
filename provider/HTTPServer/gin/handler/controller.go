@@ -9,6 +9,7 @@ import (
 
 	"github.com/Cotary/go-lib/cache"
 	e "github.com/Cotary/go-lib/err"
+	"github.com/Cotary/go-lib/notify"
 	"github.com/Cotary/go-lib/provider/HTTPServer/gin/exporter"
 	"github.com/Cotary/go-lib/provider/HTTPServer/gin/utils"
 	"github.com/Cotary/go-lib/provider/HTTPServer/response"
@@ -66,7 +67,7 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOpt
 		if option.Cache != nil {
 			reqJson, err := json.Marshal(*req)
 			if err != nil {
-				e.SendMessage(ctx, e.Err(err, "request cache marshal error"))
+				notify.SendErrMessage(ctx, e.Err(err, "request cache marshal error"))
 			} else {
 				cacheKey = c.Request.URL.Path + ":" + string(reqJson)
 				resp, err := option.Cache.Get(ctx, cacheKey)
@@ -74,7 +75,7 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOpt
 					return resp, nil
 				}
 				if !errors.Is(err, cache.ErrNotFound) {
-					e.SendMessage(ctx, e.Err(err, "request cache get error"))
+					notify.SendErrMessage(ctx, e.Err(err, "request cache get error"))
 				}
 			}
 		}
@@ -86,7 +87,7 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOpt
 
 		if option.Cache != nil && cacheKey != "" {
 			if setErr := option.Cache.Set(ctx, cacheKey, resp); setErr != nil {
-				e.SendMessage(ctx, e.Err(setErr, "request set cache error"))
+				notify.SendErrMessage(ctx, e.Err(setErr, "request set cache error"))
 			}
 		}
 

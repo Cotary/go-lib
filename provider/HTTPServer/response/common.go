@@ -3,7 +3,7 @@ package response
 import (
 	"fmt"
 
-	"github.com/Cotary/go-lib"
+	"github.com/Cotary/go-lib/common/appctx"
 	"github.com/Cotary/go-lib/common/defined"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/pkg/errors"
@@ -34,7 +34,7 @@ func Error(err error) *Response {
 	}
 
 	msg := standardErr.Error()
-	if lib.Env == defined.TEST && standardErr.Err != nil && standardErr.Err.Error() != "" {
+	if appctx.Env() == defined.TEST && standardErr.Err != nil && standardErr.Err.Error() != "" {
 		msg = fmt.Sprintf("%s: %s", standardErr.Error(), standardErr.Err.Error())
 	}
 

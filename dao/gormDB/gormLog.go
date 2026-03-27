@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Cotary/go-lib"
+	"github.com/Cotary/go-lib/common/appctx"
 	"github.com/Cotary/go-lib/common/defined"
 	utils2 "github.com/Cotary/go-lib/common/utils"
 	"github.com/Cotary/go-lib/log"
@@ -177,8 +177,8 @@ func sendMessage(ctx context.Context, sender message.Sender, msg string) {
 	if sender == nil {
 		return
 	}
-	env := lib.Env
-	serverName := lib.ServerName
+	env := appctx.Env()
+	serverName := appctx.ServerName()
 	requestID, _ := ctx.Value(defined.RequestID).(string)
 	requestUri, _ := ctx.Value(defined.RequestURI).(string)
 	requestJson, _ := ctx.Value(defined.RequestBodyJson).(string)

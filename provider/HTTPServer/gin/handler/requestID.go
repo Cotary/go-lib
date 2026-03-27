@@ -3,7 +3,8 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"github.com/Cotary/go-lib"
+
+	"github.com/Cotary/go-lib/common/appctx"
 	"github.com/Cotary/go-lib/common/defined"
 	"github.com/Cotary/go-lib/provider/HTTPServer/gin/utils"
 	"github.com/gin-gonic/gin"
@@ -17,8 +18,8 @@ func RequestIDMiddleware() gin.HandlerFunc {
 		xRequestID := uuid.NewString()
 		c.Writer.Header().Set(defined.RequestID, xRequestID)
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), defined.RequestID, xRequestID))
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), defined.ServerName, lib.ServerName))
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), defined.ENV, lib.Env))
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), defined.ServerName, appctx.ServerName()))
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), defined.ENV, appctx.Env()))
 
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), defined.RequestURI, c.Request.RequestURI))
 		body, err := utils.GetRequestBody(c)

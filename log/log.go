@@ -42,6 +42,7 @@ type Config struct {
 var (
 	globalLogger Logger
 	mu           sync.RWMutex
+	defaultOnce  sync.Once
 )
 
 func SetGlobalLogger(l Logger) {
@@ -174,12 +175,16 @@ func WithContext(ctx context.Context) Logger {
 	mu.RUnlock()
 
 	if l == nil {
-		mu.Lock()
-		if globalLogger == nil {
-			globalLogger = NewLogger(&Config{})
-		}
+		defaultOnce.Do(func() {
+			mu.Lock()
+			defer mu.Unlock()
+			if globalLogger == nil {
+				globalLogger = NewLogger(&Config{})
+			}
+		})
+		mu.RLock()
 		l = globalLogger
-		mu.Unlock()
+		mu.RUnlock()
 	}
 
 	fields := make(map[string]any)

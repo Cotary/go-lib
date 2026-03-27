@@ -10,6 +10,7 @@ import (
 
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
+	"github.com/Cotary/go-lib/notify"
 	"github.com/google/uuid"
 	"github.com/rabbitmq/amqp091-go"
 )
@@ -295,7 +296,7 @@ func (c *Queue) SendMessagesEvery(ctx context.Context, messages []amqp091.Publis
 		}
 
 		if err != nil {
-			e.SendMessage(ctx, err)
+			notify.SendErrMessage(ctx, err)
 		}
 		select {
 		case <-time.After(backoff(attempt)):
@@ -324,7 +325,7 @@ func (c *Queue) ConsumeMessagesEvery(ctx context.Context, consumer ConsumeHandle
 		if errors.Is(err, channelClosedErr) {
 			attempt = 0
 		} else {
-			e.SendMessage(ctx, err)
+			notify.SendErrMessage(ctx, err)
 		}
 		select {
 		case <-time.After(backoff(attempt)):
@@ -381,14 +382,14 @@ func (c *Queue) ConsumeMessages(ctx context.Context, consumer ConsumeHandler) er
 					if r := recover(); r != nil {
 						stack := debug.Stack()
 						err = fmt.Errorf("handler panic: %v\n%s", r, stack)
-						e.SendMessage(ctx, err)
+						notify.SendErrMessage(ctx, err)
 					}
 				}()
 				return consumer(ctx, d)
 			}()
 
 			if localErr != nil {
-				e.SendMessage(ctx, e.Err(localErr, "mq consume error"))
+				notify.SendErrMessage(ctx, e.Err(localErr, "mq consume error"))
 				d.RetryLater(d.MaxDelay)
 			} else {
 				d.Ack()

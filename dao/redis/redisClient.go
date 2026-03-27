@@ -33,6 +33,7 @@ type Config struct {
 	MinVersion   uint16   `mapstructure:"minVersion" yaml:"minVersion"`     // TLS 最低版本，默认 TLS1.2
 	ReadTimeout  int64    `mapstructure:"readTimeout" yaml:"readTimeout"`   // 读超时(ms)，默认 3000
 	WriteTimeout int64    `mapstructure:"writeTimeout" yaml:"writeTimeout"` // 写超时(ms)，默认 3000
+	EnableLog    bool     `mapstructure:"enableLog" yaml:"enableLog"`       // 是否记录命令日志，默认 false
 }
 
 type Client struct {
@@ -64,7 +65,9 @@ func NewRedis(config *Config) (client Client, err error) {
 		return Client{}, err
 	}
 
-	client.AddHook(LogHook{})
+	if config.EnableLog {
+		client.AddHook(LogHook{})
+	}
 
 	return client, nil
 }

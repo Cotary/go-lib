@@ -3,14 +3,15 @@ package coroutines
 import (
 	"context"
 	"fmt"
-	"github.com/Cotary/go-lib"
-	"github.com/Cotary/go-lib/common/defined"
-	e "github.com/Cotary/go-lib/err"
-	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"reflect"
 	"runtime/debug"
 	"sync"
+
+	"github.com/Cotary/go-lib/common/appctx"
+	"github.com/Cotary/go-lib/common/defined"
+	"github.com/Cotary/go-lib/notify"
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
 )
 
 func SafeGo(ctx context.Context, F func(ctx context.Context)) {
@@ -24,7 +25,7 @@ func SafeFunc(ctx context.Context, F func(ctx context.Context)) {
 		if r := recover(); r != nil {
 			msg := fmt.Sprintf("Recover: %v \n Stack: %s", r, string(debug.Stack()))
 			err := errors.New(msg)
-			e.SendMessage(ctx, err)
+			notify.SendErrMessage(ctx, err)
 		}
 	}()
 	F(ctx)
@@ -48,10 +49,10 @@ func Retry(ctx context.Context, F func(ctx context.Context) error, count ...int)
 			if err != nil {
 				retries++
 				if maxRetries >= 0 && retries > maxRetries {
-					e.SendMessage(ctx, errors.WithMessage(err, "Retry Error: Exceeded max retries"))
+					notify.SendErrMessage(ctx, errors.WithMessage(err, "Retry Error: Exceeded max retries"))
 					return err
 				}
-				e.SendMessage(ctx, errors.WithMessage(err, "Retry Error"))
+				notify.SendErrMessage(ctx, errors.WithMessage(err, "Retry Error"))
 			} else {
 				return nil
 			}
@@ -62,8 +63,8 @@ func Retry(ctx context.Context, F func(ctx context.Context) error, count ...int)
 func NewContext(contextType string) context.Context {
 	requestID := contextType + "-" + uuid.NewString()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, defined.ServerName, lib.ServerName)
-	ctx = context.WithValue(ctx, defined.ENV, lib.Env)
+	ctx = context.WithValue(ctx, defined.ServerName, appctx.ServerName())
+	ctx = context.WithValue(ctx, defined.ENV, appctx.Env())
 	ctx = context.WithValue(ctx, defined.RequestID, requestID)
 	return ctx
 }
@@ -76,7 +77,8 @@ func GetStructName(i interface{}) string {
 	return t.Name()
 }
 
-// SafeCloseChan 使用泛型安全地关闭任意类型的通道
+// Deprecated: SafeCloseChan 存在丢消息风险（会读走一条数据后才关闭），
+// 请使用 common/utils.SafeCloser 替代。
 func SafeCloseChan[T any](ch chan T) {
 	select {
 	case _, open := <-ch:
@@ -117,10 +119,11 @@ func ConcurrentProcessor[T any](ctx context.Context, limit int, items []T, proce
 	for _, item := range items {
 		select {
 		case <-ctx.Done():
-			break
+			goto done
 		case semaphore <- item:
 		}
 	}
+done:
 
 	// 关闭通道并等待所有协程完成
 	close(semaphore)

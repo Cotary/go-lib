@@ -24,7 +24,7 @@
 // 内置特性：
 //   - SingletonMode：同一任务上一次未完成时，本次调度自动跳过，不会并发执行
 //   - 超时告警：任务执行耗时超过 MaxExecuteTime 时自动发送告警
-//   - Panic Recovery：任务内 panic 会被捕获并通过 SendMessage 告警，不影响调度器
+//   - Panic Recovery：任务内 panic 会被捕获并通过 SendErrMessage 告警，不影响调度器
 //   - 错误上报：任务返回 error 时自动通过 AfterJobRunsWithError 事件上报
 package cmd
 
@@ -38,7 +38,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Cotary/go-lib/common/coroutines"
-	e "github.com/Cotary/go-lib/err"
+	"github.com/Cotary/go-lib/notify"
 )
 
 // Handler 定义一个定时任务需要实现的接口。
@@ -117,7 +117,7 @@ func (s *Scheduler) addJobLocked(id string, h Handler) error {
 		gocron.WithEventListeners(
 			gocron.AfterJobRunsWithError(func(jobID uuid.UUID, jobName string, jobErr error) {
 				ctx := coroutines.NewContext("CRON:" + jobName)
-				e.SendMessage(ctx, jobErr)
+				notify.SendErrMessage(ctx, jobErr)
 			}),
 		),
 	)
@@ -168,10 +168,10 @@ func wrapTask(id string, h Handler) func() {
 			elapsed := time.Since(start)
 
 			if err != nil {
-				e.SendMessage(ctx, err)
+				notify.SendErrMessage(ctx, err)
 			}
 			if elapsed > h.MaxExecuteTime() {
-				e.SendMessage(ctx, fmt.Errorf(
+				notify.SendErrMessage(ctx, fmt.Errorf(
 					"job %s exceeded max execute time: elapsed %s, max %s",
 					id, elapsed, h.MaxExecuteTime(),
 				))

@@ -78,11 +78,11 @@ type HttpErr struct {
 func NewHttpErr(codeErr *CodeErr, errs ...error) *HttpErr {
 	var err error
 	if len(errs) > 0 && errs[0] != nil {
-		err = Err(errs[0])
+		err = errs[0]
 	}
 	return &HttpErr{
 		CodeErr: codeErr,
-		Err:     err,
+		Err:     Err(err, codeErr.Msg),
 	}
 }
 
@@ -94,7 +94,7 @@ func (t *HttpErr) Unwrap() error {
 	return t.Err
 }
 
-func (t *HttpErr) SetData(data interface{}) error {
+func (t *HttpErr) SetData(data interface{}) *HttpErr {
 	t.Data = data
 	return t
 }

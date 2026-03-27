@@ -3,8 +3,8 @@ package handler
 import (
 	"bytes"
 	"fmt"
-	e "github.com/Cotary/go-lib/err"
 	"github.com/Cotary/go-lib/log"
+	"github.com/Cotary/go-lib/notify"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 	"net/http"
@@ -19,7 +19,7 @@ func RecoveryHandler() gin.RecoveryFunc {
 		stackByte := stack(3)
 		fullErrStr := fmt.Sprintf("%v\n%v", errStr, string(stackByte))
 		log.WithContext(ctx).Error(fullErrStr)
-		e.SendMessage(ctx, errors.New(fullErrStr))
+		notify.SendErrMessage(ctx, errors.New(fullErrStr))
 		c.Status(http.StatusInternalServerError)
 		c.Abort()
 	}

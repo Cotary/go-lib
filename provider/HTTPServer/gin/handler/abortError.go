@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	e "github.com/Cotary/go-lib/err"
+	"github.com/Cotary/go-lib/notify"
 	"github.com/Cotary/go-lib/provider/HTTPServer/response"
 	"github.com/gin-gonic/gin"
 )
@@ -17,7 +18,7 @@ func AbortWithError(c *gin.Context, err error) {
 func HTTPErrHandler(ctx context.Context, err error) *e.HttpErr {
 	httpErr := e.AsHttpErr(err)
 	if httpErr.Level <= e.WarnLevel {
-		e.SendMessage(ctx, err)
+		notify.SendErrMessage(ctx, err)
 	}
 	return httpErr
 }

@@ -1,16 +1,13 @@
 package lib
 
 import (
+	"github.com/Cotary/go-lib/common/appctx"
 	"github.com/Cotary/go-lib/log"
 	"github.com/Cotary/go-lib/provider/message"
 )
 
-var ServerName string
-var Env string
-
 func Init(serverName, env string) {
-	ServerName = serverName
-	Env = env
+	appctx.Init(serverName, env)
 }
 
 func InitLog(logger log.Logger) {

@@ -10,6 +10,7 @@ import (
 	"github.com/Cotary/go-lib/common/defined"
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
+	"github.com/Cotary/go-lib/notify"
 	"github.com/gin-gonic/gin"
 )
 
@@ -52,7 +53,7 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 				return
 			}
 			if !errors.Is(err, cache.ErrNotFound) {
-				e.SendMessage(ctx, e.Err(err, "AuthSign cache get error"))
+				notify.SendErrMessage(ctx, e.Err(err, "AuthSign cache get error"))
 			}
 		}
 
@@ -87,7 +88,7 @@ func AuthMiddleware(conf AuthConf) gin.HandlerFunc {
 
 		if conf.Cache != nil {
 			if err := conf.Cache.Set(ctx, signature, signTime); err != nil {
-				e.SendMessage(ctx, e.Err(err, "AuthSign set cache error"))
+				notify.SendErrMessage(ctx, e.Err(err, "AuthSign set cache error"))
 			}
 		}
 		c.Next()

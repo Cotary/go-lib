@@ -7,6 +7,7 @@ import (
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
 	"github.com/Cotary/go-lib/log"
+	"github.com/Cotary/go-lib/notify"
 	"github.com/pkg/errors"
 	"github.com/tidwall/gjson"
 )
@@ -40,7 +41,7 @@ func (r *Result) Log(logEntry log.Logger) *Result {
 			logEntry.WithContext(ctx).WithFields(logMap).Error("HTTP Request")
 		}
 		if r.sendErrorMsg {
-			e.SendMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
+			notify.SendErrMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
 		}
 	} else {
 		if logEntry != nil {
