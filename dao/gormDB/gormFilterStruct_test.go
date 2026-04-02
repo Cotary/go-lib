@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Cotary/go-lib/common/community"
+
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/gorm"
@@ -47,20 +48,19 @@ func buildSQL(db *gorm.DB, opts []QueryOption) (placeholder string, realSQL stri
 // --- 单字段操作符 ---
 
 type AllOpsFilter struct {
-	Eq               int64   `filter:"created_at,eq"`
-	Ne               int64   `filter:"created_at,ne"`
-	Gt               int64   `filter:"created_at,gt"`
-	Lt               int64   `filter:"created_at,lt"`
-	Ge               int64   `filter:"created_at,ge"`
-	Le               int64   `filter:"created_at,le"`
-	Like             string  `filter:"name,like"`
-	ILike            string  `filter:"description,ilike"`
-	In               []int64 `filter:"id,in"`
-	NotIn            []int64 `filter:"id,not_in"`
-	BetweenStartZero int64   `filter:"timezero,bs.1"`
-	BetweenEndZero   int64   `filter:"timezero,be.1"`
-	BetweenStart     string  `filter:"time,bs"`
-	BetweenEnd       string  `filter:"time,be"`
+	Eq         int64   `filter:"created_at,eq"`
+	Ne         int64   `filter:"created_at,ne"`
+	Gt         int64   `filter:"created_at,gt"`
+	Lt         int64   `filter:"created_at,lt"`
+	Ge         int64   `filter:"created_at,ge"`
+	Le         int64   `filter:"created_at,le"`
+	Like       string  `filter:"name,like"`
+	ILike      string  `filter:"description,ilike"`
+	In         []int64 `filter:"id,in"`
+	NotIn      []int64 `filter:"id,not_in"`
+	TimeZeroLe int64   `filter:"timezero,le"`
+	TimeGe     string  `filter:"time,ge"`
+	TimeLe     string  `filter:"time,le"`
 }
 
 func TestAllOpsFilterSQL(t *testing.T) {
@@ -70,8 +70,8 @@ func TestAllOpsFilterSQL(t *testing.T) {
 		Eq: 10, Ne: 11, Gt: 20, Lt: 30, Ge: 40, Le: 50,
 		Like: "foo", ILike: "bar",
 		In: []int64{1, 2, 3}, NotIn: []int64{4, 5},
-		BetweenEndZero: 20,
-		BetweenStart:   "30", BetweenEnd: "40",
+		TimeZeroLe: 20,
+		TimeGe:     "30", TimeLe: "40",
 	}
 	opts := BuildQueryOptions(f, nil)
 	placeholder, realSQL := buildSQL(db, opts)
@@ -89,35 +89,64 @@ func TestAllOpsFilterSQL(t *testing.T) {
 	assert.Contains(t, realSQL, `description ilike`)
 	assert.Contains(t, realSQL, `id IN`)
 	assert.Contains(t, realSQL, `id NOT IN`)
-	assert.Contains(t, realSQL, `time BETWEEN`)
+	assert.Contains(t, realSQL, `time >=`)
+	assert.Contains(t, realSQL, `time <=`)
 	assert.Contains(t, realSQL, `timezero <= 20`)
 }
 
-// --- 组合 AND/OR 操作符 ---
+// --- 多列 OR；非法操作符（含 &、|）静默跳过 ---
 
-type ComboFilter struct {
-	RangeAnd    int64 `filter:"created_at,ge&le"`
-	RangeOr     int64 `filter:"created_at,ge|le"`
-	MultiColAnd int64 `filter:"name|description,like&eq|<>"`
-	MultiColOr  int64 `filter:"name|description,like|eq"`
+type MultiColFilter struct {
+	Keyword string `filter:"name|description,like"`
+	RangeGe int64  `filter:"created_at,ge"`
+	RangeLe int64  `filter:"created_at,le"`
 }
 
-func TestComboFilterSQL(t *testing.T) {
+func TestMultiColFilterSQL(t *testing.T) {
 	db := openDryRunDB(t)
 
-	f := ComboFilter{
-		RangeAnd: 100, RangeOr: 200, MultiColAnd: 5, MultiColOr: 6,
+	f := MultiColFilter{
+		Keyword: "kw", RangeGe: 100, RangeLe: 200,
 	}
 	opts := BuildQueryOptions(f, nil)
-	placeholder, realSQL := buildSQL(db, opts)
+	_, realSQL := buildSQL(db, opts)
 
-	t.Logf("Placeholder SQL:\n%s", placeholder)
 	t.Logf("Real SQL:\n%s", realSQL)
 
-	assert.Contains(t, realSQL, `created_at >= 100`)
-	assert.Contains(t, realSQL, `created_at <= 100`)
-	assert.Contains(t, realSQL, `AND`)
+	assert.Contains(t, realSQL, `name like`)
+	assert.Contains(t, realSQL, `description like`)
 	assert.Contains(t, realSQL, `OR`)
+	assert.Contains(t, realSQL, `created_at >= 100`)
+	assert.Contains(t, realSQL, `created_at <= 200`)
+}
+
+type IllegalOpFilter struct {
+	Bad int64 `filter:"created_at,ge&le"`
+}
+
+func TestIllegalOpFilterSkipped(t *testing.T) {
+	db := openDryRunDB(t)
+	f := IllegalOpFilter{Bad: 1}
+	opts := BuildQueryOptions(f, nil)
+	_, realSQL := buildSQL(db, opts)
+	assert.NotContains(t, strings.ToLower(realSQL), "created_at")
+}
+
+func TestFilterEqMatchesBuildQueryOptions(t *testing.T) {
+	db := openDryRunDB(t)
+	_, fromTag := buildSQL(db, BuildQueryOptions(struct {
+		V int64 `filter:"created_at,eq"`
+	}{V: 42}, nil))
+	_, fromFn := buildSQL(db, []QueryOption{FilterEq(int64(42), "created_at")})
+	assert.Equal(t, fromTag, fromFn)
+}
+
+func TestFilterEqPointerZeroStillFilters(t *testing.T) {
+	db := openDryRunDB(t)
+	z := int64(0)
+	p := &z
+	_, realSQL := buildSQL(db, []QueryOption{FilterEq(p, "status")})
+	assert.Contains(t, realSQL, `status = 0`)
 }
 
 // --- 嵌套结构体 ---
@@ -205,6 +234,64 @@ func TestComplexMultiFieldOrderSQL(t *testing.T) {
 	t.Logf("Placeholder SQL:\n%s", placeholder)
 
 	assert.Contains(t, placeholder, "name,description asc")
+}
+
+// BuildQueryOptions 应固定为：Where → 分页 → Order，与结构体字段顺序无关；最终 SQL 中 ORDER BY 须在 LIMIT 之前。
+func TestBuildQueryOptions_PagingWhereOrderClauseOrder(t *testing.T) {
+	db := openDryRunDB(t)
+
+	type OrderedListReq struct {
+		Paging community.Paging
+		Order  community.Order
+		Name   string `filter:"name,like"`
+	}
+
+	bind := map[string]string{
+		"created_at": "created_at {order_type}",
+	}
+	req := OrderedListReq{
+		Paging: community.Paging{Page: 1, PageSize: 10},
+		Order:  community.Order{OrderField: "created_at", OrderType: "desc"},
+		Name:   "kw",
+	}
+
+	placeholder, _ := buildSQL(db, BuildQueryOptions(req, bind))
+	lower := strings.ToLower(placeholder)
+
+	t.Logf("Placeholder SQL: %s", placeholder)
+
+	iWhere := strings.Index(lower, "where")
+	iOrder := strings.Index(lower, "order by")
+	iLimit := strings.Index(lower, "limit")
+	assert.GreaterOrEqual(t, iWhere, 0, "expected WHERE")
+	assert.Greater(t, iOrder, iWhere, "ORDER BY should follow WHERE")
+	assert.Greater(t, iLimit, iOrder, "LIMIT should follow ORDER BY")
+}
+
+func TestBuildQueryOptions_NilPagingOrderPtrSkipped(t *testing.T) {
+	db := openDryRunDB(t)
+	type row struct {
+		Paging *community.Paging
+		Order  *community.Order
+		Name   string `filter:"name,eq"`
+	}
+	f := row{Name: "x"}
+	opts := BuildQueryOptions(f, nil)
+	_, sql := buildSQL(db, opts)
+	assert.Contains(t, sql, `name =`)
+	assert.NotContains(t, strings.ToLower(sql), "limit")
+	assert.NotContains(t, strings.ToLower(sql), "order by")
+}
+
+func TestBuildQueryOptions_PagingPtrNonNilUsesPagination(t *testing.T) {
+	db := openDryRunDB(t)
+	p := &community.Paging{Page: 1, PageSize: 7}
+	f := struct {
+		Paging *community.Paging
+	}{Paging: p}
+	opts := BuildQueryOptions(f, nil)
+	_, sql := buildSQL(db, opts)
+	assert.Contains(t, strings.ToLower(sql), "limit")
 }
 
 // --- 无效 tag 不 panic ---
@@ -327,4 +414,43 @@ func TestListTWithModelMap(t *testing.T) {
 	t.Logf("Users: %v", users)
 
 	assert.Contains(t, placeholder, "`vvv`")
+}
+
+// ---------------------------------------------------------------------------
+// nil 安全测试
+// ---------------------------------------------------------------------------
+
+func TestBuildQueryOptions_NilCriteria(t *testing.T) {
+	opts := BuildQueryOptions(nil, nil)
+	assert.Empty(t, opts)
+}
+
+func TestBuildQueryOptions_NilPointerCriteria(t *testing.T) {
+	type F struct {
+		Name string `filter:"name,eq"`
+	}
+	var p *F
+	opts := BuildQueryOptions(p, nil)
+	assert.Empty(t, opts)
+}
+
+func TestPagination_NilNoPanic(t *testing.T) {
+	db := openDryRunDB(t)
+	opt := Pagination(nil)
+	_, sql := buildSQL(db, []QueryOption{opt})
+	assert.NotContains(t, strings.ToLower(sql), "limit")
+}
+
+func TestPaging_NilNoPanic(t *testing.T) {
+	db := openDryRunDB(t)
+	opt := Paging(nil)
+	_, sql := buildSQL(db, []QueryOption{opt})
+	assert.NotContains(t, strings.ToLower(sql), "limit")
+}
+
+func TestOrder_EmptyStringNoop(t *testing.T) {
+	db := openDryRunDB(t)
+	opt := Order("")
+	_, sql := buildSQL(db, []QueryOption{opt})
+	assert.NotContains(t, strings.ToLower(sql), "order by")
 }

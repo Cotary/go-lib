@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/Cotary/go-lib/common/community"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -31,12 +32,13 @@ func Pagination(p *community.Paging) QueryOption {
 			p.Page = page
 		}
 
-		// 2. 统计总数（清除可能已有的 Limit/Offset）
-		db = db.
-			Session(&gorm.Session{}).
+		// 2. 克隆一个临时 DB 用来做 Count，不影响主 db 链
+		var total int64
+		db.Session(&gorm.Session{}).
 			Limit(-1).
-			Offset(-1).
-			Count(&p.Total)
+			Offset(-1).Count(&total)
+		p.Total = total
+
 		// 3. 如果请求全部，则不再加分页
 		if p.All {
 			return db
@@ -76,9 +78,10 @@ func Total(count *int64) QueryOption {
 }
 
 // Orders 根据 Order 结构体生成排序子句（白名单模式）。
-// bindMaps 必须提供，key 为前端传入的排序字段名，value 为实际 SQL 模板（可含 {order_type} 占位符）。
+// bindMaps 的 key 为前端传入的排序字段名，value 为实际 SQL 模板（可含 {order_type} 占位符）。
 // 只有 bindMaps 中声明的字段才允许排序，未声明的字段直接忽略。
 // 当 bindMaps 为空或未提供时，不做任何排序。
+// 若通过 BuildQueryOptions 构建且 Order 字段带 `filter:"...,order"`，白名单可在 tag 中声明，见 gormFilterStruct.go 注释。
 func Orders(o community.Order, bindMaps ...map[string]string) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		if len(bindMaps) == 0 || bindMaps[0] == nil || len(bindMaps[0]) == 0 {
@@ -129,6 +132,7 @@ func Order(order string) QueryOption {
 		return db.Order(order)
 	}
 }
+
 func Limit(n int) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Limit(n)
@@ -147,66 +151,12 @@ func ID(id int64) QueryOption {
 	}
 }
 
-func Select(fields ...string) QueryOption {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Select(fields)
-	}
-}
-
-func Group(field string) QueryOption {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Group(field)
-	}
-}
-
-func Having(query string, args ...interface{}) QueryOption {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Having(query, args...)
-	}
-}
-
-func Joins(query string, args ...interface{}) QueryOption {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Joins(query, args...)
-	}
-}
-
-func Preload(column string, conditions ...interface{}) QueryOption {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Preload(column, conditions...)
-	}
-}
-
-func Unscoped() QueryOption {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Unscoped()
-	}
-}
-
-func Count(count *int64) QueryOption {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Count(count)
-	}
-}
-
-func Distinct(fields ...string) QueryOption {
-	return func(db *gorm.DB) *gorm.DB {
-		args := make([]interface{}, len(fields))
-		for i, f := range fields {
-			args[i] = f
-		}
-		return db.Distinct(args...)
-	}
-}
-
-// ForUpdate 在查询中加 FOR UPDATE
 func ForUpdate() QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Clauses(clause.Locking{Strength: "UPDATE"})
 	}
 }
 
-// ForShare 在查询中加 FOR SHARE（共享锁）
 func ForShare() QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Clauses(clause.Locking{Strength: "SHARE"})
