@@ -11,16 +11,16 @@ import (
 // 用法：
 //
 //	opts := gormDB.Filter().
-//	    Eq(req.Status, "status").        // 零值自动跳过
-//	    Must("mchid", req.Mchid).        // 不检查零值
-//	    ILike(req.Name, "name").
-//	    Gte(req.StartTime, "created_at").
-//	    Lte(req.EndTime, "created_at").
+//	    Eq("status", req.Status).          // 零值自动跳过
+//	    Must("mchid", req.Mchid).          // 不检查零值，nil 跳过
+//	    ILike("name", req.Name).
+//	    Gte("created_at", req.StartTime).
+//	    Lte("created_at", req.EndTime).
 //	    Option(community.Pagination(paging)).  // nil 安全
 //	    Option(gormDB.Order("id DESC")).
 //	    Build()
 //
-// 所有过滤方法（Eq/Ne/Gt 等）对 nil 和零值参数自动跳过。
+// 所有过滤方法（Eq/Neq/Gt 等）对 nil 和零值参数自动跳过。
 // Option/Options 对 nil QueryOption 自动跳过。
 // ---------------------------------------------------------------------------
 
@@ -33,58 +33,69 @@ func Filter() *FilterBuilder {
 	return &FilterBuilder{}
 }
 
-func (b *FilterBuilder) Eq(val interface{}, col string) *FilterBuilder {
-	b.opts = append(b.opts, filterQueryOption(col, "eq", val))
+// Eq 等值（=），val 为零值时自动跳过。
+func (b *FilterBuilder) Eq(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, filterQueryOption(col, "=", val))
 	return b
 }
 
-func (b *FilterBuilder) Ne(val interface{}, col string) *FilterBuilder {
-	b.opts = append(b.opts, filterQueryOption(col, "ne", val))
+// Neq 不等（<>），val 为零值时自动跳过。
+func (b *FilterBuilder) Neq(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, filterQueryOption(col, "<>", val))
 	return b
 }
 
-func (b *FilterBuilder) Gt(val interface{}, col string) *FilterBuilder {
-	b.opts = append(b.opts, filterQueryOption(col, "gt", val))
+// Gt 大于（>），val 为零值时自动跳过。
+func (b *FilterBuilder) Gt(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, filterQueryOption(col, ">", val))
 	return b
 }
 
-func (b *FilterBuilder) Lt(val interface{}, col string) *FilterBuilder {
-	b.opts = append(b.opts, filterQueryOption(col, "lt", val))
+// Lt 小于（<），val 为零值时自动跳过。
+func (b *FilterBuilder) Lt(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, filterQueryOption(col, "<", val))
 	return b
 }
 
-func (b *FilterBuilder) Gte(val interface{}, col string) *FilterBuilder {
-	b.opts = append(b.opts, filterQueryOption(col, "ge", val))
+// Gte 大于等于（>=），val 为零值时自动跳过。
+func (b *FilterBuilder) Gte(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, filterQueryOption(col, ">=", val))
 	return b
 }
 
-func (b *FilterBuilder) Lte(val interface{}, col string) *FilterBuilder {
-	b.opts = append(b.opts, filterQueryOption(col, "le", val))
+// Lte 小于等于（<=），val 为零值时自动跳过。
+func (b *FilterBuilder) Lte(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, filterQueryOption(col, "<=", val))
 	return b
 }
 
-func (b *FilterBuilder) Like(val interface{}, col string) *FilterBuilder {
+// Like 模糊查询（%val%），val 为零值时自动跳过。
+func (b *FilterBuilder) Like(col string, val interface{}) *FilterBuilder {
 	b.opts = append(b.opts, filterQueryOption(col, "like", val))
 	return b
 }
 
-func (b *FilterBuilder) ILike(val interface{}, col string) *FilterBuilder {
+// ILike 大小写不敏感模糊查询（PostgreSQL），val 为零值时自动跳过。
+func (b *FilterBuilder) ILike(col string, val interface{}) *FilterBuilder {
 	b.opts = append(b.opts, filterQueryOption(col, "ilike", val))
 	return b
 }
 
-func (b *FilterBuilder) In(val interface{}, col string) *FilterBuilder {
+// In 集合包含查询，val 为空切片时自动跳过。
+func (b *FilterBuilder) In(col string, val interface{}) *FilterBuilder {
 	b.opts = append(b.opts, filterQueryOption(col, "in", val))
 	return b
 }
 
-func (b *FilterBuilder) NotIn(val interface{}, col string) *FilterBuilder {
+// NotIn 集合排除查询，val 为空切片时自动跳过。
+func (b *FilterBuilder) NotIn(col string, val interface{}) *FilterBuilder {
 	b.opts = append(b.opts, filterQueryOption(col, "not_in", val))
 	return b
 }
 
-// Between 区间查询，仅当 start 和 end 都非 nil 且非零值时才生成条件。
-func (b *FilterBuilder) Between(start, end interface{}, col string) *FilterBuilder {
+// Between 区间查询（col BETWEEN start AND end）。
+// start 或 end 为 nil / 零值时跳过。
+func (b *FilterBuilder) Between(col string, start, end interface{}) *FilterBuilder {
 	if isZeroInterface(start) || isZeroInterface(end) {
 		return b
 	}

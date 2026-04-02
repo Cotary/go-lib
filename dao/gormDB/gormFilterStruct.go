@@ -16,9 +16,9 @@ import (
 
 var (
 	typCommunityPaging    = reflect.TypeOf(community.Paging{})
-	typCommunityPagingPtr = reflect.PtrTo(typCommunityPaging)
+	typCommunityPagingPtr = reflect.PointerTo(typCommunityPaging)
 	typCommunityOrder     = reflect.TypeOf(community.Order{})
-	typCommunityOrderPtr  = reflect.PtrTo(typCommunityOrder)
+	typCommunityOrderPtr  = reflect.PointerTo(typCommunityOrder)
 )
 
 type isZeroer interface {
@@ -29,13 +29,11 @@ func isZeroValue(v reflect.Value) bool {
 	if !v.IsValid() {
 		return true
 	}
-
 	if v.CanInterface() {
 		if z, ok := v.Interface().(isZeroer); ok {
 			return z.IsZero()
 		}
 	}
-
 	switch v.Kind() {
 	case reflect.String:
 		return v.Len() == 0
@@ -81,14 +79,28 @@ func splitFilterColumns(colExpr string) []string {
 	return cols
 }
 
-var opSymMap = map[string]string{
-	"eq": "=", "ne": "<>",
-	"gt": ">", "lt": "<",
-	"ge": ">=", "le": "<=",
+// normalizeOp 将单词别名统一为 SQL 符号，符号原样返回。
+// 支持别名：eq → =, ne → <>, gt → >, lt → <, gte → >=, lte → <=
+func normalizeOp(op string) string {
+	switch op {
+	case "eq":
+		return "="
+	case "ne":
+		return "<>"
+	case "gt":
+		return ">"
+	case "lt":
+		return "<"
+	case "gte":
+		return ">="
+	case "lte":
+		return "<="
+	}
+	return op
 }
 
 func buildFilterClause(colExpr, op string, val interface{}) (string, []interface{}) {
-	op = strings.TrimSpace(op)
+	op = normalizeOp(strings.TrimSpace(op))
 	if op == "" || strings.ContainsAny(op, "&|") {
 		return "", nil
 	}
@@ -101,13 +113,9 @@ func buildFilterClause(colExpr, op string, val interface{}) (string, []interface
 	var args []interface{}
 
 	switch op {
-	case "eq", "ne", "gt", "lt", "ge", "le", "=", "<>", ">", "<", ">=", "<=":
-		sym, ok := opSymMap[op]
-		if !ok {
-			sym = op
-		}
+	case "=", "<>", ">", "<", ">=", "<=":
 		for _, col := range cols {
-			colClauses = append(colClauses, fmt.Sprintf("%s %s ?", col, sym))
+			colClauses = append(colClauses, fmt.Sprintf("%s %s ?", col, op))
 			args = append(args, val)
 		}
 
@@ -143,6 +151,7 @@ func noopQueryOption() QueryOption {
 }
 
 // filterQueryOption 统一的过滤条件入口：nil / 零值跳过；非法 op 跳过。
+// op 优先使用 SQL 符号（=, <>, >, <, >=, <=），也接受别名（eq, ne, gt, lt, gte, lte）。
 func filterQueryOption(colExpr, op string, val interface{}) QueryOption {
 	if isZeroInterface(val) {
 		return noopQueryOption()
@@ -158,18 +167,18 @@ func filterQueryOption(colExpr, op string, val interface{}) QueryOption {
 // 独立 Filter 函数（不依赖 FilterBuilder，可单独使用）
 // ---------------------------------------------------------------------------
 
-func FilterEq(val interface{}, col string) QueryOption   { return filterQueryOption(col, "eq", val) }
-func FilterNe(val interface{}, col string) QueryOption   { return filterQueryOption(col, "ne", val) }
-func FilterGt(val interface{}, col string) QueryOption   { return filterQueryOption(col, "gt", val) }
-func FilterLt(val interface{}, col string) QueryOption   { return filterQueryOption(col, "lt", val) }
-func FilterGe(val interface{}, col string) QueryOption   { return filterQueryOption(col, "ge", val) }
-func FilterLe(val interface{}, col string) QueryOption   { return filterQueryOption(col, "le", val) }
-func FilterLike(val interface{}, col string) QueryOption { return filterQueryOption(col, "like", val) }
-func FilterILike(val interface{}, col string) QueryOption {
+func FilterEq(col string, val interface{}) QueryOption   { return filterQueryOption(col, "=", val) }
+func FilterNeq(col string, val interface{}) QueryOption  { return filterQueryOption(col, "<>", val) }
+func FilterGt(col string, val interface{}) QueryOption   { return filterQueryOption(col, ">", val) }
+func FilterLt(col string, val interface{}) QueryOption   { return filterQueryOption(col, "<", val) }
+func FilterGte(col string, val interface{}) QueryOption  { return filterQueryOption(col, ">=", val) }
+func FilterLte(col string, val interface{}) QueryOption  { return filterQueryOption(col, "<=", val) }
+func FilterLike(col string, val interface{}) QueryOption { return filterQueryOption(col, "like", val) }
+func FilterILike(col string, val interface{}) QueryOption {
 	return filterQueryOption(col, "ilike", val)
 }
-func FilterIn(val interface{}, col string) QueryOption { return filterQueryOption(col, "in", val) }
-func FilterNotIn(val interface{}, col string) QueryOption {
+func FilterIn(col string, val interface{}) QueryOption { return filterQueryOption(col, "in", val) }
+func FilterNotIn(col string, val interface{}) QueryOption {
 	return filterQueryOption(col, "not_in", val)
 }
 
@@ -332,13 +341,13 @@ func collectQueryOptionBuckets(criteria interface{}, bindOrders ...map[string]st
 //
 // criteria 为 nil 时返回 nil。
 //
-// filter tag 格式: `filter:"column,operator"`，operator 只能是单个 token（不可含 & 与 |）。
+// filter tag 格式: `filter:"column,op"`，op 只能是单个 token（不可含 & 与 |）。
 //
-// 支持的操作符:
-//   - 比较: eq, ne, gt, lt, ge, le (或直接用 =, <>, >, <, >=, <=)
-//   - 模糊: like, ilike
-//   - 集合: in, not_in
-//   - 多列 OR: 列名用 | 分隔，如 name|description,like
+// 支持的操作符（优先使用 SQL 符号，也接受别名）:
+//   - 比较: = > < <> >= <=（别名：eq ne gt lt gte lte）
+//   - 模糊: like  ilike
+//   - 集合: in  not_in
+//   - 多列 OR: 列名用 | 分隔，如 `filter:"name|description,like"`
 //
 // 零值与指针:
 //   - 非指针字段为零值时不生成条件
