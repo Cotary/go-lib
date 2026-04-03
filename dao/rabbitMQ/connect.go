@@ -16,20 +16,16 @@ import (
 )
 
 type Config struct {
-	DSN        []string `mapstructure:"dsn" yaml:"dsn"`
-	CA         string   `mapstructure:"ca" yaml:"ca"`
-	CertFile   string   `mapstructure:"certFile" yaml:"certFile"`
-	KeyFile    string   `mapstructure:"keyFile" yaml:"keyFile"`
-	Heartbeat  int64    `mapstructure:"heartbeat" yaml:"heartbeat"`
-	MaxChannel int      `mapstructure:"maxChannel" yaml:"maxChannel"`
+	DSN       []string `mapstructure:"dsn" yaml:"dsn"`
+	CA        string   `mapstructure:"ca" yaml:"ca"`
+	CertFile  string   `mapstructure:"certFile" yaml:"certFile"`
+	KeyFile   string   `mapstructure:"keyFile" yaml:"keyFile"`
+	Heartbeat int64    `mapstructure:"heartbeat" yaml:"heartbeat"`
 }
 
 func (cfg *Config) ensureDefaults() {
 	if cfg.Heartbeat == 0 {
 		cfg.Heartbeat = 5
-	}
-	if cfg.MaxChannel == 0 {
-		cfg.MaxChannel = 1000
 	}
 }
 
@@ -37,7 +33,6 @@ type Connect struct {
 	mu        sync.Mutex
 	conn      *amqp091.Connection
 	cfg       Config
-	pool      chan *amqp091.Channel
 	closeCh   chan struct{} // 主动 Close 的信号
 	closeOnce sync.Once     // 确保 Close() 幂等
 }
@@ -48,7 +43,7 @@ func NewRabbitMQ(cfg Config) (*Connect, error) {
 		cfg:     cfg,
 		closeCh: make(chan struct{}),
 	}
-	// 首次建链 + 初始化池
+	// 首次建链
 	if err := c.reconnect(); err != nil {
 		return nil, fmt.Errorf("initial rabbitmq connect: %w", err)
 	}
@@ -111,13 +106,10 @@ func (c *Connect) watchDisconnect(ctx context.Context) {
 	}
 }
 
-// reconnect 只做断链 & 新建 & 链接 & 池重建
+// reconnect 只做断链 & 新建连接
 func (c *Connect) reconnect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	drainPool(c.pool)
-	c.pool = nil
 
 	if c.conn != nil && !c.conn.IsClosed() {
 		c.conn.Close()
@@ -160,54 +152,18 @@ func (c *Connect) reconnect() error {
 		return fmt.Errorf("dial rabbitmq: %w", lastErr)
 	}
 
-	c.pool = make(chan *amqp091.Channel, c.cfg.MaxChannel)
 	return nil
 }
 
-// GetCh 从池里拿 channel，坏的跳过，空时新建
+// GetCh 创建新的 channel
 func (c *Connect) GetCh() (*amqp091.Channel, error) {
 	c.mu.Lock()
 	conn := c.conn
-	pool := c.pool
 	c.mu.Unlock()
 	if conn == nil || conn.IsClosed() {
 		return nil, errors.New("rabbitmq connection is closed")
 	}
-
-	for {
-		select {
-		case ch := <-pool:
-			if ch != nil && !ch.IsClosed() {
-				return ch, nil
-			}
-		default:
-			return conn.Channel()
-		}
-	}
-}
-
-// PutCh 归还 channel，池满或已关闭则关掉
-func (c *Connect) PutCh(ch *amqp091.Channel) {
-	if ch == nil || ch.IsClosed() {
-		return
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			_ = ch.Close()
-		}
-	}()
-	c.mu.Lock()
-	pool := c.pool
-	c.mu.Unlock()
-	if pool == nil {
-		_ = ch.Close()
-		return
-	}
-	select {
-	case pool <- ch:
-	default:
-		_ = ch.Close()
-	}
+	return conn.Channel()
 }
 
 func (c *Connect) Close() {
@@ -215,29 +171,11 @@ func (c *Connect) Close() {
 		close(c.closeCh)
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		drainPool(c.pool)
-		c.pool = nil
 		if c.conn != nil && !c.conn.IsClosed() {
 			c.conn.Close()
 			c.conn = nil
 		}
 	})
-}
-
-func drainPool(pool chan *amqp091.Channel) {
-	if pool == nil {
-		return
-	}
-	for {
-		select {
-		case ch := <-pool:
-			if ch != nil {
-				_ = ch.Close()
-			}
-		default:
-			return
-		}
-	}
 }
 
 func backoff(attempt int) time.Duration {

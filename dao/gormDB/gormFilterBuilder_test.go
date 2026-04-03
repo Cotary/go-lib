@@ -16,8 +16,8 @@ import (
 func TestFilterBuilder_BasicEq(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
-		Eq(int64(42), "created_at").
-		Eq("alice", "name").
+		Eq("created_at", int64(42)).
+		Eq("name", "alice").
 		Build()
 	_, realSQL := buildSQL(db, opts)
 	t.Logf("Real SQL: %s", realSQL)
@@ -28,9 +28,9 @@ func TestFilterBuilder_BasicEq(t *testing.T) {
 func TestFilterBuilder_ZeroValuesSkipped(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
-		Eq(int64(0), "status").
-		Eq("", "name").
-		Eq(int64(5), "id").
+		Eq("status", int64(0)).
+		Eq("name", "").
+		Eq("id", int64(5)).
 		Build()
 	_, realSQL := buildSQL(db, opts)
 	t.Logf("Real SQL: %s", realSQL)
@@ -42,16 +42,16 @@ func TestFilterBuilder_ZeroValuesSkipped(t *testing.T) {
 func TestFilterBuilder_AllOperators(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
-		Eq(int64(1), "a").
-		Ne(int64(2), "b").
-		Gt(int64(3), "c").
-		Lt(int64(4), "d").
-		Gte(int64(5), "e").
-		Lte(int64(6), "f").
-		Like("kw", "g").
-		ILike("kw2", "h").
-		In([]int64{7, 8}, "i").
-		NotIn([]int64{9}, "j").
+		Eq("a", int64(1)).
+		Neq("b", int64(2)).
+		Gt("c", int64(3)).
+		Lt("d", int64(4)).
+		Gte("e", int64(5)).
+		Lte("f", int64(6)).
+		Like("g", "kw").
+		ILike("h", "kw2").
+		In("i", []int64{7, 8}).
+		NotIn("j", []int64{9}).
 		Build()
 	_, realSQL := buildSQL(db, opts)
 	t.Logf("Real SQL: %s", realSQL)
@@ -70,7 +70,7 @@ func TestFilterBuilder_AllOperators(t *testing.T) {
 func TestFilterBuilder_Between(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
-		Between(int64(100), int64(200), "created_at").
+		Between("created_at", int64(100), int64(200)).
 		Build()
 	_, realSQL := buildSQL(db, opts)
 	t.Logf("Real SQL: %s", realSQL)
@@ -82,8 +82,8 @@ func TestFilterBuilder_Between(t *testing.T) {
 func TestFilterBuilder_BetweenSkipsPartialZero(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
-		Between(int64(0), int64(200), "created_at").
-		Eq(int64(1), "id").
+		Between("created_at", int64(0), int64(200)).
+		Eq("id", int64(1)).
 		Build()
 	_, realSQL := buildSQL(db, opts)
 	t.Logf("Real SQL: %s", realSQL)
@@ -94,8 +94,8 @@ func TestFilterBuilder_BetweenSkipsPartialZero(t *testing.T) {
 func TestFilterBuilder_BetweenNilSkipped(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
-		Between(nil, int64(200), "created_at").
-		Eq(int64(1), "id").
+		Between("created_at", nil, int64(200)).
+		Eq("id", int64(1)).
 		Build()
 	_, realSQL := buildSQL(db, opts)
 	assert.NotContains(t, realSQL, "BETWEEN")
@@ -106,7 +106,7 @@ func TestFilterBuilder_Must(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
 		Must("mchid", int64(0)).
-		Eq(int64(0), "status").
+		Eq("status", int64(0)).
 		Build()
 	_, realSQL := buildSQL(db, opts)
 	t.Logf("Real SQL: %s", realSQL)
@@ -118,7 +118,7 @@ func TestFilterBuilder_MustNilSkipped(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
 		Must("mchid", nil).
-		Eq(int64(1), "id").
+		Eq("id", int64(1)).
 		Build()
 	_, realSQL := buildSQL(db, opts)
 	assert.NotContains(t, realSQL, "mchid")
@@ -128,7 +128,7 @@ func TestFilterBuilder_MustNilSkipped(t *testing.T) {
 func TestFilterBuilder_OptionAndOptions(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
-		Eq(int64(1), "status").
+		Eq("status", int64(1)).
 		Option(Order("created_at DESC")).
 		Options(Where("name IS NOT NULL"), Limit(10)).
 		Build()
@@ -144,7 +144,7 @@ func TestFilterBuilder_OptionAndOptions(t *testing.T) {
 func TestFilterBuilder_OptionNilSafe(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
-		Eq(int64(1), "id").
+		Eq("id", int64(1)).
 		Option(nil).
 		Build()
 	_, realSQL := buildSQL(db, opts)
@@ -154,7 +154,7 @@ func TestFilterBuilder_OptionNilSafe(t *testing.T) {
 func TestFilterBuilder_OptionsNilSafe(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
-		Eq(int64(1), "id").
+		Eq("id", int64(1)).
 		Options(nil, Where("status = ?", 2), nil).
 		Build()
 	_, realSQL := buildSQL(db, opts)
@@ -166,7 +166,7 @@ func TestFilterBuilder_PaginationNilSafe(t *testing.T) {
 	db := openDryRunDB(t)
 	var p *community.Paging
 	opts := Filter().
-		Eq(int64(1), "id").
+		Eq("id", int64(1)).
 		Option(Pagination(p)).
 		Build()
 	_, realSQL := buildSQL(db, opts)
@@ -177,7 +177,7 @@ func TestFilterBuilder_PaginationNilSafe(t *testing.T) {
 func TestFilterBuilder_OrderEmptySafe(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
-		Eq(int64(1), "id").
+		Eq("id", int64(1)).
 		Option(Order("")).
 		Build()
 	_, realSQL := buildSQL(db, opts)
@@ -188,8 +188,8 @@ func TestFilterBuilder_OrderEmptySafe(t *testing.T) {
 func TestFilterBuilder_NilValInEq(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
-		Eq(nil, "status").
-		Eq(int64(1), "id").
+		Eq("status", nil).
+		Eq("id", int64(1)).
 		Build()
 	_, realSQL := buildSQL(db, opts)
 	assert.NotContains(t, realSQL, "status")
@@ -198,8 +198,8 @@ func TestFilterBuilder_NilValInEq(t *testing.T) {
 
 func TestFilterBuilder_MatchesStandaloneFunctions(t *testing.T) {
 	db := openDryRunDB(t)
-	_, fromBuilder := buildSQL(db, Filter().Eq(int64(42), "created_at").Build())
-	_, fromFn := buildSQL(db, []QueryOption{FilterEq(int64(42), "created_at")})
+	_, fromBuilder := buildSQL(db, Filter().Eq("created_at", int64(42)).Build())
+	_, fromFn := buildSQL(db, []QueryOption{FilterEq("created_at", int64(42))})
 	assert.Equal(t, fromBuilder, fromFn)
 }
 
@@ -210,9 +210,9 @@ func TestFilterBuilder_EmptyBuild(t *testing.T) {
 
 func TestFilterBuilder_ChainImmutability(t *testing.T) {
 	db := openDryRunDB(t)
-	base := Filter().Eq(int64(1), "a")
-	branch1 := Filter().Eq(int64(1), "a").Eq(int64(2), "b")
-	branch2 := Filter().Eq(int64(1), "a").Eq(int64(3), "c")
+	base := Filter().Eq("a", int64(1))
+	branch1 := Filter().Eq("a", int64(1)).Eq("b", int64(2))
+	branch2 := Filter().Eq("a", int64(1)).Eq("c", int64(3))
 
 	_, sql0 := buildSQL(db, base.Build())
 	_, sql1 := buildSQL(db, branch1.Build())
@@ -228,7 +228,7 @@ func TestFilterBuilder_CommunityPaginationNilSafe(t *testing.T) {
 	db := openDryRunDB(t)
 	var p *community.Paging
 	opts := Filter().
-		Eq(int64(1), "id").
+		Eq("id", int64(1)).
 		Option(communityPaginationNil(p)).
 		Build()
 	_, realSQL := buildSQL(db, opts)

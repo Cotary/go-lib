@@ -14,9 +14,8 @@ const testDSN = "amqp://guest:guest@localhost:5672/"
 func tryConnect(t *testing.T) *Connect {
 	t.Helper()
 	config := Config{
-		DSN:        []string{testDSN},
-		Heartbeat:  5,
-		MaxChannel: 10,
+		DSN:       []string{testDSN},
+		Heartbeat: 5,
 	}
 	conn, err := NewRabbitMQ(config)
 	if err != nil {
@@ -72,34 +71,6 @@ func TestGetCh_AfterClose(t *testing.T) {
 	assert.Nil(t, ch)
 }
 
-func TestPutCh_ReturnAndReuse(t *testing.T) {
-	conn := tryConnect(t)
-
-	ch, err := conn.GetCh()
-	require.NoError(t, err)
-	conn.PutCh(ch)
-
-	ch2, err := conn.GetCh()
-	require.NoError(t, err)
-	assert.NotNil(t, ch2)
-	_ = ch2.Close()
-}
-
-func TestPutCh_NilAndClosed(t *testing.T) {
-	conn := tryConnect(t)
-
-	assert.NotPanics(t, func() {
-		conn.PutCh(nil)
-	})
-
-	ch, err := conn.GetCh()
-	require.NoError(t, err)
-	_ = ch.Close()
-	assert.NotPanics(t, func() {
-		conn.PutCh(ch)
-	})
-}
-
 func TestGetCh_Concurrent(t *testing.T) {
 	conn := tryConnect(t)
 
@@ -115,7 +86,7 @@ func TestGetCh_Concurrent(t *testing.T) {
 				return
 			}
 			time.Sleep(10 * time.Millisecond)
-			conn.PutCh(ch)
+			_ = ch.Close()
 		}()
 	}
 	wg.Wait()

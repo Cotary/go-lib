@@ -24,6 +24,9 @@ type QueryOption func(*gorm.DB) *gorm.DB
 // 注意：Pagination 必须放在所有 Where 条件之后使用，否则 COUNT 结果不包含后续条件。
 func Pagination(p *community.Paging) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
+		if p == nil {
+			return db
+		}
 		// 1. 设置默认分页参数
 		if p.PageSize < 1 {
 			p.PageSize = pageSize
@@ -53,6 +56,9 @@ func Pagination(p *community.Paging) QueryOption {
 
 func Paging(p *community.Paging) QueryOption {
 	return func(db *gorm.DB) *gorm.DB {
+		if p == nil {
+			return db
+		}
 		if p.PageSize < 1 {
 			p.PageSize = 20
 		}

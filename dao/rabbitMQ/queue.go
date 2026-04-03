@@ -50,7 +50,7 @@ func NewQueue(conn *Connect, config QueueConfig) (*Queue, error) {
 	if err != nil {
 		return nil, e.Err(err)
 	}
-	defer conn.PutCh(ch)
+	defer ch.Close()
 
 	// 默认交换机类型
 	if config.ExchangeType == "" {

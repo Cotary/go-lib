@@ -52,15 +52,15 @@ type AllOpsFilter struct {
 	Ne         int64   `filter:"created_at,ne"`
 	Gt         int64   `filter:"created_at,gt"`
 	Lt         int64   `filter:"created_at,lt"`
-	Ge         int64   `filter:"created_at,ge"`
-	Le         int64   `filter:"created_at,le"`
+	Ge         int64   `filter:"created_at,gte"`
+	Le         int64   `filter:"created_at,lte"`
 	Like       string  `filter:"name,like"`
 	ILike      string  `filter:"description,ilike"`
 	In         []int64 `filter:"id,in"`
 	NotIn      []int64 `filter:"id,not_in"`
-	TimeZeroLe int64   `filter:"timezero,le"`
-	TimeGe     string  `filter:"time,ge"`
-	TimeLe     string  `filter:"time,le"`
+	TimeZeroLe int64   `filter:"timezero,lte"`
+	TimeGe     string  `filter:"time,gte"`
+	TimeLe     string  `filter:"time,lte"`
 }
 
 func TestAllOpsFilterSQL(t *testing.T) {
@@ -137,7 +137,7 @@ func TestFilterEqMatchesBuildQueryOptions(t *testing.T) {
 	_, fromTag := buildSQL(db, BuildQueryOptions(struct {
 		V int64 `filter:"created_at,eq"`
 	}{V: 42}, nil))
-	_, fromFn := buildSQL(db, []QueryOption{FilterEq(int64(42), "created_at")})
+	_, fromFn := buildSQL(db, []QueryOption{FilterEq("created_at", int64(42))})
 	assert.Equal(t, fromTag, fromFn)
 }
 
@@ -145,7 +145,7 @@ func TestFilterEqPointerZeroStillFilters(t *testing.T) {
 	db := openDryRunDB(t)
 	z := int64(0)
 	p := &z
-	_, realSQL := buildSQL(db, []QueryOption{FilterEq(p, "status")})
+	_, realSQL := buildSQL(db, []QueryOption{FilterEq("status", p)})
 	assert.Contains(t, realSQL, `status = 0`)
 }
 

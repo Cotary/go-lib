@@ -10,7 +10,7 @@
 │  ┌───────────────────────────────────────────────┐  │
 │  │  Connect                                      │  │
 │  │  - *amqp091.Connection (自动重连)              │  │
-│  │  - chan *amqp091.Channel (池化，懒创建)         │  │
+│  │  - Channel (按需创建，用完即关)                  │  │
 │  │  - watchDisconnect (后台监控，指数退避重连)      │  │
 │  └───────────────────────────────────────────────┘  │
 │         │                                           │
@@ -32,8 +32,7 @@
 ```go
 // 1. 建立连接
 conn, err := rabbitMQ.NewRabbitMQ(rabbitMQ.Config{
-    DSN:        []string{"amqp://guest:guest@localhost:5672/"},
-    MaxChannel: 50,
+    DSN: []string{"amqp://guest:guest@localhost:5672/"},
 })
 if err != nil {
     log.Fatal(err)
@@ -74,7 +73,6 @@ err = q.ConsumeMessagesEvery(ctx, func(ctx context.Context, d *rabbitMQ.Delivery
 | CertFile    | string    | ""     | 客户端证书文件路径（TLS）                            |
 | KeyFile     | string    | ""     | 客户端私钥文件路径（TLS）                            |
 | Heartbeat   | int64     | 5      | 心跳间隔（秒）                                      |
-| MaxChannel  | int       | 1000   | Channel 池容量上限（懒创建，按需分配）                |
 
 ### QueueConfig（队列配置）
 
@@ -174,7 +172,7 @@ handler := func(ctx context.Context, d *rabbitMQ.Delivery) error {
 
 - **多 DSN 容灾**：按顺序尝试连接，首个成功即使用
 - **自动重连**：后台 goroutine 监听 `NotifyClose`，断线后指数退避重连（1s → 2s → 4s → ... → 60s）
-- **Channel 池**：懒创建，用时从池取或新建，用完归还；Confirm/Tx 模式的 channel 不归还（避免状态污染）
+- **Channel 管理**：按需创建，用完即关；Confirm/Tx/Consume 等模式的 channel 均在使用后立即关闭，避免状态污染
 - **优雅关闭**：`Close()` 幂等，先通知后台退出，再清理池和连接
 
 ## 注意事项
