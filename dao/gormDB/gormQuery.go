@@ -168,3 +168,15 @@ func ForShare() QueryOption {
 		return db.Clauses(clause.Locking{Strength: "SHARE"})
 	}
 }
+
+func Unscoped() QueryOption {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Unscoped()
+	}
+}
+
+func Preload(column string, conditions ...interface{}) QueryOption {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Preload(column, conditions...)
+	}
+}
