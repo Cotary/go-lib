@@ -1,26 +1,23 @@
 package gormDB
 
-import (
-	"fmt"
-	"reflect"
-)
-
 // ---------------------------------------------------------------------------
 // FilterBuilder — 链式查询条件构造器
 //
 // 用法：
 //
 //	opts := gormDB.Filter().
-//	    Eq("status", req.Status).          // 零值自动跳过
-//	    Must("mchid", req.Mchid).          // 不检查零值，nil 跳过
+//	    Eq("status", req.Status).             // 零值自动跳过
+//	    MustEq("mchid", req.Mchid).           // 不检查零值，仅 nil 跳过
+//	    MustGte("score", req.MinScore).        // 同上，适用于所有操作符
 //	    ILike("name", req.Name).
 //	    Gte("created_at", req.StartTime).
 //	    Lte("created_at", req.EndTime).
-//	    Option(community.Pagination(paging)).  // nil 安全
+//	    Option(gormDB.Pagination(paging)).     // nil 安全
 //	    Option(gormDB.Order("id DESC")).
 //	    Build()
 //
-// 所有过滤方法（Eq/Neq/Gt 等）对 nil 和零值参数自动跳过。
+// Xxx 系列（Eq/Neq/Gt 等）：nil 和零值参数自动跳过。
+// MustXxx 系列（MustEq/MustGt 等）：仅 nil 跳过，零值也生成条件。
 // Option/Options 对 nil QueryOption 自动跳过。
 // ---------------------------------------------------------------------------
 
@@ -93,27 +90,68 @@ func (b *FilterBuilder) NotIn(col string, val interface{}) *FilterBuilder {
 	return b
 }
 
-// Between 区间查询（col BETWEEN start AND end）。
-// start 或 end 为 nil / 零值时跳过。
-func (b *FilterBuilder) Between(col string, start, end interface{}) *FilterBuilder {
-	if isZeroInterface(start) || isZeroInterface(end) {
-		return b
-	}
-	sv, ev := reflect.ValueOf(start), reflect.ValueOf(end)
-	if !sv.IsValid() || isZeroValue(sv) || !ev.IsValid() || isZeroValue(ev) {
-		return b
-	}
-	b.opts = append(b.opts, Where(fmt.Sprintf("%s BETWEEN ? AND ?", col), start, end))
+// ---------------------------------------------------------------------------
+// MustXxx 系列 — 强制添加条件，不做零值检查，仅 nil 跳过。
+// 用于非指针字段的零值也是有效业务值的场景（如查询 status=0 的记录）。
+// ---------------------------------------------------------------------------
+
+// MustEq 强制等值（=），不做零值检查，仅 nil 跳过。
+func (b *FilterBuilder) MustEq(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, mustFilterQueryOption(col, "=", val))
 	return b
 }
 
-// Must 强制添加等值条件（不做零值检查），用于 id 等必填字段。
-// val 为 nil 时跳过。
-func (b *FilterBuilder) Must(col string, val interface{}) *FilterBuilder {
-	if val == nil {
-		return b
-	}
-	b.opts = append(b.opts, Where(col+" = ?", val))
+// MustNeq 强制不等（<>），不做零值检查，仅 nil 跳过。
+func (b *FilterBuilder) MustNeq(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, mustFilterQueryOption(col, "<>", val))
+	return b
+}
+
+// MustGt 强制大于（>），不做零值检查，仅 nil 跳过。
+func (b *FilterBuilder) MustGt(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, mustFilterQueryOption(col, ">", val))
+	return b
+}
+
+// MustLt 强制小于（<），不做零值检查，仅 nil 跳过。
+func (b *FilterBuilder) MustLt(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, mustFilterQueryOption(col, "<", val))
+	return b
+}
+
+// MustGte 强制大于等于（>=），不做零值检查，仅 nil 跳过。
+func (b *FilterBuilder) MustGte(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, mustFilterQueryOption(col, ">=", val))
+	return b
+}
+
+// MustLte 强制小于等于（<=），不做零值检查，仅 nil 跳过。
+func (b *FilterBuilder) MustLte(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, mustFilterQueryOption(col, "<=", val))
+	return b
+}
+
+// MustLike 强制模糊查询（%val%），不做零值检查，仅 nil 跳过。
+func (b *FilterBuilder) MustLike(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, mustFilterQueryOption(col, "like", val))
+	return b
+}
+
+// MustILike 强制大小写不敏感模糊查询（PostgreSQL），不做零值检查，仅 nil 跳过。
+func (b *FilterBuilder) MustILike(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, mustFilterQueryOption(col, "ilike", val))
+	return b
+}
+
+// MustIn 强制集合包含查询，不做零值检查，仅 nil 跳过。
+func (b *FilterBuilder) MustIn(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, mustFilterQueryOption(col, "in", val))
+	return b
+}
+
+// MustNotIn 强制集合排除查询，不做零值检查，仅 nil 跳过。
+func (b *FilterBuilder) MustNotIn(col string, val interface{}) *FilterBuilder {
+	b.opts = append(b.opts, mustFilterQueryOption(col, "not_in", val))
 	return b
 }
 

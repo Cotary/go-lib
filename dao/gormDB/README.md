@@ -339,6 +339,158 @@ operation, err := db.QueryAndSave(ctx, user, []string{"name", "age"}, condition)
 
 ---
 
+## FilterBuilder 链式过滤
+
+`Filter()` 返回链式构造器 `FilterBuilder`，通过 `.Eq()` / `.Gt()` 等方法逐条添加过滤条件，最终 `.Build()` 生成 `[]QueryOption`。适合在业务代码中根据请求参数灵活组装查询条件。
+
+### 基本用法
+
+```go
+opts := gormDB.Filter().
+    Eq("status", req.Status).
+    ILike("name", req.Name).
+    Gte("created_at", req.StartTime).
+    Lte("created_at", req.EndTime).
+    Option(gormDB.Pagination(paging)).
+    Option(gormDB.Order("id DESC")).
+    Build()
+
+users, err := gormDB.List[User](ctx, db, opts...)
+```
+
+### 过滤方法
+
+| 方法 | SQL 效果 | 说明 |
+|------|----------|------|
+| `Eq(col, val)` | `col = val` | 等值匹配 |
+| `Neq(col, val)` | `col <> val` | 不等于 |
+| `Gt(col, val)` | `col > val` | 大于 |
+| `Lt(col, val)` | `col < val` | 小于 |
+| `Gte(col, val)` | `col >= val` | 大于等于 |
+| `Lte(col, val)` | `col <= val` | 小于等于 |
+| `Like(col, val)` | `col LIKE '%val%'` | 模糊匹配 |
+| `ILike(col, val)` | `col ILIKE '%val%'` | 大小写不敏感模糊匹配（PostgreSQL） |
+| `In(col, val)` | `col IN (?)` | 集合包含，val 为切片 |
+| `NotIn(col, val)` | `col NOT IN (?)` | 集合排除，val 为切片 |
+| `MustEq(col, val)` | `col = val` | 强制等值，**不做零值检查**，仅 nil 跳过 |
+| `Must(col, val)` | `col = val` | `MustEq` 的别名，向后兼容 |
+| `MustNeq(col, val)` | `col <> val` | 强制不等于，不做零值检查 |
+| `MustGt(col, val)` | `col > val` | 强制大于，不做零值检查 |
+| `MustLt(col, val)` | `col < val` | 强制小于，不做零值检查 |
+| `MustGte(col, val)` | `col >= val` | 强制大于等于，不做零值检查 |
+| `MustLte(col, val)` | `col <= val` | 强制小于等于，不做零值检查 |
+| `MustLike(col, val)` | `col LIKE '%val%'` | 强制模糊匹配，不做零值检查 |
+| `MustILike(col, val)` | `col ILIKE '%val%'` | 强制不敏感模糊匹配，不做零值检查 |
+| `MustIn(col, val)` | `col IN (?)` | 强制集合包含，不做零值检查 |
+| `MustNotIn(col, val)` | `col NOT IN (?)` | 强制集合排除，不做零值检查 |
+
+### 零值与指针的自动跳过规则
+
+所有过滤方法（`Must` 除外）均内置零值/nil 自动跳过，无需手动 `if` 判断：
+
+**非指针类型** — 零值跳过，非零值加条件：
+
+```go
+gormDB.Filter().
+    Eq("status", int64(0)).   // 零值 → 跳过，不生成 WHERE
+    Eq("status", int64(1)).   // 非零值 → 生成 WHERE status = 1
+    Eq("name", "").           // 空字符串 → 跳过
+    Eq("name", "alice").      // 非空 → 生成 WHERE name = 'alice'
+    Build()
+```
+
+**指针类型** — nil 跳过，非 nil 即使指向零值也加条件：
+
+```go
+var nilPtr *int64             // nil 指针
+zero := int64(0)
+zeroPtr := &zero              // 非 nil，但值为 0
+
+gormDB.Filter().
+    Eq("status", nilPtr).     // nil → 跳过，不生成 WHERE
+    Eq("status", zeroPtr).    // 非 nil → 生成 WHERE status = 0
+    Build()
+```
+
+> **指针的典型场景：** 当业务上需要区分「用户没传该参数」和「用户显式传了 0 / 空串」时，
+> 请求结构体中使用指针字段（如 `Status *int64`），这样 nil 表示未传（跳过），
+> `*int64(0)` 表示用户确实要查 status=0 的记录。
+
+**MustXxx 系列** — 不做零值检查，仅 nil 跳过：
+
+所有操作符都有对应的 Must 版本，用于非指针零值也是有效业务值的场景：
+
+```go
+gormDB.Filter().
+    MustEq("mchid", int64(0)).    // 0 不是 nil → 生成 WHERE mchid = 0
+    MustGt("score", int64(0)).    // 0 不是 nil → 生成 WHERE score > 0
+    MustLte("age", int64(0)).     // 0 不是 nil → 生成 WHERE age <= 0
+    MustEq("mchid", nil).         // nil → 跳过
+    Build()
+```
+
+> **Xxx vs MustXxx 选择原则：** 默认使用 `Eq`/`Gt`/`Lte` 等普通方法（零值自动跳过更安全）；
+> 仅当确定"零值也是有意义的查询条件"时才使用 `MustXxx` 版本。
+
+### 注入自定义 QueryOption
+
+`Option` 和 `Options` 可将任意 `QueryOption`（分页、排序、自定义条件等）混入 FilterBuilder：
+
+```go
+opts := gormDB.Filter().
+    Eq("status", req.Status).
+    Option(gormDB.Pagination(paging)).       // 单个注入，nil 安全
+    Options(gormDB.Order("id DESC"), gormDB.Where("age > ?", 18)). // 批量注入，自动过滤 nil
+    Build()
+```
+
+### 区间查询
+
+使用 `Gte` + `Lte` 组合实现区间过滤：
+
+```go
+gormDB.Filter().
+    Gte("created_at", req.StartTime).  // 零值自动跳过
+    Lte("created_at", req.EndTime).
+    Build()
+```
+
+---
+
+## 独立 Filter 函数
+
+除了链式构造器，还提供独立的 Filter 函数，每个返回单个 `QueryOption`，可直接用于 `List` / `Get` 等方法的可变参数：
+
+| 函数 | 等价的 FilterBuilder 方法 |
+|------|--------------------------|
+| `FilterEq(col, val)` | `Filter().Eq(col, val)` |
+| `FilterNeq(col, val)` | `Filter().Neq(col, val)` |
+| `FilterGt(col, val)` | `Filter().Gt(col, val)` |
+| `FilterLt(col, val)` | `Filter().Lt(col, val)` |
+| `FilterGte(col, val)` | `Filter().Gte(col, val)` |
+| `FilterLte(col, val)` | `Filter().Lte(col, val)` |
+| `FilterLike(col, val)` | `Filter().Like(col, val)` |
+| `FilterILike(col, val)` | `Filter().ILike(col, val)` |
+| `FilterIn(col, val)` | `Filter().In(col, val)` |
+| `FilterNotIn(col, val)` | `Filter().NotIn(col, val)` |
+
+零值/nil 跳过规则与 FilterBuilder 方法完全一致。
+
+```go
+users, err := gormDB.List[User](ctx, db,
+    gormDB.FilterEq("status", req.Status),
+    gormDB.FilterLike("name", req.Name),
+    gormDB.FilterGte("created_at", req.StartTime),
+    gormDB.Order("id DESC"),
+    gormDB.Pagination(paging),
+)
+```
+
+> **如何选择：** 条件较多时推荐 `Filter()` 链式构造器，可读性更好；
+> 条件只有 1-2 个时用独立函数更简洁。两者可以混用。
+
+---
+
 ## BuildQueryOptions (动态过滤)
 
 通过结构体 tag 自动构建查询条件，适用于列表接口的筛选参数：
@@ -370,13 +522,13 @@ users, err := pgsql.List[User](ctx, db, opts...)
 
 格式: `filter:"column,operator"`
 
-**比较操作符:**
-- `eq` — 等于 (`=`)
-- `ne` — 不等于 (`<>`)
-- `gt` — 大于 (`>`)
-- `lt` — 小于 (`<`)
-- `ge` — 大于等于 (`>=`)
-- `le` — 小于等于 (`<=`)
+**比较操作符（优先使用 SQL 符号，也接受别名）:**
+- `=` / `eq` — 等于
+- `<>` / `ne` — 不等于
+- `>` / `gt` — 大于
+- `<` / `lt` — 小于
+- `>=` / `gte` — 大于等于
+- `<=` / `lte` — 小于等于
 
 **模糊查询:**
 - `like` — `LIKE '%value%'`
@@ -386,33 +538,21 @@ users, err := pgsql.List[User](ctx, db, opts...)
 - `in` — `IN (?)`
 - `not_in` — `NOT IN (?)`
 
-**区间 (Between):**
-- `bs` / `bs.<id>` — 区间起始值
-- `be` / `be.<id>` — 区间结束值
-- 配对使用生成 `BETWEEN ? AND ?`，只有一端则生成 `>=` 或 `<=`
-
-```go
-type TimeFilter struct {
-    StartTime int64 `filter:"created_at,bs"`
-    EndTime   int64 `filter:"created_at,be"`
-    // 多组区间用 id 区分
-    AmountMin float64 `filter:"amount,bs.amt"`
-    AmountMax float64 `filter:"amount,be.amt"`
-}
-```
-
-**组合操作符:**
-
-用 `&` (AND) 和 `|` (OR) 连接多个操作符：
-```go
-RangeCheck int64 `filter:"created_at,ge&le"`  // created_at >= ? AND created_at <= ?
-```
-
 **多列查询:**
 
-列名用 `|` 分隔：
+列名用 `|` 分隔，多个列之间为 OR 关系：
 ```go
 Search string `filter:"name|description,like"`  // (name LIKE ? OR description LIKE ?)
+```
+
+**区间查询替代方案:**
+
+如需区间过滤，使用两个独立字段分别配合 `gte` 和 `lte`：
+```go
+type TimeFilter struct {
+    StartTime int64 `filter:"created_at,gte"`   // created_at >= ?
+    EndTime   int64 `filter:"created_at,lte"`   // created_at <= ?
+}
 ```
 
 ### 特殊字段

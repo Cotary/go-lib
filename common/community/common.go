@@ -9,8 +9,9 @@ type IDsRequest struct {
 }
 
 type TimeRange struct {
-	StartTime int64 `form:"start_time" json:"start_time" `
-	EndTime   int64 `form:"end_time" json:"end_time" `
+	StartTime     int64         `form:"start_time" json:"start_time"`
+	EndTime       int64         `form:"end_time" json:"end_time"`
+	TimeRangeType TimeRangeType `form:"time_range_type" json:"time_range_type"`
 }
 
 type Between struct {

@@ -67,45 +67,10 @@ func TestFilterBuilder_AllOperators(t *testing.T) {
 	assert.Contains(t, realSQL, "j NOT IN")
 }
 
-func TestFilterBuilder_Between(t *testing.T) {
+func TestFilterBuilder_MustEq(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
-		Between("created_at", int64(100), int64(200)).
-		Build()
-	_, realSQL := buildSQL(db, opts)
-	t.Logf("Real SQL: %s", realSQL)
-	assert.Contains(t, realSQL, "created_at BETWEEN")
-	assert.Contains(t, realSQL, "100")
-	assert.Contains(t, realSQL, "200")
-}
-
-func TestFilterBuilder_BetweenSkipsPartialZero(t *testing.T) {
-	db := openDryRunDB(t)
-	opts := Filter().
-		Between("created_at", int64(0), int64(200)).
-		Eq("id", int64(1)).
-		Build()
-	_, realSQL := buildSQL(db, opts)
-	t.Logf("Real SQL: %s", realSQL)
-	assert.NotContains(t, realSQL, "BETWEEN")
-	assert.Contains(t, realSQL, "id = 1")
-}
-
-func TestFilterBuilder_BetweenNilSkipped(t *testing.T) {
-	db := openDryRunDB(t)
-	opts := Filter().
-		Between("created_at", nil, int64(200)).
-		Eq("id", int64(1)).
-		Build()
-	_, realSQL := buildSQL(db, opts)
-	assert.NotContains(t, realSQL, "BETWEEN")
-	assert.Contains(t, realSQL, "id = 1")
-}
-
-func TestFilterBuilder_Must(t *testing.T) {
-	db := openDryRunDB(t)
-	opts := Filter().
-		Must("mchid", int64(0)).
+		MustEq("mchid", int64(0)).
 		Eq("status", int64(0)).
 		Build()
 	_, realSQL := buildSQL(db, opts)
@@ -114,14 +79,65 @@ func TestFilterBuilder_Must(t *testing.T) {
 	assert.NotContains(t, realSQL, "status")
 }
 
-func TestFilterBuilder_MustNilSkipped(t *testing.T) {
+func TestFilterBuilder_MustEqNilSkipped(t *testing.T) {
 	db := openDryRunDB(t)
 	opts := Filter().
-		Must("mchid", nil).
+		MustEq("mchid", nil).
 		Eq("id", int64(1)).
 		Build()
 	_, realSQL := buildSQL(db, opts)
 	assert.NotContains(t, realSQL, "mchid")
+	assert.Contains(t, realSQL, "id = 1")
+}
+
+func TestFilterBuilder_MustAllOperators(t *testing.T) {
+	db := openDryRunDB(t)
+	opts := Filter().
+		MustEq("a", int64(0)).
+		MustNeq("b", int64(0)).
+		MustGt("c", int64(0)).
+		MustLt("d", int64(0)).
+		MustGte("e", int64(0)).
+		MustLte("f", int64(0)).
+		MustLike("g", "").
+		MustILike("h", "").
+		MustIn("i", []int64{}).
+		MustNotIn("j", []int64{}).
+		Build()
+	_, realSQL := buildSQL(db, opts)
+	t.Logf("Real SQL: %s", realSQL)
+	assert.Contains(t, realSQL, "a = 0")
+	assert.Contains(t, realSQL, "b <> 0")
+	assert.Contains(t, realSQL, "c > 0")
+	assert.Contains(t, realSQL, "d < 0")
+	assert.Contains(t, realSQL, "e >= 0")
+	assert.Contains(t, realSQL, "f <= 0")
+	assert.Contains(t, realSQL, "g like")
+	assert.Contains(t, realSQL, "h ilike")
+	assert.Contains(t, realSQL, "i IN")
+	assert.Contains(t, realSQL, "j NOT IN")
+}
+
+func TestFilterBuilder_MustNilSkipsAll(t *testing.T) {
+	db := openDryRunDB(t)
+	opts := Filter().
+		MustEq("must_a", nil).
+		MustNeq("must_b", nil).
+		MustGt("must_c", nil).
+		MustLt("must_d", nil).
+		MustGte("must_e", nil).
+		MustLte("must_f", nil).
+		MustLike("must_g", nil).
+		MustILike("must_h", nil).
+		MustIn("must_i", nil).
+		MustNotIn("must_j", nil).
+		Eq("id", int64(1)).
+		Build()
+	_, realSQL := buildSQL(db, opts)
+	t.Logf("Real SQL: %s", realSQL)
+	for _, col := range []string{"must_a", "must_b", "must_c", "must_d", "must_e", "must_f", "must_g", "must_h", "must_i", "must_j"} {
+		assert.NotContains(t, realSQL, col)
+	}
 	assert.Contains(t, realSQL, "id = 1")
 }
 

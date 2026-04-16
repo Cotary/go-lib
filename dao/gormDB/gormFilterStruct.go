@@ -163,6 +163,19 @@ func filterQueryOption(colExpr, op string, val interface{}) QueryOption {
 	return Where(cl, args...)
 }
 
+// mustFilterQueryOption 强制过滤条件入口：仅 nil 跳过，不做零值检查。
+// 用于 MustXxx 系列方法，确保非指针零值（如 int64(0)）也能生成条件。
+func mustFilterQueryOption(colExpr, op string, val interface{}) QueryOption {
+	if val == nil {
+		return noopQueryOption()
+	}
+	cl, args := buildFilterClause(colExpr, op, val)
+	if cl == "" {
+		return noopQueryOption()
+	}
+	return Where(cl, args...)
+}
+
 // ---------------------------------------------------------------------------
 // 独立 Filter 函数（不依赖 FilterBuilder，可单独使用）
 // ---------------------------------------------------------------------------
