@@ -10,6 +10,44 @@
 2. **增强而非替代**：用户依然直接写 GORM，仅在「有增量价值」的地方调用本包的 helper
 3. **与 GORM Scopes 无缝对接**：所有条件辅助函数都是 `Scope = func(*gorm.DB) *gorm.DB` 类型，可直接传给 `db.Scopes(...)`
 
+## Model 与 Scope 职责划分
+
+Model 层负责「**这条 SQL 长什么样**」，Scope 负责「**这条 SQL 要不要加条件**」。
+
+| 归属 | 内容 | 谁决定 |
+| --- | --- | --- |
+| **Model 层** | 表结构、关联、Preload、Joins、Select、Group、Having、Distinct、Unscoped、TableName | 数据模型设计者 |
+| **Scope 层** | Where、Order、Limit、Offset、ForUpdate、Paginate | 业务调用方 |
+
+**准则：** Scope 只做「加/减条件」，不改变查询的结构形状。如果一个操作改变了返回列、关联表或聚合方式，它属于 Model 层，应在 Model 方法中显式调用。
+
+```go
+// ✅ 正确：Model 层定义查询形状，Scope 层传入动态条件
+func (m *UserModel) ListWithDept(ctx context.Context, scopes ...gormDB.Scope) ([]UserWithDept, error) {
+    var out []UserWithDept
+    db := m.g.WithContext(ctx).
+        Model(&User{}).
+        Select("users.*, departments.name as dept_name").
+        Joins("LEFT JOIN departments ON departments.id = users.dept_id")
+    db = db.Scopes(scopes...)
+    return out, db.Find(&out).Error
+}
+
+// 调用方只关心条件，不关心 SQL 形状
+list, err := userModel.ListWithDept(ctx,
+    gormDB.WhereIf("users.status", gormDB.OpEq, req.Status),
+    gormDB.OrderBy("users.id DESC"),
+)
+
+// ❌ 错误：把 Joins / Select 塞进 Scope，调用方无法一眼看出查询结构
+func joinDept() gormDB.Scope {
+    return func(db *gorm.DB) *gorm.DB {
+        return db.Select("users.*, departments.name as dept_name").
+            Joins("LEFT JOIN departments ON departments.id = users.dept_id")
+    }
+}
+```
+
 ## 增量价值
 
 | 关注点 | 提供的 API | 价值点 |
@@ -27,7 +65,7 @@
 | 严格 Insert | `GormDrive.Insert` | 检查实际写入条数，被静默忽略时返回 `ErrRowsAffectedMismatch` |
 
 > **结构化 GORM 操作（`Preload` / `Joins` / `Select` / `Group` / `Having` / `Distinct` / `Unscoped` 等）刻意不封装。**
-> 它们改变的是查询「形状」而非「条件」，强行塞进 `Scopes` 会让查询意图被打散。请在 Model 层显式调用，与 `Scopes(...)` 配合使用即可。
+> 它们属于 Model 层职责（见上方「Model 与 Scope 职责划分」），请在 Model 方法中显式调用，与 `Scopes(...)` 配合使用即可。
 
 ## 快速开始
 
