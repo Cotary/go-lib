@@ -27,7 +27,7 @@ package main
 import (
     "context"
     "fmt"
-    "github.com/Cotary/go-lib/provider/nodepool"
+    "go-lib/provider/nodepool"
 )
 
 // 1. 实现 Transport 接口
@@ -77,7 +77,7 @@ import (
     "context"
     "fmt"
     "sync"
-    "github.com/Cotary/go-lib/provider/nodepool"
+    "go-lib/provider/nodepool"
 )
 
 // 全局共享 pool，初始化一次，到处使用

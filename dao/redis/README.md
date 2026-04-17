@@ -7,7 +7,7 @@
 ### 初始化
 
 ```go
-import "github.com/Cotary/go-lib/dao/redis"
+import "go-lib/dao/redis"
 
 config := &redis.Config{
     Host:     "127.0.0.1",

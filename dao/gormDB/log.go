@@ -2,7 +2,9 @@ package gormDB
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -12,40 +14,50 @@ import (
 	utils2 "github.com/Cotary/go-lib/common/utils"
 	"github.com/Cotary/go-lib/log"
 	"github.com/Cotary/go-lib/provider/message"
-	"github.com/pkg/errors"
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/utils"
 )
 
-// NewGormLogger creates a custom GORM logger
-func NewGormLogger(log log.Logger) *GormLogWriter {
-	return &GormLogWriter{log}
-}
+// logLineEnding 根据运行时操作系统确定日志换行符。
+// Windows 使用 \r\n 以兼容部分只认 CRLF 的日志查看工具，其他系统使用 \n。
+var logLineEnding = func() string {
+	if runtime.GOOS == "windows" {
+		return "\r\n"
+	}
+	return "\n"
+}()
 
-// GormLogWriter is a custom GORM logger
+// GormLogWriter 将 go-lib/log 适配为 GORM 的 logger.Writer 接口
 type GormLogWriter struct {
 	Log log.Logger
 }
 
-// Printf implements the GORM logger interface
-func (l *GormLogWriter) Printf(format string, v ...any) {
-	l.Log.Raw(fmt.Sprintf(format+"\r\n", v...))
+func NewGormLogWriter(l log.Logger) *GormLogWriter {
+	return &GormLogWriter{Log: l}
 }
 
+// Printf 追加平台相关换行符后调用底层日志输出
+func (l *GormLogWriter) Printf(format string, v ...any) {
+	l.Log.Raw(fmt.Sprintf(format+logLineEnding, v...))
+}
+
+// GormLogger 是 GORM 的自定义日志记录器
+//   - 支持 message.Sender 将慢 SQL 告警推送到外部
+//   - 从 context 提取 TransactionID / RequestID / RequestURI 等追踪信息注入日志
 type GormLogger struct {
 	logger.Writer
 	logger.Config
-	message.Sender
+	sender                                  message.Sender
 	infoStr, warnStr, errStr                string
 	traceInfoStr, traceErrStr, traceWarnStr string
 }
 
+// SetSender 设置消息发送器，为 nil 时不推送慢 SQL 告警
 func (l *GormLogger) SetSender(s message.Sender) {
-	l.Sender = s
+	l.sender = s
 }
 
-// New creates a new GORM logger with custom configurations
-func New(writer logger.Writer, config logger.Config) *GormLogger {
+func NewGormLogger(writer logger.Writer, config logger.Config) *GormLogger {
 	var (
 		infoStr      = "[info] %s %s [%s] \n"
 		warnStr      = "[warn] %s %s [%s] \n"
@@ -60,12 +72,14 @@ func New(writer logger.Writer, config logger.Config) *GormLogger {
 		warnStr = logger.Magenta + "[warn] " + logger.Reset + logger.BlueBold + "%s %s [%s] \n" + logger.Reset
 		errStr = logger.Red + "[error] " + logger.Reset + logger.Magenta + "%s %s [%s] \n" + logger.Reset
 
-		// Trace 相关（SQL 日志）
-		traceInfoStr = logger.Cyan + "[info] " + logger.Reset + logger.Green + "%s %s [%s] \n" + logger.Reset + logger.Yellow + "[%.3fms] " + logger.BlueBold + "[rows:%v]" + logger.Reset + " %s"
-
-		traceWarnStr = logger.RedBold + "[warn] " + logger.Reset + logger.Green + "%s %s [%s] " + logger.Yellow + "%s \n" + logger.Reset + logger.RedBold + "[%.3fms] " + logger.Yellow + "[rows:%v]" + logger.Magenta + " %s" + logger.Reset
-
-		traceErrStr = logger.RedBold + "[error] " + logger.Reset + logger.RedBold + "%s %s [%s] " + logger.MagentaBold + "%s \n" + logger.Reset + logger.Yellow + "[%.3fms] " + logger.BlueBold + "[rows:%v]" + logger.Reset + " %s"
+		traceInfoStr = logger.Cyan + "[info] " + logger.Reset + logger.Green + "%s %s [%s] \n" + logger.Reset +
+			logger.Yellow + "[%.3fms] " + logger.BlueBold + "[rows:%v]" + logger.Reset + " %s"
+		traceWarnStr = logger.RedBold + "[warn] " + logger.Reset + logger.Green + "%s %s [%s] " +
+			logger.Yellow + "%s \n" + logger.Reset + logger.RedBold + "[%.3fms] " +
+			logger.Yellow + "[rows:%v]" + logger.Magenta + " %s" + logger.Reset
+		traceErrStr = logger.RedBold + "[error] " + logger.Reset + logger.RedBold + "%s %s [%s] " +
+			logger.MagentaBold + "%s \n" + logger.Reset + logger.Yellow + "[%.3fms] " +
+			logger.BlueBold + "[rows:%v]" + logger.Reset + " %s"
 	}
 
 	return &GormLogger{
@@ -80,24 +94,21 @@ func New(writer logger.Writer, config logger.Config) *GormLogger {
 	}
 }
 
-// LogMode sets the logger mode
+// LogMode 复制 receiver 并返回新实例，对并发 goroutine 安全（GORM 要求此行为）
 func (l *GormLogger) LogMode(level logger.LogLevel) logger.Interface {
 	newlogger := *l
 	newlogger.LogLevel = level
 	return &newlogger
 }
 
-// getRequestInfo retrieves the request ID and transaction ID from the context
+// getRequestInfo 从 context 提取请求追踪 ID，用于将业务请求与 SQL 日志关联。
+// 提取顺序：TransactionID -> RequestID -> RequestURI。
 func getRequestInfo(ctx context.Context) string {
-	// 1. 提取变量
 	txID, _ := ctx.Value(defined.TransactionID).(string)
 	requestID, _ := ctx.Value(defined.RequestID).(string)
 	requestUri, _ := ctx.Value(defined.RequestURI).(string)
 
-	// 2. 使用切片收集非空字段
 	var parts []string
-
-	// 优先放置 TransactionID (txID)
 	if txID != "" {
 		parts = append(parts, "txID: "+txID)
 	}
@@ -107,32 +118,31 @@ func getRequestInfo(ctx context.Context) string {
 	if requestUri != "" {
 		parts = append(parts, "requestUri: "+requestUri)
 	}
-
-	// 3. 使用分号安全拼接
 	return strings.Join(parts, "; ")
 }
 
-// Info prints info messages
 func (l GormLogger) Info(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= logger.Info {
 		l.Printf(l.infoStr+msg, append([]interface{}{time.Now().Format(time.DateTime), utils.FileWithLineNum(), getRequestInfo(ctx)}, data...)...)
 	}
 }
 
-// Warn prints warning messages
 func (l GormLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= logger.Warn {
 		l.Printf(l.warnStr+msg, append([]interface{}{time.Now().Format(time.DateTime), utils.FileWithLineNum(), getRequestInfo(ctx)}, data...)...)
 	}
 }
 
-// Error prints error messages
 func (l GormLogger) Error(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= logger.Error {
 		l.Printf(l.errStr+msg, append([]interface{}{time.Now().Format(time.DateTime), utils.FileWithLineNum(), getRequestInfo(ctx)}, data...)...)
 	}
 }
 
+// Trace 是 GORM 执行 SQL 后的回调入口
+//   - 发生错误时以 error 级别记录，ErrRecordNotFound 可按配置忽略
+//   - 超过 SlowThreshold 时以 warn 级别记录并通过 Sender 推送告警
+//   - 正常执行以 info 级别记录
 func (l GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
 	if l.LogLevel <= logger.Silent {
 		return
@@ -144,32 +154,29 @@ func (l GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (strin
 	reqInfo := getRequestInfo(ctx)
 	currTime := time.Now().Format(time.DateTime)
 
-	// 1. 统一获取 SQL 和行数，并格式化 rows
 	sql, rowsCount := fc()
 	rows := "-"
 	if rowsCount != -1 {
 		rows = strconv.FormatInt(rowsCount, 10)
 	}
 
-	// 2. 使用 switch 处理不同的日志级别逻辑
 	switch {
 	case err != nil && l.LogLevel >= logger.Error && (!errors.Is(err, logger.ErrRecordNotFound) || !l.IgnoreRecordNotFoundError):
-		// 错误日志
 		l.Printf(l.traceErrStr, currTime, fileLine, reqInfo, err, elapsedMs, rows, sql)
 
 	case elapsed > l.SlowThreshold && l.SlowThreshold != 0 && l.LogLevel >= logger.Warn:
-		// 慢查询日志
 		slowLog := fmt.Sprintf("SLOW SQL >= %v", l.SlowThreshold)
 		msg := fmt.Sprintf(l.traceWarnStr, currTime, fileLine, reqInfo, slowLog, elapsedMs, rows, sql)
-		l.Printf(msg)
-		sendMessage(ctx, l.Sender, msg)
+		l.Printf("%s", msg)
+		sendMessage(ctx, l.sender, msg)
 
 	case l.LogLevel == logger.Info:
-		// 常规查询日志
 		l.Printf(l.traceInfoStr, currTime, fileLine, reqInfo, elapsedMs, rows, sql)
 	}
 }
 
+// sendMessage 将慢 SQL 告警通过 Sender 推送到外部，若 Sender 为 nil 则回退到全局 Sender。
+// 消息中包含 gormDB 运行环境和请求上下文等排查信息。
 func sendMessage(ctx context.Context, sender message.Sender, msg string) {
 	if sender == nil {
 		sender = message.GetGlobalSender()

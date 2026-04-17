@@ -31,7 +31,7 @@ type Cache[T any] interface {
 适用于单进程热点数据、配置缓存等场景。
 
 ```go
-import "github.com/Cotary/go-lib/cache"
+import "go-lib/cache"
 
 // 创建缓存，最多 10000 条，写入后 1 分钟过期
 c, err := cache.NewMemory[User](cache.MemoryConfig{
@@ -70,7 +70,7 @@ c.Set(ctx, "temp", User{}, cache.WithTTL(5*time.Second))
 
 ```go
 import (
-    "github.com/Cotary/go-lib/cache"
+    "go-lib/cache"
     "github.com/redis/go-redis/v9"
 )
 
@@ -92,7 +92,7 @@ user, err := c.GetOrLoad(ctx, "1001", fetchUserFromDB)
 **配合 `dao/redis.Client` 使用：**
 
 ```go
-import daoRedis "github.com/Cotary/go-lib/dao/redis"
+import daoRedis "go-lib/dao/redis"
 
 client, _ := daoRedis.NewRedis(&daoRedis.Config{Host: "127.0.0.1", Port: "6379"})
 

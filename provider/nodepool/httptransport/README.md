@@ -22,8 +22,8 @@ import (
     "net/http"
     "time"
 
-    "github.com/Cotary/go-lib/provider/nodepool"
-    "github.com/Cotary/go-lib/provider/nodepool/httptransport"
+    "go-lib/provider/nodepool"
+    "go-lib/provider/nodepool/httptransport"
 )
 
 func main() {
@@ -175,7 +175,7 @@ transport := httptransport.New(
 ### 添加认证中间件
 
 ```go
-import nethttp "github.com/Cotary/go-lib/net/http"
+import nethttp "go-lib/net/http"
 
 transport := httptransport.New(
     httptransport.WithMiddleware(

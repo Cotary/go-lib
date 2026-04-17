@@ -25,7 +25,7 @@ type Mutex interface {
 无需外部依赖，进程内即可使用。
 
 ```go
-import "github.com/Cotary/go-lib/dlock"
+import "go-lib/dlock"
 
 p := dlock.NewMemoryProvider()
 m := p.NewMutex("order:create:123")
@@ -43,7 +43,7 @@ defer m.Unlock(ctx)
 
 ```go
 import (
-    "github.com/Cotary/go-lib/dlock"
+    "go-lib/dlock"
     "github.com/redis/go-redis/v9"
     goredisv9 "github.com/go-redsync/redsync/v4/redis/goredis/v9"
 )
@@ -72,7 +72,7 @@ defer m.Unlock(ctx)
 
 ```go
 import (
-    "github.com/Cotary/go-lib/dlock"
+    "go-lib/dlock"
     clientv3 "go.etcd.io/etcd/client/v3"
 )
 

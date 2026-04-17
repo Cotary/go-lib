@@ -8,12 +8,6 @@ type IDsRequest struct {
 	IDs []int64 `form:"ids" json:"ids"`
 }
 
-type TimeRange struct {
-	StartTime     int64         `form:"start_time" json:"start_time"`
-	EndTime       int64         `form:"end_time" json:"end_time"`
-	TimeRangeType TimeRangeType `form:"time_range_type" json:"time_range_type"`
-}
-
 type Between struct {
 	Start int64 `form:"start" json:"start" `
 	End   int64 `form:"end" json:"end" `
@@ -26,15 +20,10 @@ type ListPageResponse struct {
 	List interface{} `json:"list"`
 	Paging
 }
-
-type Order struct {
-	OrderType  string `form:"order_type" json:"order_type"`
-	OrderField string `form:"order_field" json:"order_field"`
+type ListResponseT[T any] struct {
+	List []T `json:"list"`
 }
-
-type Paging struct {
-	Page     int   `json:"page" form:"page"`
-	PageSize int   `json:"page_size" form:"page_size"`
-	All      bool  `json:"all" form:"all"`
-	Total    int64 `json:"total"`
+type ListPageResponseT[T any] struct {
+	List []T `json:"list"`
+	Paging
 }

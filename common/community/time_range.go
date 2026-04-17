@@ -8,6 +8,12 @@ import (
 	"github.com/Cotary/go-lib/common/defined"
 )
 
+type TimeRange struct {
+	StartTime     int64         `form:"start_time" json:"start_time"`
+	EndTime       int64         `form:"end_time" json:"end_time"`
+	TimeRangeType TimeRangeType `form:"time_range_type" json:"time_range_type"`
+}
+
 // TimeRangeType 时间范围的值类型，决定如何解读 StartTime/EndTime 的 int64 值。
 // 底层为 string，gin 的 ShouldBind 可直接从 URL query/form 参数绑定。
 type TimeRangeType string

@@ -16,7 +16,7 @@
 ### 最小配置
 
 ```go
-import "github.com/Cotary/go-lib/log"
+import "go-lib/log"
 
 // 全部使用默认值：zap 驱动, debug 级别, JSON 格式, 输出到 ./logs/runtime.logger
 logger := log.NewLogger(&log.Config{})
@@ -29,8 +29,8 @@ logger.Info("hello", "key", "value")
 
 ```go
 import (
-    lib "github.com/Cotary/go-lib"
-    "github.com/Cotary/go-lib/log"
+    lib "go-lib"
+    "go-lib/log"
 )
 
 func main() {

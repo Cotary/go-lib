@@ -12,6 +12,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// ctxTransactionKey 是将 *gorm.DB 事务存入 context 时使用的 key。
+//
+// 以 DbID 作为区分，使同一进程内多个 GormDrive 实例各自独立管理事务 + 嵌套事务。
+// 不同数据库实例使用不同的 key，互不干扰。
 type ctxTransactionKey struct {
 	DbID string
 }
@@ -28,7 +32,14 @@ func (g *GormDrive) getTxFromCtx(ctx context.Context) *gorm.DB {
 	return nil
 }
 
-// CtxTransaction 推荐只保留这一个入口，强制用户使用闭包模式，防止忘记 Commit/Rollback
+// CtxTransaction 以闭包方式执行事务，自动管理生命周期。
+//   - fn 返回 error 时自动 Rollback，返回 nil 时自动 Commit
+//   - fn 中可通过 WithContext(ctx) 获取 *gorm.DB 来执行事务内操作
+//   - 检测到外层已有事务时使用 SavePoint（GORM 原生嵌套事务支持）
+//   - 每层事务自动生成或复用 TransactionID，用于日志追踪关联
+//
+// opts 可指定事务隔离级别，嵌套事务时仅对最外层 SavePoint 生效。
+// 典型用法无需传递，默认使用数据库的 sql.LevelReadCommitted。
 func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Context) error, opts ...*sql.TxOptions) error {
 	if g.db == nil {
 		return errors.New("database is nil")
@@ -37,31 +48,24 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 		ctx = context.Background()
 	}
 
-	// 记录事务开始时间
 	beginTime := time.Now()
 
-	// 1. 检查是否已有事务（处理嵌套）
 	if tx := g.getTxFromCtx(ctx); tx != nil {
-		// 如果已有事务，使用 GORM 的原生嵌套事务支持 (SavePoint)
-		// 嵌套事务使用父事务的 ID，如果没有则生成新的
 		txID, _ := ctx.Value(defined.TransactionID).(string)
 		if txID == "" {
 			txID = uuid.NewString()
 		}
 		newCtx := context.WithValue(ctx, defined.TransactionID, txID)
 
-		// 记录嵌套事务开始
 		if g.Logger != nil {
-			g.Logger.Info(newCtx, fmt.Sprintf("TRANSACTION BEGIN NESTED "))
+			g.Logger.Info(newCtx, "TRANSACTION BEGIN NESTED")
 		}
 
 		err := tx.Transaction(func(subTx *gorm.DB) error {
-			// 将 tx 和事务 ID 注入到新的 Context 中
 			newCtx = context.WithValue(newCtx, ctxTransactionKey{DbID: g.ID}, subTx)
 			return fn(newCtx)
 		}, opts...)
 
-		// 记录嵌套事务结束
 		if g.Logger != nil {
 			elapsed := time.Since(beginTime)
 			if err != nil {
@@ -70,30 +74,24 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 				g.Logger.Info(newCtx, fmt.Sprintf("[%v] TRANSACTION COMMIT NESTED", elapsed))
 			}
 		}
-
 		return err
 	}
 
-	// 2. 开启新事务，使用 GORM 的 Transaction 方法，它自动处理 Commit/Rollback/Panic
-	// 为新事务生成唯一的事务 ID（如果 context 中已有则使用已有的）
 	txID, _ := ctx.Value(defined.TransactionID).(string)
 	if txID == "" {
 		txID = uuid.NewString()
 	}
 	newCtx := context.WithValue(ctx, defined.TransactionID, txID)
 
-	// 记录事务开始
 	if g.Logger != nil {
-		g.Logger.Info(newCtx, fmt.Sprintf("TRANSACTION BEGIN "))
+		g.Logger.Info(newCtx, "TRANSACTION BEGIN")
 	}
 
 	err := g.db.WithContext(newCtx).Transaction(func(tx *gorm.DB) error {
-		// 将 tx 和事务 ID 注入到新的 Context 中
 		newCtx = context.WithValue(newCtx, ctxTransactionKey{DbID: g.ID}, tx)
 		return fn(newCtx)
 	}, opts...)
 
-	// 记录事务结束
 	if g.Logger != nil {
 		elapsed := time.Since(beginTime)
 		if err != nil {
@@ -102,11 +100,17 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 			g.Logger.Info(newCtx, fmt.Sprintf("[%v] TRANSACTION COMMIT", elapsed))
 		}
 	}
-
 	return err
 }
 
-// WithContext 获取当前可用的 DB（如果有事务用事务，没事务用原生 DB）
+// WithContext 返回带有上下文的 *gorm.DB 实例。
+//   - 若 ctx 中存在事务则返回事务 *gorm.DB，与 CtxTransaction 配合实现读/写在同一事务
+//   - 若 ctx 中不存在事务则返回普通 *gorm.DB
+//
+// 典型用法如下（不需关心事务细节）：
+//
+//	db := g.WithContext(ctx)
+//	db.Scopes(...).Find(&out)
 func (g *GormDrive) WithContext(ctx context.Context) *gorm.DB {
 	if tx := g.getTxFromCtx(ctx); tx != nil {
 		return tx.WithContext(ctx)
