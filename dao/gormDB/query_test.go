@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Cotary/go-lib/common/community"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -135,7 +136,7 @@ func TestWhereOps(t *testing.T) {
 
 func TestPaginate_BasicLimitOffset(t *testing.T) {
 	db := openDryRunDB(t)
-	p := &Paging{Page: 2, PageSize: 10}
+	p := &community.Paging{Page: 2, PageSize: 10}
 	_, sql := buildSQL(db, Paginate(p))
 	lower := strings.ToLower(sql)
 	assert.Contains(t, lower, "limit 10")
@@ -144,7 +145,7 @@ func TestPaginate_BasicLimitOffset(t *testing.T) {
 
 func TestPaginate_AllSkipsLimit(t *testing.T) {
 	db := openDryRunDB(t)
-	p := &Paging{All: true, Page: 1, PageSize: 10}
+	p := &community.Paging{All: true, Page: 1, PageSize: 10}
 	_, sql := buildSQL(db, Paginate(p))
 	assert.NotContains(t, strings.ToLower(sql), "limit")
 }
@@ -156,7 +157,7 @@ func TestPaginate_DefaultsAndNilSafe(t *testing.T) {
 	assert.NotContains(t, strings.ToLower(sqlNil), "limit")
 
 	// 默认 page=1 / size=20；offset=0 时 GORM 不输出 OFFSET 子句，仅断言 LIMIT 默认值。
-	p := &Paging{}
+	p := &community.Paging{}
 	_, sql := buildSQL(db, Paginate(p))
 	lower := strings.ToLower(sql)
 	assert.Contains(t, lower, "limit 20")
@@ -166,7 +167,7 @@ func TestPaginate_DefaultsAndNilSafe(t *testing.T) {
 
 func TestOrderWhitelist_Allowed(t *testing.T) {
 	db := openDryRunDB(t)
-	o := Order{OrderField: "created_at", OrderType: "DESC"}
+	o := community.Order{OrderField: "created_at", OrderType: "DESC"}
 	allowed := map[string]string{"created_at": "t.created_at"}
 	_, sql := buildSQL(db, OrderWhitelist(o, allowed))
 	assert.Contains(t, sql, "t.created_at DESC")
@@ -174,7 +175,7 @@ func TestOrderWhitelist_Allowed(t *testing.T) {
 
 func TestOrderWhitelist_NotAllowedSkipped(t *testing.T) {
 	db := openDryRunDB(t)
-	o := Order{OrderField: "evil_col", OrderType: "DESC"}
+	o := community.Order{OrderField: "evil_col", OrderType: "DESC"}
 	allowed := map[string]string{"created_at": "t.created_at"}
 	_, sql := buildSQL(db, OrderWhitelist(o, allowed))
 	assert.NotContains(t, strings.ToLower(sql), "order by")
@@ -182,7 +183,7 @@ func TestOrderWhitelist_NotAllowedSkipped(t *testing.T) {
 
 func TestOrderWhitelist_DefaultAsc(t *testing.T) {
 	db := openDryRunDB(t)
-	o := Order{OrderField: "id", OrderType: "weird"}
+	o := community.Order{OrderField: "id", OrderType: "weird"}
 	allowed := map[string]string{"id": "t.id"}
 	_, sql := buildSQL(db, OrderWhitelist(o, allowed))
 	assert.Contains(t, sql, "t.id ASC")
@@ -190,10 +191,10 @@ func TestOrderWhitelist_DefaultAsc(t *testing.T) {
 
 func TestOrderBy_Passthrough(t *testing.T) {
 	db := openDryRunDB(t)
-	_, sql := buildSQL(db, OrderBy("id DESC"))
+	_, sql := buildSQL(db, Order("id DESC"))
 	assert.Contains(t, sql, "id DESC")
 
-	_, sqlEmpty := buildSQL(db, OrderBy("  "))
+	_, sqlEmpty := buildSQL(db, Order("  "))
 	assert.NotContains(t, strings.ToLower(sqlEmpty), "order by")
 }
 
@@ -203,8 +204,8 @@ func TestPassthroughScopes(t *testing.T) {
 	db := openDryRunDB(t)
 	_, sql := buildSQL(db,
 		WhereRaw("status = ?", 1),
-		LimitN(5),
-		OffsetN(10),
+		Limit(5),
+		Offset(10),
 	)
 	lower := strings.ToLower(sql)
 	assert.Contains(t, sql, "status = 1")

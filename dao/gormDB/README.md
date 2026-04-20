@@ -61,7 +61,7 @@ func joinDept() gormDB.Scope {
 | Struct tag 一键装配整套过滤 | `ApplyFilter` | 把请求 DTO 整体翻译成 Scope 链 |
 | 闭包式事务传播 | `CtxTransaction` / `WithContext` | 嵌套自动 SavePoint，业务代码无需手 commit |
 | Upsert 与复合保存 | `Save` / `QueryAndSave` | 统一封装 ON CONFLICT 三种语义 |
-| 透传式 Scope | `WhereRaw` / `LimitN` / `OffsetN` / `ForUpdate` / `ForShare` | 让 `Scopes(...)` 链路风格统一，避免临时闭包 |
+| 透传式 Scope | `WhereRaw` / `Limit` / `Offset` / `ForUpdate` / `ForShare` | 让 `Scopes(...)` 链路风格统一，避免临时闭包 |
 | 严格 Insert | `GormDrive.Insert` | 检查实际写入条数，被静默忽略时返回 `ErrRowsAffectedMismatch` |
 
 > **结构化 GORM 操作（`Preload` / `Joins` / `Select` / `Group` / `Having` / `Distinct` / `Unscoped` 等）刻意不封装。**
@@ -226,8 +226,8 @@ err := g.CtxTransaction(ctx, func(ctx context.Context) error {
 
 ```go
 gormDB.WhereRaw("status = ? AND tenant_id = ?", 1, tid)
-gormDB.LimitN(50)
-gormDB.OffsetN(100)
+gormDB.Limit(50)
+gormDB.Offset(100)
 gormDB.ForUpdate()
 gormDB.ForShare()
 ```
@@ -245,16 +245,3 @@ dao/gormDB/
 └── filter.go     // ApplyFilter（基于 struct tag）
 ```
 
-## 迁移指南（从老 `gormDB`）
-
-| 老 API | 新写法 |
-| --- | --- |
-| `g.Query(...).Filter(...).Find(...)` | 直接 `g.WithContext(ctx).Scopes(WhereIf(...), ...).Find(...)` |
-| `FilterBuilder.Eq/Neq/Gt/Lt/...` | `WhereIf(col, OpEq, v)` 等 |
-| `FilterBuilder.Must*` | 用 `WhereAlways(col, op, v)` 表达「不论零值都生效」 |
-| `g.MustGet(...)` | `OptionalGet[T](ctx, g, ...)`（命名修正：`Must` 在 Go 中应是 panic 语义） |
-| `g.SaveIgnore` / `SaveOverwrite` / `SaveUpdate` | 统一为 `g.Save(ctx, data, fields, conflictKeys...)`，`fields` 用 `nil` / `["*"]` / 具体列名分发 |
-| `g.Insert(ctx, batch)` 静默忽略部分行 | 现在会返回 `ErrRowsAffectedMismatch`；如需「冲突可跳过」语义请改用 `Save` |
-| `community.Paging` 仍可继续用 | `gormDB.Paging` 与之是同一类型；`Paginate` 会回写 `p.Total` |
-
-迁移成本主要集中在 Where 调用站点的改写，多数情况下逐行替换即可。

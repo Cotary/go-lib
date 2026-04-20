@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/Cotary/go-lib/common/community"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -350,6 +351,6 @@ func List[T any](ctx context.Context, g *GormDrive, scopes ...Scope) ([]T, error
 // PageList 在 List 基础上附加 Paginate 分页，自动执行 count 并回写 p.Total。
 //
 // p 可为 nil（此时不分页）。p.Total 会被自动填充，外部可直接使用 community.PageOf(list, *p) 构造响应。
-func PageList[T any](ctx context.Context, g *GormDrive, p *Paging, scopes ...Scope) ([]T, error) {
+func PageList[T any](ctx context.Context, g *GormDrive, p *community.Paging, scopes ...Scope) ([]T, error) {
 	return List[T](ctx, g, append(scopes, Paginate(p))...)
 }

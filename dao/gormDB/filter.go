@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/Cotary/go-lib/common/community"
 	"gorm.io/gorm"
 )
 
@@ -16,8 +17,8 @@ import (
 //	    Status   *int64  `filter:"status,=,always"`   // nil 时折回零值，始终生效
 //	    ParentID *int64  `filter:"parent_id,=,nullable"` // nil 时生成 IS NULL
 //	    Keyword  string  `filter:"name|description,like"` // 多列 OR
-//	    Paging   Paging
-//	    Order    Order
+//	    community.Paging   community.Paging
+//	    community.Order    community.Order
 //	}
 //
 // allowedOrder 传入 OrderWhitelist 的白名单 mapping。
@@ -45,7 +46,7 @@ func ApplyFilter(criteria any, allowedOrder ...map[string]string) Scope {
 }
 
 // collectFilterScopes 是 ApplyFilter 的内部实现，遍历结构体字段收集 Scope 列表。
-// 按照 Where 条件 → Order 排序 → Paging 分页的顺序组装，确保生成的 SQL 子句顺序正确。
+// 按照 Where 条件 → community.Order 排序 → community.Paging 分页的顺序组装，确保生成的 SQL 子句顺序正确。
 func collectFilterScopes(criteria any, allowedOrder map[string]string) []Scope {
 	if criteria == nil {
 		return nil
@@ -78,10 +79,10 @@ func collectFilterScopes(criteria any, allowedOrder map[string]string) []Scope {
 	return all
 }
 
-// walk 递归遍历 struct 字段，收集 Where/Order/Paging 三类 Scope
+// walk 递归遍历 struct 字段，收集 Where/community.Order/community.Paging 三类 Scope
 //   - 嵌套/匿名 struct 字段会递归展开
 //   - 指针类型字段为 nil 时跳过
-//   - 识别到 Paging / Order 类型时转为对应 Scope 而非当作 Where 条件
+//   - 识别到 community.Paging / community.Order 类型时转为对应 Scope 而非当作 Where 条件
 func walk(rv reflect.Value, allowed map[string]string, where *[]Scope, order *Scope, paging *Scope) {
 	rt := rv.Type()
 	for i := 0; i < rv.NumField(); i++ {
@@ -92,13 +93,13 @@ func walk(rv reflect.Value, allowed map[string]string, where *[]Scope, order *Sc
 		}
 
 		switch v := derefForWalk(fv).(type) {
-		case Paging:
+		case community.Paging:
 			if *paging == nil {
 				p := v
 				*paging = Paginate(&p)
 			}
 			continue
-		case Order:
+		case community.Order:
 			if *order == nil && allowed != nil {
 				*order = OrderWhitelist(v, allowed)
 			}
@@ -127,7 +128,7 @@ func walk(rv reflect.Value, allowed map[string]string, where *[]Scope, order *Sc
 	}
 }
 
-// derefForWalk 对 Paging/Order 等值类型字段做解引用，使 type switch 能正确匹配。
+// derefForWalk 对 community.Paging/community.Order 等值类型字段做解引用，使 type switch 能正确匹配。
 // 仅用于类型识别，不影响后续 buildScopeFromTag 中对原始字段值的处理。
 func derefForWalk(fv reflect.Value) any {
 	if !fv.CanInterface() {
@@ -142,7 +143,7 @@ func derefForWalk(fv reflect.Value) any {
 	return fv.Interface()
 }
 
-// isStructLike 判断字段是否为需要递归展开的结构体（struct 或 *struct），排除 Paging/Order
+// isStructLike 判断字段是否为需要递归展开的结构体（struct 或 *struct），排除 community.Paging/community.Order
 func isStructLike(fv reflect.Value) bool {
 	t := fv.Type()
 	if t.Kind() == reflect.Ptr {
@@ -151,8 +152,8 @@ func isStructLike(fv reflect.Value) bool {
 	if t.Kind() != reflect.Struct {
 		return false
 	}
-	pagingT := reflect.TypeOf(Paging{})
-	orderT := reflect.TypeOf(Order{})
+	pagingT := reflect.TypeOf(community.Paging{})
+	orderT := reflect.TypeOf(community.Order{})
 	return t != pagingT && t != orderT
 }
 

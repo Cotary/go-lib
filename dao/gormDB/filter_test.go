@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Cotary/go-lib/common/community"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -89,15 +90,15 @@ func TestApplyFilter_MultiColOrLike(t *testing.T) {
 	assert.Contains(t, sql, "OR")
 }
 
-// ===== Paging / Order 字段 =====
+// ===== community.Paging / community.Order 字段 =====
 
 func TestApplyFilter_Paging(t *testing.T) {
 	db := openDryRunDB(t)
 	type Req struct {
-		Paging Paging
+		Paging community.Paging
 		Name   string `filter:"name,="`
 	}
-	f := Req{Paging: Paging{Page: 2, PageSize: 5}, Name: "x"}
+	f := Req{Paging: community.Paging{Page: 2, PageSize: 5}, Name: "x"}
 	_, sql := buildSQL(db, ApplyFilter(f))
 	lower := strings.ToLower(sql)
 	assert.Contains(t, lower, "limit 5")
@@ -107,9 +108,9 @@ func TestApplyFilter_Paging(t *testing.T) {
 func TestApplyFilter_OrderWithAllowed(t *testing.T) {
 	db := openDryRunDB(t)
 	type Req struct {
-		Order Order
+		Order community.Order
 	}
-	f := Req{Order: Order{OrderField: "created_at", OrderType: "desc"}}
+	f := Req{Order: community.Order{OrderField: "created_at", OrderType: "desc"}}
 	allowed := map[string]string{"created_at": "t.created_at"}
 	_, sql := buildSQL(db, ApplyFilter(f, allowed))
 	assert.Contains(t, sql, "t.created_at DESC")
@@ -119,14 +120,14 @@ func TestApplyFilter_OrderWithAllowed(t *testing.T) {
 func TestApplyFilter_SqlClauseOrder(t *testing.T) {
 	db := openDryRunDB(t)
 	type Req struct {
-		Paging Paging
-		Order  Order
+		Paging community.Paging
+		Order  community.Order
 		Name   string `filter:"name,like"`
 	}
 	allowed := map[string]string{"created_at": "t.created_at"}
 	f := Req{
-		Paging: Paging{Page: 1, PageSize: 10},
-		Order:  Order{OrderField: "created_at", OrderType: "desc"},
+		Paging: community.Paging{Page: 1, PageSize: 10},
+		Order:  community.Order{OrderField: "created_at", OrderType: "desc"},
 		Name:   "kw",
 	}
 	_, sql := buildSQL(db, ApplyFilter(f, allowed))
@@ -145,7 +146,7 @@ func TestApplyFilter_SqlClauseOrder(t *testing.T) {
 func TestApplyFilter_NilPagingPtrSkipped(t *testing.T) {
 	db := openDryRunDB(t)
 	type Req struct {
-		Paging *Paging
+		Paging *community.Paging
 		Name   string `filter:"name,="`
 	}
 	f := Req{Name: "x"}

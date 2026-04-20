@@ -15,13 +15,6 @@ import (
 // 可直接传给 db.Scopes(s1, s2, ...) 链式调用。
 type Scope = func(*gorm.DB) *gorm.DB
 
-// Paging / Order 是 community 包中对应类型的别名，方便在本包中直接使用和构造分页排序。
-// 业务代码可直接使用 Paginate 来接受 Paging 指针。
-type (
-	Paging = community.Paging
-	Order  = community.Order
-)
-
 // ===== 操作符定义 =====
 
 // Op 是查询条件的 SQL 操作符枚举，使用 int 类型而非字符串以避免拼写错误
@@ -279,13 +272,13 @@ func IsNotNull(col string) Scope {
 //
 // p.All == true 时仅统计 Total 而不分页（返回全部数据）。
 // p 为 nil 时为 no-op，不会产生任何分页或计数行为。
-func Paginate(p *Paging) Scope {
+func Paginate(p *community.Paging) Scope {
 	return func(db *gorm.DB) *gorm.DB {
 		if p == nil {
 			return db
 		}
 
-		// Session{} 分离一个新 Statement 用于独立的 Count 查询，不会干扰原始查询的 Order/Limit
+		// Session{} 分离一个新 Statement 用于独立的 Count 查询，不会干扰原始查询的 community.Order/Limit
 		var total int64
 		countDB := db.Session(&gorm.Session{}).Limit(-1).Offset(-1)
 		countDB.Count(&total)
@@ -309,7 +302,7 @@ func Paginate(p *Paging) Scope {
 // PaginateNoCount 仅执行分页（Limit/Offset），不执行 Count 查询。
 // 适用于无限滚动、瀑布流等不需要 Total 的场景，相比 Paginate 少一次 COUNT 查询。
 // p 为 nil 时为 no-op。
-func PaginateNoCount(p *Paging) Scope {
+func PaginateNoCount(p *community.Paging) Scope {
 	return func(db *gorm.DB) *gorm.DB {
 		if p == nil {
 			return db
@@ -338,7 +331,7 @@ func PaginateNoCount(p *Paging) Scope {
 // OrderType 仅接受 "asc"/"desc"（不区分大小写），其他值默认为 ASC。
 //
 // 通过白名单机制防止用户输入恶意列名导致 SQL 注入。
-func OrderWhitelist(o Order, mapping map[string]string) Scope {
+func OrderWhitelist(o community.Order, mapping map[string]string) Scope {
 	return func(db *gorm.DB) *gorm.DB {
 		if o.OrderField == "" {
 			return db
@@ -355,10 +348,10 @@ func OrderWhitelist(o Order, mapping map[string]string) Scope {
 	}
 }
 
-// OrderBy 直接透传 ORDER BY 表达式，等价于 GORM 原生的 db.Order(expr)。
+// Order 直接透传 ORDER BY 表达式，等价于 GORM 原生的 db.community.Order(expr)。
 //
 // 仅用于内部固定排序场景，用户可控的排序请使用 OrderWhitelist 防注入。
-func OrderBy(expr string) Scope {
+func Order(expr string) Scope {
 	return func(db *gorm.DB) *gorm.DB {
 		if strings.TrimSpace(expr) == "" {
 			return db
@@ -380,14 +373,24 @@ func WhereRaw(query any, args ...any) Scope {
 	return func(db *gorm.DB) *gorm.DB { return db.Where(query, args...) }
 }
 
-// LimitN 透传 GORM 的 Limit，适用于不需要 Paginate 计数的简单限制场景
-func LimitN(n int) Scope {
+// Limit 透传 GORM 的 Limit，适用于不需要 Paginate 计数的简单限制场景
+func Limit(n int) Scope {
 	return func(db *gorm.DB) *gorm.DB { return db.Limit(n) }
 }
 
-// OffsetN 透传 GORM 的 Offset，适用于不需要 Paginate 计数的简单偏移场景
-func OffsetN(n int) Scope {
+// Offset 透传 GORM 的 Offset，适用于不需要 Paginate 计数的简单偏移场景
+func Offset(n int) Scope {
 	return func(db *gorm.DB) *gorm.DB { return db.Offset(n) }
+}
+
+// ID 主键查询 helper，等价 db.Where("id = ?", id)
+func ID(id int64) Scope {
+	return func(db *gorm.DB) *gorm.DB { return db.Where("id = ?", id) }
+}
+
+// Unscoped 透传 db.Unscoped()，绕过软删除过滤
+func Unscoped() Scope {
+	return func(db *gorm.DB) *gorm.DB { return db.Unscoped() }
 }
 
 // ForUpdate 添加 SELECT ... FOR UPDATE 行锁子句
