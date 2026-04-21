@@ -105,12 +105,24 @@ g.WithContext(ctx).Model(&User{}).Scopes(
 ).Find(&out)
 ```
 
-| 输入            | `WhereIf`             | `WhereAlways`          | `WhereNullable`       |
-|-----------------|------------------------|-------------------------|------------------------|
-| 非零值          | `col = val`            | `col = val`             | `col = val`            |
-| 零值（非指针）  | 跳过                   | `col = 0`               | 跳过                   |
-| nil 指针        | 跳过                   | `col = 0`（折回零值）   | `col IS NULL`          |
-| nil 指针 + `OpNeq` | 跳过                | `col <> 0`              | `col IS NOT NULL`      |
+| 输入                      | `WhereIf`             | `WhereAlways`          | `WhereNullable`       |
+|---------------------------|------------------------|-------------------------|------------------------|
+| 非零值                    | `col = val`            | `col = val`             | `col = val`            |
+| 零值（非指针）            | 跳过                   | `col = 0`               | 跳过                   |
+| 指向零值的指针 `*T(0)`    | 跳过（与 `T(0)` 等价） | `col = 0`               | 跳过                   |
+| nil 指针                  | 跳过                   | `col = 0`（折回零值）   | `col IS NULL`          |
+| nil 指针 + `OpNeq`        | 跳过                   | `col <> 0`              | `col IS NOT NULL`      |
+
+### 为什么 `WhereIf` 不按指针类型自动推断三态语义
+
+一个常见的疑问是：既然 `*int64` 能表达"未填写（nil） vs 显式 0（&0）"，为什么 `WhereIf` 不按字段是否为指针自动切换语义（nil 跳过、`*T(0)` 当显式 0 过滤）？这是有意为之，理由如下：
+
+1. **调用点可读性优先**。SQL 行为应由调用名显式声明，而不是隐式绑定到字段声明类型。当前模式下 `grep WhereAlways` 能直接定位所有"零值也参与过滤"的位置；若改成"按指针类型推断"，读 `WhereIf("status", OpEq, req.Status)` 一行必须回去看 DTO 字段是 `int64` 还是 `*int64` 才能确定 SQL 行为。
+2. **三态前提工程上经常不成立**。HTTP form / query 绑定到 `*int64` 时，`?status=` 空字符串在多数框架下会绑定失败而非 nil；JSON 真三态需要 `*T` + 自定义 `UnmarshalJSON` 才能区分 `{}` / `{"status":null}` / `{"status":0}`，多数业务并未做到这一层。把 SQL 行为绑定在"指针类型即三态"这个前提上风险大。
+3. **`ApplyFilter` 已经把选择权显式交给业务方**。`filter:"col,op,mode"` tag 的 `mode` 段（`if` / `always` / `nullable`）是显式的、可 grep 的，也符合本包"避免隐式行为"的原则（参见 `buildScopeFromTag` 中 op 缺省时整段 tag 被忽略而非默认 `=`）。
+
+如果业务上确实需要"`*T(0)` 视作显式 0 必须过滤"，请直接使用 `WhereAlways`；
+如果需要"nil → IS NULL"的真三态语义，请使用 `WhereNullable`。
 
 ## 分页
 

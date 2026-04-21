@@ -199,10 +199,19 @@ func zeroOf(v any) any {
 
 // WhereIf 零值/nil 时跳过，非零值时生效
 //   - val 为 nil 指针 → 跳过
+//   - val 为指向零值的指针（如 *int(0)）→ 跳过（与 int(0) 等价）
 //   - val 为零值 → 跳过
 //   - 其他 → 生成条件
 //
-// 适用于 HTTP/RPC 请求参数中「未填写则不过滤」的场景
+// 适用于 HTTP/RPC 请求参数中「未填写则不过滤」的场景。
+//
+// 设计说明：本函数刻意不区分指针与非指针——*T(0) 与 T(0) 行为一致。
+// 之所以不按"指针即三态"推断（即 *T(0) 当显式 0 过滤），是为了让 SQL 行为
+// 由调用名显式声明，而非隐式绑定到字段声明类型——读 WhereIf("status", OpEq, x)
+// 一行就能确定语义，无需回查 x 是 int64 还是 *int64。
+//
+// 若需把 *T(0) 视作"显式 0 必须过滤"，请显式使用 WhereAlways；
+// 若需 nil → IS NULL 的三态语义，请使用 WhereNullable。
 func WhereIf(col string, op Op, val any) Scope {
 	return func(db *gorm.DB) *gorm.DB {
 		if IsNilPtr(val) {
