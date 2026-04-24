@@ -25,6 +25,10 @@ func C(wrapper HandlerFuncWrapper) gin.HandlerFunc {
 			AbortWithError(c, err)
 			return
 		}
+		// 如果 wrapper 内部已自行写入响应，则不再重复输出
+		if c.Writer.Written() {
+			return
+		}
 		// 检查是否为导出请求
 		if exporter.IsDownload(c) {
 			if exportErr := exporter.Export(c, resp); exportErr != nil {
