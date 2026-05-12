@@ -3,6 +3,8 @@ package utils
 import (
 	"context"
 	"errors"
+	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 )
@@ -184,17 +186,28 @@ func (m *Manager) SingleRun(ctx context.Context, key string, waitTime time.Durat
 	// 创建新的 context，记录当前已持有此 key 的锁
 	newCtx := withHeldLock(ctx, key)
 
-	// 执行任务
-	err := f(newCtx)
+	// 使用 defer 确保即使 f() panic 也能正确清理状态，避免永久锁死
+	defer func() {
+		e.mu.Lock()
+		e.info.IsRunning = false
+		e.cond.Broadcast()
+		e.mu.Unlock()
+	}()
 
-	// 6. 任务执行完毕，重新加锁以安全地更新状态
+	// 执行任务，recover panic 转为 error
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("SingleRun panic [key=%s]: %v\nStack: %s", key, r, string(debug.Stack()))
+			}
+		}()
+		err = f(newCtx)
+	}()
+
 	e.mu.Lock()
-	e.info.IsRunning = false
-	// 7. 广播通知所有正在等待这个 key 的协程，任务已经完成了
-	e.cond.Broadcast()
-
 	info := e.info
-	e.mu.Unlock() // 8. 完成所有操作，解锁
+	e.mu.Unlock()
 
 	return info, err
 }

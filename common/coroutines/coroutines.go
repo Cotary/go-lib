@@ -2,7 +2,6 @@ package coroutines
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"runtime/debug"
 	"sync"
@@ -20,13 +19,33 @@ func SafeGo(ctx context.Context, F func(ctx context.Context)) {
 	}()
 }
 
+// SafeFunc 在当前 goroutine 内执行 F，并在 defer 中 recover()。
+//
+// 关于 panic 的协程语义：panic 是协程级事件，只能在抛出它的那个
+// goroutine 的 defer 中 recover；别的 goroutine 拦不到。所以每个
+// 新启动的 goroutine 都必须经过 SafeFunc / SafeGo 包装，少包一个
+// 就漏一个。注意：这里只能拦 L2 panic，runtime 抛出的 L3 fatal
+// error（concurrent map writes 等）会跳过 defer，由 crash.go 的
+// InitCrashReporter 落盘 + 下次启动补报负责。
+//
+// 这里区分 r 的类型：原生 error 用 WithStack 保留底层信息以兼容
+// e.GetErrMessage 的渲染；非 error 值用 Errorf 转字符串。最终用
+// WithMessage 把 debug.Stack() 拼上去，避免 recover 处吃掉 panic
+// 现场（pkg/errors 的 stack 只到 recover 这一帧，不能反推真实抛点）。
 func SafeFunc(ctx context.Context, F func(ctx context.Context)) {
 	defer func() {
-		if r := recover(); r != nil {
-			msg := fmt.Sprintf("Recover: %v \n Stack: %s", r, string(debug.Stack()))
-			err := errors.New(msg)
-			notify.SendErrMessage(ctx, err)
+		r := recover()
+		if r == nil {
+			return
 		}
+		var err error
+		if e, ok := r.(error); ok {
+			err = errors.WithStack(e)
+		} else {
+			err = errors.Errorf("panic: %v", r)
+		}
+		err = errors.WithMessage(err, "stack:\n"+string(debug.Stack()))
+		notify.SendErrMessage(ctx, err)
 	}()
 	F(ctx)
 }
