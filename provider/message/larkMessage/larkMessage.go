@@ -7,12 +7,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/pkg/errors"
 	"net/http"
 	"time"
 
 	"github.com/Cotary/go-lib/common/utils"
 	http2 "github.com/Cotary/go-lib/net/http"
-	"github.com/pkg/errors"
 )
 
 type LarkRobot struct {
@@ -51,7 +51,7 @@ func (t LarkRobot) SendMessage(ctx context.Context, language string, title strin
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
-	res := http2.FastHTTP().Execute(ctx, http.MethodPost, url, nil, str, headers)
+	res := http2.FastHTTP().NoSendErrorMsg().Execute(ctx, http.MethodPost, url, nil, str, headers)
 	return res.Response, res.Error
 }
 

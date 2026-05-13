@@ -2,6 +2,7 @@ package asyncSender
 
 import (
 	"context"
+
 	"github.com/Cotary/go-lib/common/coroutines"
 	"github.com/Cotary/go-lib/common/utils"
 	"github.com/Cotary/go-lib/log"
@@ -9,7 +10,6 @@ import (
 )
 
 type Message struct {
-	Ctx     context.Context
 	Title   string
 	Content *utils.OrderedMap[string, string]
 }
@@ -31,17 +31,20 @@ func NewAsyncSender(sender message.Sender, bufferSize int) *AsyncSender {
 	return asyncSender
 }
 
-func (a *AsyncSender) Send(ctx context.Context, title string, zMap *utils.OrderedMap[string, string]) error {
-	a.message <- Message{ctx, title, zMap}
+// Send 异步发送消息，上下文信息应在调用方构造 zMap 时提取写入，此处不依赖 ctx 传递追踪数据
+func (a *AsyncSender) Send(_ context.Context, title string, zMap *utils.OrderedMap[string, string]) error {
+	a.message <- Message{Title: title, Content: zMap}
 	return nil
 }
+
 func (a *AsyncSender) consumeZMap() {
 	ctx := coroutines.NewContext("messageSender")
 	coroutines.ConcurrentProcessorChan(ctx, 10, a.message, func(ctx context.Context, msg Message) {
 		if a.sender != nil {
-			err := a.sender.Send(msg.Ctx, msg.Title, msg.Content)
+			sendCtx := coroutines.NewContext("asyncSend")
+			err := a.sender.Send(sendCtx, msg.Title, msg.Content)
 			if err != nil {
-				log.WithContext(msg.Ctx).WithFields(map[string]interface{}{
+				log.WithContext(sendCtx).WithFields(map[string]interface{}{
 					"title":   msg.Title,
 					"message": msg.Content,
 				}).Error(err.Error())

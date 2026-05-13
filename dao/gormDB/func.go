@@ -270,30 +270,42 @@ func (g *GormDrive) QueryAndSave(
 	err = g.CtxTransaction(ctx, func(ctx context.Context) error {
 		db := g.WithContext(ctx)
 
-		// fields == nil（只查不更新）时直接查入 data，使调用方拿到完整 DB 记录（含 ID）；
-		// fields != nil（需要更新）时查入独立 newStruct，防止 DB 旧值覆盖 data 的待更新字段。
-		queryTarget := data
-		if fields != nil {
-			queryTarget = newStruct(data)
-		}
-		takeErr := db.Clauses(clause.Locking{Strength: "UPDATE"}).Where(condition).Take(queryTarget).Error
+		var found bool
 
-		if takeErr != nil {
-			if errors.Is(takeErr, gorm.ErrRecordNotFound) {
-				var conflictKeys []string
-				for key := range condition {
-					conflictKeys = append(conflictKeys, key)
-				}
-				insertResult := g.saveRaw(ctx, data, fields, conflictKeys)
-				if insertResult.Error != nil {
-					return insertResult.Error
-				}
-				if insertResult.RowsAffected > 0 {
-					op = OperationInsert
-				}
-				return nil
+		if fields == nil {
+			// 只查不更新：用 Model(零值struct) + Scan(data) 查询。
+			// Model 使用零值 struct 避免 GORM 从 data 的非零主键自动追加 WHERE id=? 条件；
+			// Scan 直接将结果写入 data（含 ID），gorm:"-" 字段保持原值。
+			result := db.Model(newStruct(data)).
+				Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where(condition).Limit(1).Scan(data)
+			if result.Error != nil {
+				return result.Error
 			}
-			return takeErr
+			found = result.RowsAffected != 0
+		} else {
+			// 需要更新：查入独立 queryStruct，防止 DB 旧值覆盖 data 的待更新字段。
+			queryStruct := newStruct(data)
+			takeErr := db.Clauses(clause.Locking{Strength: "UPDATE"}).Where(condition).Take(queryStruct).Error
+			if takeErr != nil && !errors.Is(takeErr, gorm.ErrRecordNotFound) {
+				return takeErr
+			}
+			found = takeErr == nil
+		}
+
+		if !found {
+			var conflictKeys []string
+			for key := range condition {
+				conflictKeys = append(conflictKeys, key)
+			}
+			insertResult := g.saveRaw(ctx, data, fields, conflictKeys)
+			if insertResult.Error != nil {
+				return insertResult.Error
+			}
+			if insertResult.RowsAffected > 0 {
+				op = OperationInsert
+			}
+			return nil
 		}
 
 		if fields == nil {
