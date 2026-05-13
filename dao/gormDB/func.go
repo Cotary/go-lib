@@ -270,9 +270,13 @@ func (g *GormDrive) QueryAndSave(
 	err = g.CtxTransaction(ctx, func(ctx context.Context) error {
 		db := g.WithContext(ctx)
 
-		queryStruct := newStruct(data)
-		// Locking UPDATE 加行锁，防止并发事务同时读取并写入同一行
-		takeErr := db.Clauses(clause.Locking{Strength: "UPDATE"}).Where(condition).Take(queryStruct).Error
+		// fields == nil（只查不更新）时直接查入 data，使调用方拿到完整 DB 记录（含 ID）；
+		// fields != nil（需要更新）时查入独立 newStruct，防止 DB 旧值覆盖 data 的待更新字段。
+		queryTarget := data
+		if fields != nil {
+			queryTarget = newStruct(data)
+		}
+		takeErr := db.Clauses(clause.Locking{Strength: "UPDATE"}).Where(condition).Take(queryTarget).Error
 
 		if takeErr != nil {
 			if errors.Is(takeErr, gorm.ErrRecordNotFound) {
