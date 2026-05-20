@@ -1,4 +1,4 @@
-package httptransport
+package httpTransport
 
 import (
 	"time"
@@ -66,8 +66,8 @@ func WithNodeHeaders(endpoint string, headers map[string]string) Option {
 //
 // 示例:
 //
-//	httptransport.New(
-//	    httptransport.WithMiddleware(
+//	httpTransport.New(
+//	    httpTransport.WithMiddleware(
 //	        nethttp.AuthMiddleware("appId", "secret", "md5"),
 //	        nethttp.TimingMiddleware(),
 //	    ),

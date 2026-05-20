@@ -1,4 +1,4 @@
-package httptransport
+package httpTransport
 
 import (
 	"context"
@@ -29,11 +29,11 @@ type Transport struct {
 //
 // 使用示例:
 //
-//	transport := httptransport.New(
-//	    httptransport.WithDefaultHeaders(map[string]string{
+//	transport := httpTransport.New(
+//	    httpTransport.WithDefaultHeaders(map[string]string{
 //	        "Content-Type": "application/json",
 //	    }),
-//	    httptransport.WithTimeout(10 * time.Second),
+//	    httpTransport.WithTimeout(10 * time.Second),
 //	)
 func New(opts ...Option) *Transport {
 	o := defaultOptions()
@@ -50,7 +50,7 @@ func New(opts ...Option) *Transport {
 func (t *Transport) Execute(ctx context.Context, endpoint string, req *nodepool.Request) (*nodepool.Response, error) {
 	httpReq, ok := req.Data.(*HTTPRequest)
 	if !ok {
-		return nil, fmt.Errorf("httptransport: req.Data 必须为 *HTTPRequest 类型，实际为 %T", req.Data)
+		return nil, fmt.Errorf("httpTransport: req.Data 必须为 *HTTPRequest 类型，实际为 %T", req.Data)
 	}
 
 	url := buildURL(endpoint, httpReq.Path)

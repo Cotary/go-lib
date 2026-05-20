@@ -1,4 +1,4 @@
-package httptransport
+package httpTransport
 
 import (
 	"context"
@@ -34,11 +34,11 @@ type ClassifierOption func(*Classifier)
 // 使用示例:
 //
 //	// 使用默认规则
-//	classifier := httptransport.NewClassifier()
+//	classifier := httpTransport.NewClassifier()
 //
 //	// 自定义：将 403 也视为节点故障（如 IP 封禁场景）
-//	classifier := httptransport.NewClassifier(
-//	    httptransport.WithFailCodes(http.StatusForbidden),
+//	classifier := httpTransport.NewClassifier(
+//	    httpTransport.WithFailCodes(http.StatusForbidden),
 //	)
 func NewClassifier(opts ...ClassifierOption) *Classifier {
 	c := &Classifier{

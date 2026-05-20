@@ -1,4 +1,4 @@
-package httptransport
+package httpTransport
 
 import (
 	"net/http"
@@ -12,7 +12,7 @@ import (
 // 使用示例:
 //
 //	req := &nodepool.Request{
-//	    Data: &httptransport.HTTPRequest{
+//	    Data: &httpTransport.HTTPRequest{
 //	        Method:  "POST",
 //	        Path:    "/v1/chat/completions",
 //	        Body:    map[string]any{"model": "gpt-4"},
@@ -39,7 +39,7 @@ func (r *HTTPRequest) GetMethod() string {
 //
 // 调用方通过类型断言获取：
 //
-//	httpResp := resp.Data.(*httptransport.HTTPResponse)
+//	httpResp := resp.Data.(*httpTransport.HTTPResponse)
 //	fmt.Println(httpResp.StatusCode, string(httpResp.Body))
 type HTTPResponse struct {
 	StatusCode int                 // HTTP 状态码
