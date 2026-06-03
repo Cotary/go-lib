@@ -1,0 +1,33 @@
+# api 服务专属配置模板
+# 每个服务根据自身需要填写，不需要的字段可以省略
+
+serverName: "api"
+serverPort: ":8080"
+env: "prod"                  # prod / test
+
+# 日志配置
+log:
+  level: "debug"
+  path: "./logs/"
+  fileSuffix: ".log"
+  maxAge: 7
+  maxSize: 10
+
+# 数据库配置（如果该服务直连 DB）
+db:
+  driver: postgres
+  dsn:
+    - "postgres://user:pass@127.0.0.1:5432/mydb?sslmode=disable"
+  maxOpens: 20
+  maxIdles: 10
+
+# Redis 配置
+redis:
+  host: "127.0.0.1"
+  port: "6379"
+  auth: ""
+  db: 0
+  poolSize: 30
+  prefix: "myproject:"
+
+

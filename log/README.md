@@ -88,13 +88,13 @@ func HandleRequest(ctx context.Context) {
 logger := log.WithContext(ctx)
 
 // 单字段
-logger.WithField("module", "payment").Info("charge created")
+logger.WithField("module", "pay").Info("charge created")
 
 // 多字段
 logger.WithFields(map[string]any{
     "order_id": "ORD-001",
     "amount":   99.9,
-}).Info("payment success")
+}).Info("pay success")
 
 // 链式
 logger.WithField("a", 1).WithField("b", 2).Info("chained")
