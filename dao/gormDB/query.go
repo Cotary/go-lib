@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Cotary/go-lib/common/community"
+	"github.com/Cotary/go-lib/common/utils"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -111,11 +112,18 @@ func applyOp(db *gorm.DB, col string, op Op, val any) *gorm.DB {
 	return db
 }
 
+// toString 将任意值转换为字符串，供 LIKE / NOT LIKE 拼接模式串使用。
+//
+// 委托 utils.ToString：string 原样返回，int/uint/float/bool 转为可读形式，
+// []byte 转文本或 base64，slice/map/struct 转 JSON。
+// 仅 chan/func 等无意义类型转换失败，此时回退为空字符串（退化为 LIKE "%%"），
+// 使调用方无需处理 error，同时避免老实现「非字符串一律丢弃」的静默数据丢失。
 func toString(v any) string {
-	if s, ok := v.(string); ok {
-		return s
+	s, err := utils.ToString(v)
+	if err != nil {
+		return ""
 	}
-	return ""
+	return s
 }
 
 // ===== 零值 / nil 工具 =====
@@ -231,12 +239,32 @@ func WhereIf(col string, op Op, val any) Scope {
 //
 // 适用于零值本身有业务含义的场景，例如 status=0 表示特定状态，
 // 需要 WHERE status = 0 而非被忽略的情况。
+//
+// IN / NOT IN 空集合语义：
+//   - OpIn + 空切片/nil切片 → 生成 col IN (NULL)，基于 SQL 三值逻辑稳定匹配零行
+//   - OpNotIn + 空切片/nil切片 → 不加条件（匹配全部）。
+//     因为集合论上 NOT IN 空集 = 全集；而 SQL 的 NOT IN (NULL) 会因三值逻辑
+//     返回 UNKNOWN 导致匹配零行，与直觉相反，故此处不生成条件。
 func WhereAlways(col string, op Op, val any) Scope {
 	return func(db *gorm.DB) *gorm.DB {
+		var v any
 		if IsNilPtr(val) {
-			return applyOp(db, col, op, zeroOf(val))
+			v = zeroOf(val)
+		} else {
+			v = Deref(val)
 		}
-		return applyOp(db, col, op, Deref(val))
+
+		// IN/NOT IN 空集合特殊处理：绕过 applyOp 的 isEmptySlice 保护
+		if isEmptySlice(v) {
+			switch op {
+			case OpIn:
+				return db.Where(col+" IN ?", v)
+			case OpNotIn:
+				return db
+			}
+		}
+
+		return applyOp(db, col, op, v)
 	}
 }
 

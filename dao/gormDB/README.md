@@ -113,6 +113,41 @@ g.WithContext(ctx).Model(&User{}).Scopes(
 | nil 指针                  | 跳过                   | `col = 0`（折回零值）   | `col IS NULL`          |
 | nil 指针 + `OpNeq`        | 跳过                   | `col <> 0`              | `col IS NOT NULL`      |
 
+### IN / NOT IN 与空集合
+
+`WhereIf` 和 `WhereAlways` 在搭配 `OpIn` / `OpNotIn` 且值为空切片或 nil 切片时行为不同：
+
+| 场景 | `WhereIf` | `WhereAlways` |
+|------|-----------|---------------|
+| `OpIn` + 空/nil 切片 | 跳过（不加条件） | `col IN (NULL)` → 匹配零行 |
+| `OpNotIn` + 空/nil 切片 | 跳过（不加条件） | 不加条件 → 匹配全部 |
+| `OpIn` + 非空切片 | `col IN (1,2,3)` | `col IN (1,2,3)` |
+| `OpNotIn` + 非空切片 | `col NOT IN (1,2,3)` | `col NOT IN (1,2,3)` |
+
+**设计原则：**
+
+- `WhereIf`：空集合视为"未提供值"→ 跳过，与标量零值的行为一致。
+- `WhereAlways` + `OpIn`：空集合仍强制生效，语义为"在空集合中查找 → 必然查不到"。GORM 会把空切片翻译为 `col IN (NULL)`，利用 SQL 三值逻辑（任何值与 NULL 比较结果为 UNKNOWN）稳定匹配零行。
+- `WhereAlways` + `OpNotIn`：集合论上 `NOT IN 空集 = 全集`（任何值都不属于空集），因此不加条件。**注意不能生成 `NOT IN (NULL)`**——SQL 的 `NOT(UNKNOWN)` 仍为 `UNKNOWN`，会导致匹配零行，与"匹配全部"的直觉完全相反。
+
+```go
+// 典型用法：前端传入筛选 ID 列表，可能为空
+gormDB.WhereAlways("id", gormDB.OpIn, req.FilterIDs)
+// req.FilterIDs = []int64{}   → WHERE id IN (NULL)  → 返回空结果
+// req.FilterIDs = []int64{1,2} → WHERE id IN (1,2)  → 正常筛选
+
+// 如果"未传"就不过滤，请用 WhereIf
+gormDB.WhereIf("id", gormDB.OpIn, req.FilterIDs)
+// req.FilterIDs = []int64{}   → 跳过              → 不加条件
+// req.FilterIDs = []int64{1,2} → WHERE id IN (1,2) → 正常筛选
+```
+
+### LIKE / NOT LIKE 的值转换
+
+`OpLike` / `OpNotLike` 通过 `utils.ToString` 把传入值转为模式串：string 原样使用，数字/布尔等基础类型按其字符串形式参与匹配（如 `OpLike` + `int64(123)` → `LIKE "%123%"`），并自动转义 `% _ \` 通配符防止注入。仅 chan/func 等无意义类型转换失败时退化为空串（`LIKE "%%"`，匹配所有非 NULL 行）。
+
+> 注意：`LIKE` 语义本身面向字符串，对数字列做 LIKE 通常意味着设计有误，请优先用 `OpEq` / `OpIn` 等精确匹配。
+
 ### 为什么 `WhereIf` 不按指针类型自动推断三态语义
 
 一个常见的疑问是：既然 `*int64` 能表达"未填写（nil） vs 显式 0（&0）"，为什么 `WhereIf` 不按字段是否为指针自动切换语义（nil 跳过、`*T(0)` 当显式 0 过滤）？这是有意为之，理由如下：

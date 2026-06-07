@@ -157,6 +157,32 @@ func isStructLike(fv reflect.Value) bool {
 	return t != pagingT && t != orderT
 }
 
+// filterMode 表示 filter tag 中 mode 段的过滤模式。
+//
+// 与 Op 同理，使用 int 枚举而非散落的字符串字面量，
+// 避免在多处比较 "if" / "always" / "nullable" 时拼写出错。
+// 注意 struct tag 里用户写的仍是字符串，由 parseMode 在解析阶段统一转换为本枚举。
+type filterMode int
+
+const (
+	modeIf       filterMode = iota // 默认：零值/nil 跳过，对应 WhereIf
+	modeAlways                     // 强制生效（含零值），对应 WhereAlways
+	modeNullable                   // nil → IS NULL，对应 WhereNullable
+)
+
+// parseMode 将 tag 的 mode 字符串解析为 filterMode。
+// 为保持与历史行为一致，空串或无法识别的取值一律回退为 modeIf（默认模式）。
+func parseMode(s string) filterMode {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "always":
+		return modeAlways
+	case "nullable":
+		return modeNullable
+	default:
+		return modeIf
+	}
+}
+
 // buildScopeFromTag 根据单个字段的 tag 构建 Scope，tag 不合法时返回 nil（静默忽略）
 func buildScopeFromTag(tag string, fv reflect.Value) Scope {
 	parts := strings.Split(tag, ",")
@@ -173,9 +199,9 @@ func buildScopeFromTag(tag string, fv reflect.Value) Scope {
 	if !ok {
 		return nil
 	}
-	mode := "if"
+	mode := modeIf
 	if len(parts) >= 3 {
-		mode = strings.ToLower(strings.TrimSpace(parts[2]))
+		mode = parseMode(parts[2])
 	}
 
 	val := fv.Interface()
@@ -186,26 +212,40 @@ func buildScopeFromTag(tag string, fv reflect.Value) Scope {
 	}
 
 	switch mode {
-	case "always":
+	case modeAlways:
 		return WhereAlways(col, op, val)
-	case "nullable":
+	case modeNullable:
 		return WhereNullable(col, op, val)
 	default:
 		return WhereIf(col, op, val)
 	}
 }
 
-// multiColOR 将多个列名用同一操作符和值组合成 OR 条件，如 name|description 模式
-func multiColOR(cols []string, op Op, mode string, val any) Scope {
+// multiColOR 将多个列名用同一操作符和值组合成 OR 条件，如 name|description 模式。
+//
+// always 模式下的 IN/NOT IN 空集合行为与 WhereAlways 一致：
+//   - IN + 空集合 → 各列生成 col IN (NULL) 的 OR（匹配零行）
+//   - NOT IN + 空集合 → 不加条件（匹配全部）
+func multiColOR(cols []string, op Op, mode filterMode, val any) Scope {
 	return func(db *gorm.DB) *gorm.DB {
 		if IsNilPtr(val) {
-			if mode != "always" && mode != "nullable" {
+			if mode != modeAlways && mode != modeNullable {
 				return db
 			}
 		}
 		v := Deref(val)
-		if mode == "if" && IsZero(v) {
+		if mode == modeIf && IsZero(v) {
 			return db
+		}
+
+		// always 模式：IN/NOT IN 空集合与 WhereAlways 对齐
+		if mode == modeAlways && isEmptySlice(v) {
+			switch op {
+			case OpIn:
+				// 各列 OR 均为 col IN (NULL)，匹配零行
+			case OpNotIn:
+				return db
+			}
 		}
 
 		var orDB *gorm.DB
@@ -214,12 +254,23 @@ func multiColOR(cols []string, op Op, mode string, val any) Scope {
 			if c == "" {
 				continue
 			}
-			if i == 0 {
-				orDB = applyOp(db.Session(&gorm.Session{NewDB: true}), c, op, v)
+			if mode == modeAlways {
+				if i == 0 {
+					orDB = applyOpAlways(db.Session(&gorm.Session{NewDB: true}), c, op, v)
+				} else {
+					expr, args := applyOpExprAlways(c, op, v)
+					if expr != "" {
+						orDB = orDB.Or(expr, args...)
+					}
+				}
 			} else {
-				expr, args := applyOpExpr(c, op, v)
-				if expr != "" {
-					orDB = orDB.Or(expr, args...)
+				if i == 0 {
+					orDB = applyOp(db.Session(&gorm.Session{NewDB: true}), c, op, v)
+				} else {
+					expr, args := applyOpExpr(c, op, v)
+					if expr != "" {
+						orDB = orDB.Or(expr, args...)
+					}
 				}
 			}
 		}
@@ -262,6 +313,22 @@ func applyOpExpr(col string, op Op, val any) (string, []any) {
 		return col + " NOT LIKE ?", []any{"%" + escapeLike(toString(val)) + "%"}
 	}
 	return col + " = ?", []any{val}
+}
+
+// applyOpAlways 与 applyOp 类似，但不跳过空切片的 IN（供 multiColOR always 模式使用）
+func applyOpAlways(db *gorm.DB, col string, op Op, val any) *gorm.DB {
+	if op == OpIn && isEmptySlice(val) {
+		return db.Where(col+" IN ?", val)
+	}
+	return applyOp(db, col, op, val)
+}
+
+// applyOpExprAlways 与 applyOpExpr 类似，但不跳过空切片的 IN（供 multiColOR always 模式使用）
+func applyOpExprAlways(col string, op Op, val any) (string, []any) {
+	if op == OpIn && isEmptySlice(val) {
+		return col + " IN ?", []any{val}
+	}
+	return applyOpExpr(col, op, val)
 }
 
 // parseOp 将 tag 中的操作符字符串解析为 Op 枚举，不识别的操作符返回 false

@@ -89,6 +89,59 @@ func TestWhereAlways_NilPtrFoldsToZero(t *testing.T) {
 	assert.Contains(t, sql, `name = ""`)
 }
 
+func TestWhereAlways_InEmptySlice(t *testing.T) {
+	db := openDryRunDB(t)
+
+	// nil 切片 → IN (NULL)
+	var nilSlice []int64
+	_, sql1 := buildSQL(db, WhereAlways("id", OpIn, nilSlice))
+	assert.Contains(t, strings.ToUpper(sql1), "IN")
+	assert.Contains(t, strings.ToUpper(sql1), "NULL")
+
+	// 空切片 → IN (NULL)
+	emptySlice := []int64{}
+	_, sql2 := buildSQL(db, WhereAlways("id", OpIn, emptySlice))
+	assert.Contains(t, strings.ToUpper(sql2), "IN")
+	assert.Contains(t, strings.ToUpper(sql2), "NULL")
+
+	// 非空切片正常生成 IN (...)
+	_, sql3 := buildSQL(db, WhereAlways("id", OpIn, []int64{1, 2, 3}))
+	assert.Contains(t, sql3, "id IN (1,2,3)")
+}
+
+func TestWhereAlways_NotInEmptySlice(t *testing.T) {
+	db := openDryRunDB(t)
+
+	// NOT IN + 空集合 → 不加条件（匹配全部）
+	var nilSlice []int64
+	_, sql1 := buildSQL(db, WhereAlways("id", OpNotIn, nilSlice))
+	assert.NotContains(t, strings.ToUpper(sql1), "NOT IN")
+	assert.NotContains(t, strings.ToUpper(sql1), "WHERE")
+
+	emptySlice := []int64{}
+	_, sql2 := buildSQL(db, WhereAlways("id", OpNotIn, emptySlice))
+	assert.NotContains(t, strings.ToUpper(sql2), "NOT IN")
+	assert.NotContains(t, strings.ToUpper(sql2), "WHERE")
+
+	// 非空切片正常生成 NOT IN (...)
+	_, sql3 := buildSQL(db, WhereAlways("id", OpNotIn, []int64{1, 2}))
+	assert.Contains(t, sql3, "id NOT IN (1,2)")
+}
+
+func TestWhereIf_InEmptySlice_Skipped(t *testing.T) {
+	db := openDryRunDB(t)
+
+	// nil 切片 → 跳过
+	var nilSlice []int64
+	_, sql1 := buildSQL(db, WhereIf("id", OpIn, nilSlice))
+	assert.NotContains(t, strings.ToUpper(sql1), "WHERE")
+
+	// 空切片 → 跳过
+	emptySlice := []int64{}
+	_, sql2 := buildSQL(db, WhereIf("id", OpIn, emptySlice))
+	assert.NotContains(t, strings.ToUpper(sql2), "WHERE")
+}
+
 func TestWhereNullable(t *testing.T) {
 	db := openDryRunDB(t)
 	var p *int64
@@ -130,6 +183,18 @@ func TestWhereOps(t *testing.T) {
 	assert.Contains(t, sql, "e >= 5")
 	assert.Contains(t, sql, "f IN (6,7)")
 	assert.Contains(t, sql, `g LIKE "%kw%"`)
+}
+
+// LIKE 现在通过 utils.ToString 支持非字符串值（数字按其字符串形式参与匹配），
+// 而非老实现「非字符串静默丢弃为空串」导致的 LIKE "%%"。
+func TestLike_NonStringValue(t *testing.T) {
+	db := openDryRunDB(t)
+	_, sql := buildSQL(db,
+		WhereAlways("code", OpLike, int64(123)),
+		WhereAlways("ratio", OpNotLike, 4.5),
+	)
+	assert.Contains(t, sql, `code LIKE "%123%"`)
+	assert.Contains(t, sql, `ratio NOT LIKE "%4.5%"`)
 }
 
 // ===== 分页 =====

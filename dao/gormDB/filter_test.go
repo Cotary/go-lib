@@ -55,6 +55,28 @@ func TestApplyFilter_AlwaysMode_NilPtrToZero(t *testing.T) {
 	assert.Contains(t, sql, `cnt = 0`)
 }
 
+func TestApplyFilter_AlwaysMode_InEmptySlice(t *testing.T) {
+	db := openDryRunDB(t)
+	type Req struct {
+		IDs []int64 `filter:"id,in,always"`
+	}
+	f := Req{IDs: []int64{}}
+	_, sql := buildSQL(db, ApplyFilter(f))
+	assert.Contains(t, strings.ToUpper(sql), "IN")
+	assert.Contains(t, strings.ToUpper(sql), "NULL")
+}
+
+func TestApplyFilter_AlwaysMode_NotInEmptySlice(t *testing.T) {
+	db := openDryRunDB(t)
+	type Req struct {
+		ExcludeIDs []int64 `filter:"id,not in,always"`
+	}
+	f := Req{ExcludeIDs: []int64{}}
+	_, sql := buildSQL(db, ApplyFilter(f))
+	assert.NotContains(t, strings.ToUpper(sql), "NOT IN")
+	assert.NotContains(t, strings.ToUpper(sql), "WHERE")
+}
+
 func TestApplyFilter_NullableMode(t *testing.T) {
 	db := openDryRunDB(t)
 	type Req struct {
