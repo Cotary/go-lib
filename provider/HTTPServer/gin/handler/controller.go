@@ -2,15 +2,12 @@ package handler
 
 import (
 	"bytes"
-	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 
-	"github.com/Cotary/go-lib/cache"
 	e "github.com/Cotary/go-lib/err"
-	"github.com/Cotary/go-lib/notify"
 	"github.com/Cotary/go-lib/provider/HTTPServer/gin/exporter"
+	"github.com/Cotary/go-lib/provider/HTTPServer/gin/handler/controllerHook"
 	"github.com/Cotary/go-lib/provider/HTTPServer/gin/utils"
 	"github.com/Cotary/go-lib/provider/HTTPServer/response"
 	"github.com/gin-gonic/gin"
@@ -43,18 +40,8 @@ func C(wrapper HandlerFuncWrapper) gin.HandlerFunc {
 
 type ServiceFuncWrapper[T any, R any] func(c *gin.Context, req T) (resp R, err error)
 
-type ControllerOptions[R any] struct {
-	Cache cache.Cache[R]
-}
-
-func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOptions[R]) gin.HandlerFunc {
+func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], hooks ...controllerHook.Hook) gin.HandlerFunc {
 	return C(func(c *gin.Context) (any, error) {
-		var option ControllerOptions[R]
-		if len(options) > 0 {
-			option = options[0]
-		}
-
-		ctx := c.Request.Context()
 		req := new(T)
 
 		bodyBytes, err := utils.GetRequestBody(c)
@@ -67,34 +54,22 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], options ...ControllerOpt
 		}
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
-		var cacheKey string
-		if option.Cache != nil {
-			reqJson, err := json.Marshal(*req)
-			if err != nil {
-				notify.SendErrMessage(ctx, e.Err(err, "request cache marshal error"))
-			} else {
-				cacheKey = c.Request.URL.Path + ":" + string(reqJson)
-				resp, err := option.Cache.Get(ctx, cacheKey)
-				if err == nil {
-					return resp, nil
-				}
-				if !errors.Is(err, cache.ErrNotFound) {
-					notify.SendErrMessage(ctx, e.Err(err, "request cache get error"))
-				}
+		// 构建 Hook 链：AutoBind → Validate → 用户 hooks → handler
+		allHooks := make([]controllerHook.Hook, 0, 2+len(hooks))
+		allHooks = append(allHooks, controllerHook.AutoBindHook)
+		allHooks = append(allHooks, controllerHook.ValidateHook)
+		allHooks = append(allHooks, hooks...)
+
+		chain := func() (any, error) {
+			return wrapper(c, *req)
+		}
+		for i := len(allHooks) - 1; i >= 0; i-- {
+			hook := allHooks[i]
+			innerNext := chain
+			chain = func() (any, error) {
+				return hook(c, req, innerNext)
 			}
 		}
-
-		resp, err := wrapper(c, *req)
-		if err != nil {
-			return nil, err
-		}
-
-		if option.Cache != nil && cacheKey != "" {
-			if setErr := option.Cache.Set(ctx, cacheKey, resp); setErr != nil {
-				notify.SendErrMessage(ctx, e.Err(setErr, "request set cache error"))
-			}
-		}
-
-		return resp, nil
+		return chain()
 	})
 }

@@ -52,6 +52,52 @@ func (t *TimeRange) Parse(tz ...any) (start, end time.Time, err error) {
 	return t.parseRange(tz...)
 }
 
+// Validate 校验 TimeRange 的格式是否合法。
+//
+// 校验规则：
+//   - timestamp / timestamp_ms / 空值：任何 int64 均合法，直接返回 nil
+//   - year_month：校验非零的 StartTime/EndTime 是否为合法 yyyyMM（如 202604）
+//   - date：校验非零的 StartTime/EndTime 是否为合法 yyyyMMdd（如 20260414），含溢出检测
+//   - 未知 TimeRangeType：返回错误
+//
+// 建议在绑定阶段调用（handler.CD 管道中的 ValidateHook 会自动调用），
+// 通过后 ToSec()/ToMs() 可安全使用而无需处理 error。
+func (t *TimeRange) Validate() error {
+	if t.StartTime == 0 && t.EndTime == 0 && t.TimeRangeType == "" {
+		return nil
+	}
+	switch t.effectiveType() {
+	case TimeRangeTimestamp, TimeRangeTimestampMs:
+		return nil
+	case TimeRangeYearMonth:
+		if t.StartTime != 0 {
+			if _, err := parseYearMonth(t.StartTime, time.Local); err != nil {
+				return err
+			}
+		}
+		if t.EndTime != 0 {
+			if _, err := parseYearMonth(t.EndTime, time.Local); err != nil {
+				return err
+			}
+		}
+		return nil
+	case TimeRangeDate:
+		if t.StartTime != 0 {
+			if _, err := parseDate(t.StartTime, time.Local); err != nil {
+				return err
+			}
+		}
+		if t.EndTime != 0 {
+			if _, err := parseDate(t.EndTime, time.Local); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported TimeRangeType: %q", t.TimeRangeType)
+	}
+}
+
 // ToSec 将当前 TimeRange 归一化为秒级时间戳形式，并返回一个新的 TimeRange。
 //
 // 返回值特征：
@@ -60,29 +106,31 @@ func (t *TimeRange) Parse(tz ...any) (start, end time.Time, err error) {
 //
 // 不修改原对象（接收者按值语义处理结果），便于链式调用和并发安全。
 //
+// 调用前应先通过 Validate() 确保格式合法（handler.CD 管道自动调用），
+// 若格式非法则返回零值 TimeRange（WhereIf 零值语义下等同于无条件）。
+//
 // 行为说明：
 //   - 源类型已是 timestamp 时，无解析开销，原值透传
 //   - 源类型是 timestamp_ms 时，按整除 1000 转换（向零截断）
 //   - 源类型是 year_month/date 时，end 取所在月/日的 23:59:59
 //     （Unix() 会丢弃纳秒，如需毫秒精度请使用 ToMs）
-func (t *TimeRange) ToSec(tz ...any) (TimeRange, error) {
-	// 快速路径：源已是秒级时间戳，无需走时区解析，避免 time.Time 往返开销
+func (t *TimeRange) ToSec(tz ...any) TimeRange {
 	if t.effectiveType() == TimeRangeTimestamp {
 		return TimeRange{
 			StartTime:     t.StartTime,
 			EndTime:       t.EndTime,
 			TimeRangeType: TimeRangeTimestamp,
-		}, nil
+		}
 	}
 	start, end, err := t.parseRange(tz...)
 	if err != nil {
-		return TimeRange{}, err
+		return TimeRange{TimeRangeType: TimeRangeTimestamp}
 	}
 	return TimeRange{
 		StartTime:     start.Unix(),
 		EndTime:       end.Unix(),
 		TimeRangeType: TimeRangeTimestamp,
-	}, nil
+	}
 }
 
 // ToMs 将当前 TimeRange 归一化为毫秒级时间戳形式，并返回一个新的 TimeRange。
@@ -91,30 +139,47 @@ func (t *TimeRange) ToSec(tz ...any) (TimeRange, error) {
 //   - TimeRangeType 固定为 TimeRangeTimestampMs
 //   - StartTime/EndTime 为毫秒级 Unix 时间戳
 //
-// 不修改原对象。
+// 不修改原对象。调用前应先通过 Validate() 确保格式合法。
 //
 // 行为说明：
 //   - 源类型已是 timestamp_ms 时，原值透传
 //   - 源类型是 timestamp 时，按 *1000 升级到毫秒
 //   - 源类型是 year_month/date 时，end 取所在月/日 23:59:59.999（毫秒精度）
-func (t *TimeRange) ToMs(tz ...any) (TimeRange, error) {
-	// 快速路径：源已是毫秒级时间戳，原值透传
+func (t *TimeRange) ToMs(tz ...any) TimeRange {
 	if t.effectiveType() == TimeRangeTimestampMs {
 		return TimeRange{
 			StartTime:     t.StartTime,
 			EndTime:       t.EndTime,
 			TimeRangeType: TimeRangeTimestampMs,
-		}, nil
+		}
 	}
 	start, end, err := t.parseRange(tz...)
 	if err != nil {
-		return TimeRange{}, err
+		return TimeRange{TimeRangeType: TimeRangeTimestampMs}
 	}
 	return TimeRange{
 		StartTime:     start.UnixMilli(),
 		EndTime:       end.UnixMilli(),
 		TimeRangeType: TimeRangeTimestampMs,
-	}, nil
+	}
+}
+
+// AutoBind 根据前缀从 getter 中读取 {prefix}_start_time / {prefix}_end_time / {prefix}_time_range_type。
+// 由 handler.CD 的 AutoBinder 机制自动调用，请求结构体字段加 `prefix` tag 即可触发。
+func (t *TimeRange) AutoBind(getter func(string) string, prefix string) {
+	if s := getter(prefix + "_start_time"); s != "" {
+		if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+			t.StartTime = v
+		}
+	}
+	if s := getter(prefix + "_end_time"); s != "" {
+		if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+			t.EndTime = v
+		}
+	}
+	if s := getter(prefix + "_time_range_type"); s != "" {
+		t.TimeRangeType = TimeRangeType(s)
+	}
 }
 
 // parseRange 是 Parse/ToSec/ToMs 共用的内部实现。
