@@ -13,9 +13,6 @@ import (
 // Resty 客户端
 // ============================================================================
 
-// DefaultRestyClient 默认的 Resty 客户端实例
-var DefaultRestyClient = NewRestyClient()
-
 // RestyClient Resty 客户端实现
 type RestyClient struct {
 	client *resty.Client
@@ -84,18 +81,4 @@ func (rc *RestyClient) IsTimeout(err error) bool {
 		return true
 	}
 	return false
-}
-
-// ============================================================================
-// 快捷函数
-// ============================================================================
-
-// RestyHTTP 使用默认 Resty 客户端创建请求构建器
-//
-// 使用示例:
-//
-//	result := http.RestyHTTP().Execute(ctx, "GET", url, nil, nil, nil)
-//	user, err := http.Parse[User](result, "data")
-func RestyHTTP() *RequestBuilder {
-	return NewRequestBuilder(DefaultRestyClient)
 }

@@ -7,9 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
-	"github.com/Cotary/go-lib/common/defined"
 	"github.com/natefinch/lumberjack"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -37,18 +35,6 @@ type Config struct {
 	Compress   bool   `mapstructure:"compress" yaml:"compress"`
 	ShowFile   bool   `mapstructure:"showFile" yaml:"showFile"`
 	Format     string `mapstructure:"format" yaml:"format"`
-}
-
-var (
-	globalLogger Logger
-	mu           sync.RWMutex
-	defaultOnce  sync.Once
-)
-
-func SetGlobalLogger(l Logger) {
-	mu.Lock()
-	defer mu.Unlock()
-	globalLogger = l
 }
 
 func NewLogger(cfg *Config) *SlogWrapper {
@@ -167,29 +153,4 @@ func getZapLevel(l string) zapcore.Level {
 	default:
 		return zap.InfoLevel
 	}
-}
-
-func WithContext(ctx context.Context) Logger {
-	mu.RLock()
-	l := globalLogger
-	mu.RUnlock()
-
-	if l == nil {
-		defaultOnce.Do(func() {
-			mu.Lock()
-			defer mu.Unlock()
-			if globalLogger == nil {
-				globalLogger = NewLogger(&Config{})
-			}
-		})
-		mu.RLock()
-		l = globalLogger
-		mu.RUnlock()
-	}
-
-	fields := make(map[string]any)
-	if val := ctx.Value(defined.RequestID); val != nil {
-		fields[defined.RequestID] = val
-	}
-	return l.WithContext(ctx).WithFields(fields)
 }

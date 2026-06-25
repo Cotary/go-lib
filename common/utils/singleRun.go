@@ -35,8 +35,6 @@ func withHeldLock(ctx context.Context, key string) context.Context {
 	return context.WithValue(ctx, heldLocksKey{}, newLocks)
 }
 
-var DefaultManager = NewManager()
-
 // RunInfo 存储了任务的运行状态
 type RunInfo struct {
 	IsRunning bool

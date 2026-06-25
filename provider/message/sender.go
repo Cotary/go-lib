@@ -8,23 +8,6 @@ import (
 	"github.com/Cotary/go-lib/common/utils"
 )
 
-var (
-	globalSender Sender
-	mu           sync.RWMutex
-)
-
-func SetGlobalSender(sender Sender) {
-	mu.Lock()
-	defer mu.Unlock()
-	globalSender = sender
-}
-
-func GetGlobalSender() Sender {
-	mu.RLock()
-	defer mu.RUnlock()
-	return globalSender
-}
-
 type Sender interface {
 	Send(ctx context.Context, title string, zMap *utils.OrderedMap[string, string]) error
 }
