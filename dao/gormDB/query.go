@@ -233,6 +233,24 @@ func WhereIf(col string, op Op, val any) Scope {
 	}
 }
 
+// WhereIfRaw 条件为 true 时以原始 SQL 生成条件，false 跳过。
+// 适用于内置 Op 无法表达（如 PostgreSQL ILIKE、函数调用、跨列表达式）但仍希望「按条件决定是否过滤」的场景。
+//
+// 示例：
+//
+//	// 大小写不敏感精确匹配，wallet 为空时不过滤
+//	WhereIfRaw(wallet != "", "wallet ILIKE ?", wallet)
+//	// 大小写不敏感模糊匹配
+//	WhereIfRaw(keyword != "", "name ILIKE ?", "%"+keyword+"%")
+func WhereIfRaw(cond bool, query string, args ...any) Scope {
+	return func(db *gorm.DB) *gorm.DB {
+		if !cond {
+			return db
+		}
+		return db.Where(query, args...)
+	}
+}
+
 // WhereAlways 无论值是否为零值都强制生效
 //   - val 为 nil 指针 → 折回为类型零值后仍生成条件
 //   - 其他 → 直接使用实际值生成条件
