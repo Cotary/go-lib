@@ -284,6 +284,30 @@ func TimeoutMiddleware(timeout time.Duration) Middleware {
 	}
 }
 
+// RateLimitMiddleware 速率限流中间件
+// 在发起 HTTP 请求前等待令牌，超过 ctx 超时则中断请求
+//
+// 用法：
+//
+//	limiter := utils.NewRateLimiter(5, 2)
+//	http2.FastHTTP().Use(
+//	    http2.RateLimitMiddleware(limiter),
+//	    http2.TimeoutMiddleware(15*time.Second),
+//	).Execute(ctx, ...)
+func RateLimitMiddleware(limiter *utils.RateLimiter) Middleware {
+	return func(ctx *Context) {
+		if limiter == nil {
+			ctx.AbortWithError(errors.New("rate limiter is nil"))
+			return
+		}
+		if err := limiter.Wait(ctx.Ctx); err != nil {
+			ctx.AbortWithError(fmt.Errorf("rate limit wait: %w", err))
+			return
+		}
+		ctx.Next()
+	}
+}
+
 // ============================================================================
 // 响应后置中间件
 // ============================================================================
