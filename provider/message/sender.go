@@ -2,8 +2,8 @@ package message
 
 import (
 	"context"
+
 	"github.com/Cotary/go-lib/log"
-	"sync"
 
 	"github.com/Cotary/go-lib/common/utils"
 )
