@@ -10,7 +10,8 @@ import (
 
 // ================== AnyToAny 系列 ==================
 
-// AnyToAny 泛型版本，常见基础类型零反射
+// AnyToAny 泛型版本，常见基础类型零反射。
+// []byte 统一使用 base64；[]byte 转 string 会得到 base64 文本。
 func AnyToAny[T any](value any) (T, error) {
 	var zero T
 
@@ -29,7 +30,7 @@ func AnyToAny[T any](value any) (T, error) {
 	return StringTo[T](str)
 }
 
-// AnyToAnyPtr 反射版本，支持复杂类型和动态目标类型
+// AnyToAnyPtr 反射版本，支持复杂类型和动态目标类型。
 func AnyToAnyPtr(value any, target any) error {
 	str, err := ToString(value)
 	if err != nil {
@@ -40,7 +41,8 @@ func AnyToAnyPtr(value any, target any) error {
 
 // ================== StringTo 系列 ==================
 
-// StringTo 泛型版本，基础类型使用类型断言，零反射
+// StringTo 泛型版本，基础类型使用类型断言，零反射。
+// 目标为 []byte 或命名 []byte 时，输入必须是 base64。
 func StringTo[T any](value string) (T, error) {
 	var zero T
 	result, err := stringToFast(value, zero)
@@ -60,7 +62,7 @@ func StringTo[T any](value string) (T, error) {
 	return zero, err
 }
 
-// stringToFast 类型断言快路径，处理常见基础类型
+// stringToFast 类型断言快路径，处理常见基础类型。
 func stringToFast(value string, target any) (any, error) {
 	switch target.(type) {
 	case string:
@@ -100,12 +102,11 @@ func stringToFast(value string, target any) (any, error) {
 	case bool:
 		return strconv.ParseBool(value)
 	case []byte:
-		bytes, err := base64.StdEncoding.DecodeString(value)
+		data, err := base64.StdEncoding.DecodeString(value)
 		if err != nil {
-			// 不是 base64 编码的情况，直接转换为 []byte
-			return []byte(value), nil
+			return nil, fmt.Errorf("invalid base64 bytes: %w", err)
 		}
-		return bytes, nil
+		return data, nil
 	}
 	// 返回特殊错误标记，表示需要回退到反射
 	return nil, errNeedReflect
@@ -113,7 +114,8 @@ func stringToFast(value string, target any) (any, error) {
 
 var errNeedReflect = fmt.Errorf("need reflect")
 
-// StringToPtr 反射版本，支持复杂类型
+// StringToPtr 反射版本，支持复杂类型。
+// 目标为 []byte 或命名 []byte 时，输入必须是 base64。
 func StringToPtr(value string, target any) error {
 	v := reflect.ValueOf(target)
 	if v.Kind() != reflect.Ptr || v.IsNil() {
@@ -155,14 +157,20 @@ func StringToPtr(value string, target any) error {
 		v.SetString(value)
 	case reflect.Slice, reflect.Array:
 		if v.Type().Elem().Kind() == reflect.Uint8 {
-			bytes, err := base64.StdEncoding.DecodeString(value)
+			data, err := base64.StdEncoding.DecodeString(value)
 			if err != nil {
-				// 不是 base64 编码的情况，直接转换为 []byte
-				v.SetBytes([]byte(value))
-			} else {
-				// base64 编码的情况，解码为 []byte
-				v.SetBytes(bytes)
+				return fmt.Errorf("invalid base64 bytes: %w", err)
 			}
+			if v.Kind() == reflect.Array {
+				if len(data) != v.Len() {
+					return fmt.Errorf("byte array length mismatch: got %d, want %d", len(data), v.Len())
+				}
+				for i := range data {
+					v.Index(i).SetUint(uint64(data[i]))
+				}
+				return nil
+			}
+			v.SetBytes(data)
 		} else {
 			err := NJson.Unmarshal([]byte(value), target)
 			if err != nil {
@@ -175,6 +183,10 @@ func StringToPtr(value string, target any) error {
 			return err
 		}
 	case reflect.Ptr:
+		if value == "null" {
+			v.SetZero()
+			return nil
+		}
 		ptrVal := reflect.New(v.Type().Elem())
 		err := StringToPtr(value, ptrVal.Interface())
 		if err != nil {
@@ -196,8 +208,8 @@ func StringToPtr(value string, target any) error {
 
 // ================== ToString ==================
 
-// ToString 这里不支持String()的方法，因为可能没有StringTo的方法
-// 优化：基础类型使用类型断言快路径，复杂类型回退到反射
+// ToString 这里不支持String()的方法，因为可能没有StringTo的方法。
+// []byte 一律使用 base64，不再根据内容猜测文本或二进制。
 func ToString(value any) (string, error) {
 	// 快路径：类型断言处理常见基础类型
 	switch v := value.(type) {
@@ -230,28 +242,36 @@ func ToString(value any) (string, error) {
 	case bool:
 		return strconv.FormatBool(v), nil
 	case []byte:
-		if isTextData(v) {
-			return string(v), nil
-		}
 		return base64.StdEncoding.EncodeToString(v), nil
 	case nil:
 		return "", nil
 	}
 
-	// 慢路径：反射处理复杂类型
+	// 慢路径：反射处理命名基础类型和复杂类型
 	return toStringReflect(value)
 }
 
-// toStringReflect 反射版本，处理 Slice/Map/Struct/Ptr/Interface 等复杂类型
+// toStringReflect 反射版本，处理命名基础类型以及 Slice/Map/Struct/Ptr/Interface。
 func toStringReflect(value any) (string, error) {
 	v := reflect.ValueOf(value)
 	switch v.Kind() {
+	case reflect.String:
+		return v.String(), nil
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return strconv.FormatInt(v.Int(), 10), nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return strconv.FormatUint(v.Uint(), 10), nil
+	case reflect.Float32, reflect.Float64:
+		return strconv.FormatFloat(v.Float(), 'f', -1, v.Type().Bits()), nil
+	case reflect.Bool:
+		return strconv.FormatBool(v.Bool()), nil
 	case reflect.Slice, reflect.Array:
 		if v.Type().Elem().Kind() == reflect.Uint8 {
-			if isTextData(v.Bytes()) {
-				return string(v.Bytes()), nil
+			data := make([]byte, v.Len())
+			for i := 0; i < v.Len(); i++ {
+				data[i] = byte(v.Index(i).Uint())
 			}
-			return base64.StdEncoding.EncodeToString(v.Bytes()), nil
+			return base64.StdEncoding.EncodeToString(data), nil
 		}
 		fallthrough
 	case reflect.Map, reflect.Struct, reflect.Ptr, reflect.Interface:
@@ -263,16 +283,4 @@ func toStringReflect(value any) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported type: %T", value)
 	}
-}
-
-// ================== 辅助函数 ==================
-
-func isTextData(data []byte) bool {
-	for _, b := range data {
-		if b < 32 || b > 126 {
-			// 如果发现非ASCII文本字符，判断为二进制数据
-			return false
-		}
-	}
-	return true
 }
