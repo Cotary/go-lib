@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"runtime"
 	"strconv"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	"github.com/Cotary/go-lib/common/appctx"
 	"github.com/Cotary/go-lib/common/defined"
 	utils2 "github.com/Cotary/go-lib/common/utils"
-	"github.com/Cotary/go-lib/log"
 	"github.com/Cotary/go-lib/provider/message"
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/utils"
@@ -27,37 +27,25 @@ var logLineEnding = func() string {
 	return "\n"
 }()
 
-// GormLogWriter 将 go-lib/log 适配为 GORM 的 logger.Writer 接口
-type GormLogWriter struct {
-	Log log.Logger
-}
-
-func NewGormLogWriter(l log.Logger) *GormLogWriter {
-	return &GormLogWriter{Log: l}
-}
-
-// Printf 追加平台相关换行符后调用底层日志输出
-func (l *GormLogWriter) Printf(format string, v ...any) {
-	l.Log.Raw(fmt.Sprintf(format+logLineEnding, v...))
-}
-
-// GormLogger 是 GORM 的自定义日志记录器
-//   - 支持 message.Sender 将慢 SQL 告警推送到外部
-//   - 从 context 提取 TransactionID / RequestID / RequestURI 等追踪信息注入日志
+// GormLogger 是 GORM 的自定义日志记录器。
+//
+//   - 直接持有 io.Writer，自带 Printf，不再需要 GormLogWriter 适配层；
+//   - 慢 SQL 通过 message.Default() 推送告警；
+//   - 从 context 提取 TransactionID / RequestID / RequestURI 注入日志。
+//
+// 格式化模板在构造时预生成，避免每条日志重复拼接。
 type GormLogger struct {
-	logger.Writer
 	logger.Config
-	sender                                  message.Sender
+	out io.Writer
+
 	infoStr, warnStr, errStr                string
 	traceInfoStr, traceErrStr, traceWarnStr string
 }
 
-// SetSender 设置消息发送器，为 nil 时不推送慢 SQL 告警
-func (l *GormLogger) SetSender(s message.Sender) {
-	l.sender = s
-}
+var _ logger.Interface = (*GormLogger)(nil)
 
-func NewGormLogger(writer logger.Writer, config logger.Config) *GormLogger {
+// NewGormLogger 构造 GORM logger：out 决定日志写到哪里，config 控制级别/阈值。
+func NewGormLogger(out io.Writer, config logger.Config) *GormLogger {
 	var (
 		infoStr      = "[info] %s %s [%s] \n"
 		warnStr      = "[warn] %s %s [%s] \n"
@@ -83,8 +71,8 @@ func NewGormLogger(writer logger.Writer, config logger.Config) *GormLogger {
 	}
 
 	return &GormLogger{
-		Writer:       writer,
 		Config:       config,
+		out:          out,
 		infoStr:      infoStr,
 		warnStr:      warnStr,
 		errStr:       errStr,
@@ -92,6 +80,13 @@ func NewGormLogger(writer logger.Writer, config logger.Config) *GormLogger {
 		traceWarnStr: traceWarnStr,
 		traceErrStr:  traceErrStr,
 	}
+}
+
+// Printf 把格式化后的文本写入 out，去掉结尾换行后统一补一个，
+// 避免出现空行或 Windows 下的 \n\r\n。
+func (l GormLogger) Printf(format string, v ...any) {
+	line := strings.TrimRight(fmt.Sprintf(format, v...), "\r\n")
+	_, _ = io.WriteString(l.out, line+logLineEnding)
 }
 
 // LogMode 复制 receiver 并返回新实例，对并发 goroutine 安全（GORM 要求此行为）
@@ -168,22 +163,16 @@ func (l GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (strin
 		slowLog := fmt.Sprintf("SLOW SQL >= %v", l.SlowThreshold)
 		msg := fmt.Sprintf(l.traceWarnStr, currTime, fileLine, reqInfo, slowLog, elapsedMs, rows, sql)
 		l.Printf("%s", msg)
-		sendMessage(ctx, l.sender, msg)
+		sendMessage(ctx, msg)
 
 	case l.LogLevel == logger.Info:
 		l.Printf(l.traceInfoStr, currTime, fileLine, reqInfo, elapsedMs, rows, sql)
 	}
 }
 
-// sendMessage 将慢 SQL 告警通过 Sender 推送到外部，若 Sender 为 nil 则回退到全局 Sender。
+// sendMessage 将慢 SQL 告警通过进程默认出口推送（message.Default 永远非 nil）。
 // 消息中包含 gormDB 运行环境和请求上下文等排查信息。
-func sendMessage(ctx context.Context, sender message.Sender, msg string) {
-	if sender == nil {
-		sender = message.GetGlobalSender()
-	}
-	if sender == nil {
-		return
-	}
+func sendMessage(ctx context.Context, msg string) {
 	env := appctx.Env()
 	serverName := appctx.ServerName()
 	requestID, _ := ctx.Value(defined.RequestID).(string)
@@ -198,5 +187,5 @@ func sendMessage(ctx context.Context, sender message.Sender, msg string) {
 		Set("RequestJson:", requestJson).
 		Set("SqlInfo:", msg)
 
-	sender.Send(ctx, "Slow Query", zMap)
+	_ = message.Default().Send(ctx, "Slow Query", zMap)
 }

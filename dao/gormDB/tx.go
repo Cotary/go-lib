@@ -57,8 +57,8 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 		}
 		newCtx := context.WithValue(ctx, defined.TransactionID, txID)
 
-		if g.Logger != nil {
-			g.Logger.Info(newCtx, "TRANSACTION BEGIN NESTED")
+		if lg := g.db.Logger; lg != nil {
+			lg.Info(newCtx, "TRANSACTION BEGIN NESTED")
 		}
 
 		err := tx.Transaction(func(subTx *gorm.DB) error {
@@ -66,12 +66,12 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 			return fn(newCtx)
 		}, opts...)
 
-		if g.Logger != nil {
+		if lg := g.db.Logger; lg != nil {
 			elapsed := time.Since(beginTime)
 			if err != nil {
-				g.Logger.Warn(newCtx, fmt.Sprintf("[%v] TRANSACTION ROLLBACK NESTED :%s", elapsed, err.Error()))
+				lg.Warn(newCtx, fmt.Sprintf("[%v] TRANSACTION ROLLBACK NESTED :%s", elapsed, err.Error()))
 			} else {
-				g.Logger.Info(newCtx, fmt.Sprintf("[%v] TRANSACTION COMMIT NESTED", elapsed))
+				lg.Info(newCtx, fmt.Sprintf("[%v] TRANSACTION COMMIT NESTED", elapsed))
 			}
 		}
 		return err
@@ -83,8 +83,8 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 	}
 	newCtx := context.WithValue(ctx, defined.TransactionID, txID)
 
-	if g.Logger != nil {
-		g.Logger.Info(newCtx, "TRANSACTION BEGIN")
+	if lg := g.db.Logger; lg != nil {
+		lg.Info(newCtx, "TRANSACTION BEGIN")
 	}
 
 	err := g.db.WithContext(newCtx).Transaction(func(tx *gorm.DB) error {
@@ -92,12 +92,12 @@ func (g *GormDrive) CtxTransaction(ctx context.Context, fn func(ctx context.Cont
 		return fn(newCtx)
 	}, opts...)
 
-	if g.Logger != nil {
+	if lg := g.db.Logger; lg != nil {
 		elapsed := time.Since(beginTime)
 		if err != nil {
-			g.Logger.Warn(newCtx, fmt.Sprintf("[%v] TRANSACTION ROLLBACK :%s", elapsed, err.Error()))
+			lg.Warn(newCtx, fmt.Sprintf("[%v] TRANSACTION ROLLBACK :%s", elapsed, err.Error()))
 		} else {
-			g.Logger.Info(newCtx, fmt.Sprintf("[%v] TRANSACTION COMMIT", elapsed))
+			lg.Info(newCtx, fmt.Sprintf("[%v] TRANSACTION COMMIT", elapsed))
 		}
 	}
 	return err

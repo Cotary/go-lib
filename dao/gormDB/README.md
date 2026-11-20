@@ -80,6 +80,18 @@ cfg := &gormDB.GormConfig{
 g := gormDB.MustNewGorm(cfg)
 ```
 
+GORM 日志由 `log.NewWriter` 按 `LogDir` / `LogSaveDay` 创建轮转 writer（stdout + 文件），
+SQL 文本原样输出，不经过 slog。
+
+慢 SQL 告警走进程默认出口，启动时设置一次即可：
+
+```go
+message.SetDefault(sender)
+g := gormDB.MustNewGorm(cfg)
+```
+
+`message.Default()` 永远非 nil，未设置时是 no-op。
+
 `*GormDrive` 提供 3 个常用入口：
 
 ```go

@@ -23,10 +23,12 @@ package gormDB
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"time"
 
-	log2 "github.com/Cotary/go-lib/log"
+	"github.com/Cotary/go-lib/log"
 	"github.com/google/uuid"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -57,9 +59,10 @@ type GormConfig struct {
 //
 // ID 为 uuid 标识，用作 context key 的一部分，支持同进程内多个数据库实例独立管理事务。
 type GormDrive struct {
-	ID     string
-	Logger *GormLogger
-	db     *gorm.DB
+	ID string
+	db *gorm.DB
+
+	logCloser io.Closer
 }
 
 // DB 返回底层的 *gorm.DB 实例。
@@ -85,14 +88,20 @@ func (g *GormDrive) Health(ctx context.Context) error {
 // Close 关闭底层数据库连接，释放连接池资源。
 // 应在应用退出时调用，调用后 GormDrive 实例不可再使用。
 func (g *GormDrive) Close() error {
-	if g.db == nil {
-		return nil
+	var errs []error
+	if g.db != nil {
+		if sqlDB, err := g.db.DB(); err != nil {
+			errs = append(errs, err)
+		} else if err := sqlDB.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	sqlDB, err := g.db.DB()
-	if err != nil {
-		return err
+	if g.logCloser != nil {
+		if err := g.logCloser.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	return sqlDB.Close()
+	return errors.Join(errs...)
 }
 
 // handleConfig 为 GormConfig 中未设置的字段填充合理的默认值
@@ -155,26 +164,22 @@ func getDriver(driver string, dsn []string) gorm.Dialector {
 // NewGorm 创建并初始化 GormDrive 实例。
 //
 // 默认开启 SkipDefaultTransaction 和 PrepareStmt 以获得更好的性能。
-// 如需自定义 GORM 配置项，目前需修改 NewGorm 内部代码。
-// 后续可通过 Functional Options 模式扩展，保持对外 API 向后兼容。
+// 日志 writer 由 log.NewWriter 按 LogDir / LogSaveDay 创建（stdout + 文件轮转），
+// 慢 SQL 告警通过 message.Default() 发送。
 func NewGorm(config *GormConfig) (*GormDrive, error) {
 	handleConfig(config)
 
-	logConfig := log2.Config{
-		Driver:     log2.DriverZap,
-		Level:      "info",
+	// GORM 日志只做轮转：writer 由 log.NewWriter 生成，SQL 文本原样写入。
+	w := log.NewWriter(log.RotateConfig{
 		Path:       config.LogDir,
-		FileSuffix: ".log",
-		MaxAge:     config.LogSaveDay,
 		FileName:   "gorm-logger",
+		FileSuffix: ".log",
 		MaxSize:    10,
-		Compress:   false,
-		ShowFile:   false,
-		Format:     log2.FormatText,
-	}
-	writer := log2.NewLogger(&logConfig)
+		MaxAge:     int(config.LogSaveDay),
+	})
+
 	newLogger := NewGormLogger(
-		NewGormLogWriter(writer),
+		w,
 		logger.Config{
 			SlowThreshold:             time.Duration(config.SlowThreshold) * time.Millisecond,
 			LogLevel:                  getLogLevelEnum(config.LogLevel),
@@ -186,6 +191,7 @@ func NewGorm(config *GormConfig) (*GormDrive, error) {
 
 	dialector := getDriver(config.Driver, config.Dsn)
 	if dialector == nil {
+		_ = w.Close()
 		return nil, fmt.Errorf("unsupported database driver: %s", config.Driver)
 	}
 
@@ -195,11 +201,13 @@ func NewGorm(config *GormConfig) (*GormDrive, error) {
 		Logger:                 newLogger,
 	})
 	if err != nil {
+		_ = w.Close()
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
 	sqlDB, err := db.DB()
 	if err != nil {
+		_ = w.Close()
 		return nil, fmt.Errorf("failed to get underlying sql.DB: %w", err)
 	}
 	sqlDB.SetMaxIdleConns(config.MaxIdles)
@@ -210,12 +218,13 @@ func NewGorm(config *GormConfig) (*GormDrive, error) {
 	}
 
 	if err = sqlDB.Ping(); err != nil {
+		_ = w.Close()
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 	return &GormDrive{
-		ID:     uuid.NewString(),
-		db:     db,
-		Logger: newLogger,
+		ID:        uuid.NewString(),
+		db:        db,
+		logCloser: &w,
 	}, nil
 }
 
