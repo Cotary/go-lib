@@ -50,10 +50,17 @@ require go-lib v0.0.0
 
 ```go
 lib.Init(config.Config.ServerName, config.Config.ENV)       // 1. 服务名 + 环境
-lib.InitLog(log2.NewLogger(config.Config.Logging))           // 2. 全局日志
+
+w := log2.NewWriter(log2.RotateConfig{Path: "./logs", FileName: "app"})
+logger, err := log2.New(log2.JSON(w, log2.ParseLevel(config.Config.Logging.Level)))
+if err != nil {
+    panic(err)
+}
+lib.InitLog(logger)                                          // 2. 全局日志
+
 flush := lib.BootstrapCrashCapture()                         // 3. 崩溃捕获
 // lib.InitGlobalSender(sender)                              // 4. 告警 Sender（按需）
-flush(coroutines.NewContext("crash-report"))                  // 5. 补报历史 crash
+flush(coroutines.NewContext("crash-report", appctx.Default()))                  // 5. 补报历史 crash
 ```
 
 ---
@@ -110,7 +117,9 @@ type Conf struct {
     ServerPort string             `yaml:"serverPort"`
     ServerName string             `yaml:"serverName"`
     ENV        string             `yaml:"env"`
-    Logging    *log2.Config       `yaml:"log"`
+    Logging    struct {
+        Level string `yaml:"level"`
+    } `yaml:"log"`
     DB         *gormDB.GormConfig `yaml:"db"`
     Redis      *redis.Config      `yaml:"redis"`
     RabbitMQ   *rabbitMQ.Config   `yaml:"rabbitMQ"`
@@ -587,12 +596,12 @@ coroutines.SafeGo(ctx, func(ctx context.Context) {
 
 ### 日志上下文
 
-`log.WithContext` 自动注入 RequestID 等链路信息：
+日志使用标准库默认实例；`InfoContext` 配合 `handler.NewContext` 自动注入 RequestID 等链路信息：
 
 ```go
-log.WithContext(ctx).
-    WithField("order_id", orderID).
-    Info("order created")
+slog.Default().
+    With("order_id", orderID).
+    InfoContext(ctx, "order created")
 ```
 
 ### 分页工具

@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"github.com/Cotary/go-lib/common/appctx"
 	"github.com/Cotary/go-lib/common/coroutines"
 	"github.com/Cotary/go-lib/notify"
 	"os"
@@ -48,7 +49,7 @@ func NewRabbitMQ(cfg Config) (*Connect, error) {
 		return nil, fmt.Errorf("initial rabbitmq connect: %w", err)
 	}
 	// 只 spawn 一次断线监控
-	coroutines.SafeGo(coroutines.NewContext("mq healthy check"), func(ctx context.Context) {
+	coroutines.SafeGo(coroutines.NewContext("mq healthy check", appctx.Default()), func(ctx context.Context) {
 		c.watchDisconnect(ctx)
 	})
 	return c, nil

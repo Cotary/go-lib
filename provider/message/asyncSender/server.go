@@ -2,7 +2,9 @@ package asyncSender
 
 import (
 	"context"
+	"log/slog"
 
+	"github.com/Cotary/go-lib/common/appctx"
 	"github.com/Cotary/go-lib/common/coroutines"
 	"github.com/Cotary/go-lib/common/utils"
 	"github.com/Cotary/go-lib/log"
@@ -24,7 +26,7 @@ func NewAsyncSender(sender message.Sender, bufferSize int) *AsyncSender {
 		sender:  sender,
 		message: make(chan Message, bufferSize),
 	}
-	newCtx := coroutines.NewContext("messageSender")
+	newCtx := coroutines.NewContext("messageSender", appctx.Default())
 	coroutines.SafeGo(newCtx, func(ctx context.Context) {
 		asyncSender.consumeZMap()
 	})
@@ -38,16 +40,16 @@ func (a *AsyncSender) Send(_ context.Context, title string, zMap *utils.OrderedM
 }
 
 func (a *AsyncSender) consumeZMap() {
-	ctx := coroutines.NewContext("messageSender")
+	ctx := coroutines.NewContext("messageSender", appctx.Default())
 	coroutines.ConcurrentProcessorChan(ctx, 10, a.message, func(ctx context.Context, msg Message) {
 		if a.sender != nil {
-			sendCtx := coroutines.NewContext("asyncSend")
+			sendCtx := coroutines.NewContext("asyncSend", appctx.Default())
 			err := a.sender.Send(sendCtx, msg.Title, msg.Content)
 			if err != nil {
-				log.WithContext(sendCtx).WithFields(map[string]interface{}{
+				slog.Default().With(log.WithFields(map[string]any{
 					"title":   msg.Title,
 					"message": msg.Content,
-				}).Error(err.Error())
+				})...).ErrorContext(sendCtx, err.Error())
 			}
 		}
 	})

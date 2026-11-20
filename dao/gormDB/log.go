@@ -173,8 +173,9 @@ func (l GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (strin
 // sendMessage 将慢 SQL 告警通过进程默认出口推送（message.Default 永远非 nil）。
 // 消息中包含 gormDB 运行环境和请求上下文等排查信息。
 func sendMessage(ctx context.Context, msg string) {
-	env := appctx.Env()
-	serverName := appctx.ServerName()
+	id := appctx.OrDefault(ctx)
+	env := id.Env
+	serverName := id.Service
 	requestID, _ := ctx.Value(defined.RequestID).(string)
 	requestUri, _ := ctx.Value(defined.RequestURI).(string)
 	requestJson, _ := ctx.Value(defined.RequestBodyJson).(string)

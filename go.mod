@@ -1,6 +1,6 @@
 module github.com/Cotary/go-lib
 
-go 1.25.0
+go 1.27
 
 require (
 	github.com/btcsuite/btcd v0.24.2
@@ -26,7 +26,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/maypok86/otter/v2 v2.3.0
 	github.com/mr-tron/base58 v1.2.0
-	github.com/natefinch/lumberjack v2.0.0+incompatible
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	github.com/pkg/errors v0.9.1
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/redis/go-redis/v9 v9.17.3

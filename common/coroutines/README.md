@@ -117,12 +117,12 @@ lib.ReportPendingCrashes(ctx)
 
 ```go
 lib.Init("my-svc", "prod")
-lib.InitLog(logger)
+slog.SetDefault(logger)
 
 flush := lib.BootstrapCrashCapture()      // 第 1 阶段：注册 SetCrashOutput
 
 lib.InitGlobalSender(sender)
-flush(coroutines.NewContext("crash-report")) // 第 2 阶段：补报上次崩溃
+flush(coroutines.NewContext("crash-report", appctx.Default())) // 第 2 阶段：补报上次崩溃
 ```
 
 `BootstrapCrashCapture` 的默认行为：
@@ -151,7 +151,7 @@ flush := lib.BootstrapCrashCapture(
 
 ```go
 lib.Init("my-svc", "prod")
-lib.InitLog(logger)
+slog.SetDefault(logger)
 
 // crash reporter 必须最早，至少在任何业务 goroutine 启动之前
 if err := lib.InitCrashReporter(
@@ -162,7 +162,7 @@ if err := lib.InitCrashReporter(
 
 // notify sender 就绪后再补报
 lib.InitGlobalSender(sender)
-_ = lib.ReportPendingCrashes(coroutines.NewContext("crash-report"))
+_ = lib.ReportPendingCrashes(coroutines.NewContext("crash-report", appctx.Default()))
 ```
 
 约束：

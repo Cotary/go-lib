@@ -9,7 +9,6 @@ import (
 	"go-lib/dao/gormDB"
 	"go-lib/dao/rabbitMQ"
 	"go-lib/dao/redis"
-	log2 "go-lib/log"
 )
 
 // Config 全局配置实例，在 init 中加载
@@ -31,7 +30,9 @@ type Conf struct {
 	ServerName string `mapstructure:"serverName" yaml:"serverName"` // 服务名称
 	ENV        string `mapstructure:"env" yaml:"env"`               // 环境：prod / test
 
-	Logging  *log2.Config       `mapstructure:"log" yaml:"log"`           // 日志配置
+	Logging struct {
+		Level string `mapstructure:"level" yaml:"level"`
+	} `mapstructure:"log" yaml:"log"` // 日志配置
 	DB       *gormDB.GormConfig `mapstructure:"db" yaml:"db"`             // 数据库配置
 	Redis    *redis.Config      `mapstructure:"redis" yaml:"redis"`       // Redis 配置
 	RabbitMQ *rabbitMQ.Config   `mapstructure:"rabbitMQ" yaml:"rabbitMQ"` // MQ 配置

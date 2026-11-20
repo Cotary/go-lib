@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
 	"time"
@@ -23,11 +24,11 @@ func (LogHook) DialHook(next redis.DialHook) redis.DialHook {
 			"addr":    addr,
 			"cost_ms": time.Since(start).Milliseconds(),
 		}
-		entry := log.WithContext(ctx).WithFields(fields)
+		entry := slog.Default().With(log.WithFields(fields)...)
 		if err != nil {
-			entry.WithField("error", err).Error("Redis Dial failed")
+			entry.With("error", err).ErrorContext(ctx, "Redis Dial failed")
 		} else {
-			entry.Info("Redis Dial")
+			entry.InfoContext(ctx, "Redis Dial")
 		}
 		return conn, err
 	}
@@ -51,11 +52,11 @@ func (LogHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 			"raw":     cmdStr,
 			"cost_ms": time.Since(start).Milliseconds(),
 		}
-		entry := log.WithContext(ctx).WithFields(fields)
+		entry := slog.Default().With(log.WithFields(fields)...)
 		if err != nil {
-			entry.WithField("error", err).Error("Redis command failed")
+			entry.With("error", err).ErrorContext(ctx, "Redis command failed")
 		} else {
-			entry.Info("Redis command")
+			entry.InfoContext(ctx, "Redis command")
 		}
 		return err
 	}
@@ -82,11 +83,11 @@ func (LogHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.Process
 			"commands":  cmdList,
 			"cost_ms":   time.Since(start).Milliseconds(),
 		}
-		entry := log.WithContext(ctx).WithFields(fields)
+		entry := slog.Default().With(log.WithFields(fields)...)
 		if err != nil {
-			entry.WithField("error", err).Error("Redis pipeline failed")
+			entry.With("error", err).ErrorContext(ctx, "Redis pipeline failed")
 		} else {
-			entry.Info("Redis pipeline")
+			entry.InfoContext(ctx, "Redis pipeline")
 		}
 		return err
 	}

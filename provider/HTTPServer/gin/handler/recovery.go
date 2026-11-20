@@ -3,10 +3,10 @@ package handler
 import (
 	"bytes"
 	"fmt"
-	"github.com/Cotary/go-lib/log"
 	"github.com/Cotary/go-lib/notify"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"runtime"
@@ -18,7 +18,7 @@ func RecoveryHandler() gin.RecoveryFunc {
 		errStr := fmt.Sprintf("Panic recovered: %v", err)
 		stackByte := stack(3)
 		fullErrStr := fmt.Sprintf("%v\n%v", errStr, string(stackByte))
-		log.WithContext(ctx).Error(fullErrStr)
+		slog.Default().ErrorContext(ctx, fullErrStr)
 		notify.SendErrMessage(ctx, errors.New(fullErrStr))
 		c.Status(http.StatusInternalServerError)
 		c.Abort()

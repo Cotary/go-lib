@@ -79,11 +79,9 @@ func Retry(ctx context.Context, F func(ctx context.Context) error, count ...int)
 	}
 }
 
-func NewContext(contextType string) context.Context {
+func NewContext(contextType string, id appctx.Identity) context.Context {
 	requestID := contextType + "-" + uuid.NewString()
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, defined.ServerName, appctx.ServerName())
-	ctx = context.WithValue(ctx, defined.ENV, appctx.Env())
+	ctx := id.WithContext(context.Background())
 	ctx = context.WithValue(ctx, defined.RequestID, requestID)
 	return ctx
 }

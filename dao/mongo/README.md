@@ -132,7 +132,7 @@ result, err := client.Transaction(ctx, func(ctx context.Context) (any, error) {
 - **命令成功**：记录耗时，超过 500ms 以 Warn 级别输出
 - **命令失败**：以 Error 级别记录错误信息和耗时
 
-日志通过项目的 `log.WithContext(ctx)` 输出，自动携带 RequestID 等链路信息。
+日志通过 `slog.Default()` 输出（`InfoContext` 等带 ctx 的方法会携带 RequestID 等链路信息）。
 
 ## 运行测试
 

@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -30,8 +31,13 @@ func init() {
 	// 1. 初始化服务名和环境
 	lib.Init(config.Config.ServerName, config.Config.ENV)
 
-	// 2. 初始化全局日志
-	lib.InitLog(log2.NewLogger(config.Config.Logging))
+	// 2. 初始化全局日志：轮转 writer + JSON 格式
+	logWriter = log2.NewWriter(log2.RotateConfig{Path: "./logs", FileName: "app"})
+	logger, err := log2.New(log2.JSON(logWriter, log2.ParseLevel(config.Config.Logging.Level)))
+	if err != nil {
+		panic(err)
+	}
+	lib.InitLog(logger)
 
 	// 3. 启动崩溃捕获（可选，推荐）
 	flush := lib.BootstrapCrashCapture()
@@ -40,14 +46,18 @@ func init() {
 	// lib.InitGlobalSender(sender)
 
 	// 5. 补报历史 crash dump
-	flush(coroutines.NewContext("crash-report"))
+	flush(coroutines.NewContext("crash-report", appctx.Default()))
 
 	// 6. 初始化数据源
 	dao.InitRedis()
 	model.Init()
 }
 
+var logWriter log2.RotateWriter
+
 func main() {
+	defer logWriter.Close()
+
 	// 创建 Gin 引擎并挂载标准中间件链
 	r := gin.New()
 	r.Use(gin.CustomRecovery(handler.RecoveryHandler())) // panic 恢复 + 告警
@@ -78,6 +88,6 @@ func main() {
 	<-quit
 
 	if err := srv.Shutdown(context.Background()); err != nil {
-		log2.WithContext(context.Background()).Error("server shutdown error: " + err.Error())
+		slog.Default().ErrorContext(context.Background(), "server shutdown error", "err", err)
 	}
 }

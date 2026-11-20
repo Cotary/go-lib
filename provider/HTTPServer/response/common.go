@@ -1,6 +1,7 @@
 package response
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/Cotary/go-lib/common/appctx"
@@ -27,6 +28,11 @@ func Success(data any) *Response {
 
 // Error Response
 func Error(err error) *Response {
+	return ErrorContext(context.Background(), err)
+}
+
+// ErrorContext 与 Error 相同，但优先从 ctx 读取身份（测试环境会暴露底层错误）。
+func ErrorContext(ctx context.Context, err error) *Response {
 	var standardErr *e.HttpErr
 	ok := errors.As(err, &standardErr)
 	if !ok {
@@ -34,7 +40,7 @@ func Error(err error) *Response {
 	}
 
 	msg := standardErr.Error()
-	if appctx.Env() == defined.TEST && standardErr.Err != nil && standardErr.Err.Error() != "" {
+	if appctx.OrDefault(ctx).Env == defined.TEST && standardErr.Err != nil && standardErr.Err.Error() != "" {
 		msg = fmt.Sprintf("%s: %s", standardErr.Error(), standardErr.Err.Error())
 	}
 

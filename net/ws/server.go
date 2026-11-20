@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Cotary/go-lib/common/appctx"
 	"github.com/Cotary/go-lib/common/coroutines"
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
@@ -93,7 +94,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.cfg.OnConnect != nil {
-		coroutines.SafeFunc(coroutines.NewContext("WS OnConnect"), func(ctx context.Context) {
+		coroutines.SafeFunc(coroutines.NewContext("WS OnConnect", appctx.Default()), func(ctx context.Context) {
 			s.cfg.OnConnect(ctx, conn)
 		})
 	}
@@ -256,7 +257,7 @@ func (c *Conn) run() {
 		return c.ws.WriteControl(websocket.PongMessage, []byte(appData), deadline)
 	})
 
-	coroutines.SafeGo(coroutines.NewContext("WS pingLoop"), func(ctx context.Context) {
+	coroutines.SafeGo(coroutines.NewContext("WS pingLoop", appctx.Default()), func(ctx context.Context) {
 		c.pingLoop()
 	})
 
@@ -269,7 +270,7 @@ func (c *Conn) run() {
 		_ = c.ws.SetReadDeadline(time.Now().Add(cfg.ReadTimeout))
 		if cfg.OnMessage != nil {
 			cp := append([]byte(nil), msg...)
-			coroutines.SafeFunc(coroutines.NewContext("WS OnMessage"), func(ctx context.Context) {
+			coroutines.SafeFunc(coroutines.NewContext("WS OnMessage", appctx.Default()), func(ctx context.Context) {
 				cfg.OnMessage(ctx, c, mt, cp)
 			})
 		}
@@ -320,7 +321,7 @@ func (c *Conn) Close(err error) {
 		c.writeMu.Unlock()
 
 		if cfg.OnClose != nil {
-			coroutines.SafeFunc(coroutines.NewContext("WS OnClose"), func(ctx context.Context) {
+			coroutines.SafeFunc(coroutines.NewContext("WS OnClose", appctx.Default()), func(ctx context.Context) {
 				cfg.OnClose(ctx, c, err)
 			})
 		}

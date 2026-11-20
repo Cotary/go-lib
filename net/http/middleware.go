@@ -2,6 +2,7 @@ package http
 
 import (
 	"fmt"
+	"log/slog"
 	"net/url"
 	"time"
 
@@ -32,19 +33,15 @@ func RequestLogMiddleware() Middleware {
 		}
 
 		logMap := ctx.BuildLogMap()
-		logger := log.WithContext(ctx.Ctx)
+		lg := slog.Default()
 
 		if ctx.Error != nil {
-			if logger != nil {
-				logger.WithContext(ctx.Ctx).WithFields(logMap).Error("HTTP Request")
-			}
+			lg.With(log.WithFields(logMap)...).ErrorContext(ctx.Ctx, "HTTP Request")
 			if cfg.sendErrorMsg {
 				notify.SendErrMessage(ctx.Ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
 			}
 		} else {
-			if logger != nil {
-				logger.WithContext(ctx.Ctx).WithFields(logMap).Info("HTTP Request")
-			}
+			lg.With(log.WithFields(logMap)...).InfoContext(ctx.Ctx, "HTTP Request")
 		}
 	}
 }
@@ -95,18 +92,18 @@ func TimingMiddleware() Middleware {
 }
 
 // LoggingMiddleware 日志中间件，使用自定义 Logger 记录请求和响应信息
-func LoggingMiddleware(logger log.Logger) Middleware {
+func LoggingMiddleware(logger *slog.Logger) Middleware {
 	return func(ctx *Context) {
 		startTime := time.Now()
 		requestID := ctx.Ctx.Value(defined.RequestID)
 
 		if logger != nil {
-			logger.WithContext(ctx.Ctx).WithFields(map[string]interface{}{
+			logger.With(log.WithFields(map[string]any{
 				"request_id": requestID,
 				"method":     ctx.Request.Method,
 				"url":        ctx.Request.URL,
 				"phase":      "request_start",
-			}).Debug("HTTP Request Starting")
+			})...).DebugContext(ctx.Ctx, "HTTP Request Starting")
 		}
 
 		ctx.Next()
@@ -128,11 +125,11 @@ func LoggingMiddleware(logger log.Logger) Middleware {
 		if ctx.Error != nil {
 			logFields["error"] = ctx.Error.Error()
 			if logger != nil {
-				logger.WithContext(ctx.Ctx).WithFields(logFields).Error("HTTP Request Failed")
+				logger.With(log.WithFields(logFields)...).ErrorContext(ctx.Ctx, "HTTP Request Failed")
 			}
 		} else {
 			if logger != nil {
-				logger.WithContext(ctx.Ctx).WithFields(logFields).Info("HTTP Request Completed")
+				logger.With(log.WithFields(logFields)...).InfoContext(ctx.Ctx, "HTTP Request Completed")
 			}
 		}
 	}

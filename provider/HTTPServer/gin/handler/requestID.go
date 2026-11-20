@@ -11,15 +11,18 @@ import (
 	"github.com/google/uuid"
 )
 
-func RequestIDMiddleware() gin.HandlerFunc {
+func RequestIDMiddleware(ids ...appctx.Identity) gin.HandlerFunc {
+	id := appctx.Default()
+	if len(ids) > 0 {
+		id = ids[0]
+	}
 	return func(c *gin.Context) {
 
 		//requestID
 		xRequestID := uuid.NewString()
 		c.Writer.Header().Set(defined.RequestID, xRequestID)
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), defined.RequestID, xRequestID))
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), defined.ServerName, appctx.ServerName()))
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), defined.ENV, appctx.Env()))
+		c.Request = c.Request.WithContext(id.WithContext(c.Request.Context()))
 
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), defined.RequestURI, c.Request.RequestURI))
 		body, err := utils.GetRequestBody(c)

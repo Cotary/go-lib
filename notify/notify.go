@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"log/slog"
 
 	e "github.com/Cotary/go-lib/err"
 
@@ -21,8 +22,9 @@ func SendMessageWithLevel(ctx context.Context, err error) {
 
 func SendErrMessage(ctx context.Context, err error) {
 	errMsg := e.GetErrMessage(e.Err(err), false)
-	env := appctx.Env()
-	serverName := appctx.ServerName()
+	id := appctx.OrDefault(ctx)
+	env := id.Env
+	serverName := id.Service
 	requestID, _ := ctx.Value(defined.RequestID).(string)
 	requestUri, _ := ctx.Value(defined.RequestURI).(string)
 	requestJson, _ := ctx.Value(defined.RequestBodyJson).(string)
@@ -35,21 +37,15 @@ func SendErrMessage(ctx context.Context, err error) {
 		Set("RequestJson", requestJson).
 		Set("Error", errMsg)
 
-	log.WithContext(ctx).WithFields(map[string]interface{}{
+	slog.Default().With(log.WithFields(map[string]any{
 		"serverName":  serverName,
 		"env":         env,
 		"requestID":   requestID,
 		"requestUri":  requestUri,
 		"requestJson": requestJson,
 		"error":       errMsg,
-	}).Error("SendErrMessage Record")
-
-	errSender := message.GetGlobalSender()
-	if errSender == nil {
-		return
-	}
-	sendErr := errSender.Send(ctx, "Running Error", zMap)
-	if sendErr != nil {
-		log.WithContext(ctx).WithField("action", "SendErrMessage Error").Error(sendErr.Error())
+	})...).ErrorContext(ctx, "SendErrMessage Record")
+	if sendErr := message.Default().Send(ctx, "Running Error", zMap); sendErr != nil {
+		slog.Default().With("action", "SendErrMessage Error").ErrorContext(ctx, sendErr.Error())
 	}
 }

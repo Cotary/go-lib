@@ -2,26 +2,13 @@ package lib
 
 import (
 	"context"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
 	"github.com/Cotary/go-lib/common/appctx"
 	"github.com/Cotary/go-lib/common/coroutines"
-	"github.com/Cotary/go-lib/log"
-	"github.com/Cotary/go-lib/provider/message"
 )
-
-func Init(serverName, env string) {
-	appctx.Init(serverName, env)
-}
-
-func InitLog(logger log.Logger) {
-	log.SetGlobalLogger(logger)
-}
-
-func InitGlobalSender(sender message.Sender) {
-	message.SetGlobalSender(sender)
-}
 
 // InitCrashReporter 启动进程级 fatal error 兜底捕获。
 //
@@ -65,23 +52,19 @@ func ReportPendingCrashes(ctx context.Context) error {
 //	// flush := lib.BootstrapCrashCapture(coroutines.WithCrashDir("/data/crash"))
 //
 //	lib.InitGlobalSender(sender)
-//	flush(coroutines.NewContext("crash-report"))
+//	flush(coroutines.NewContext("crash-report", appctx.Default()))
 //
 // 如需更精细控制（自定义 uploader、限定 dump 大小等），把 With* 选项
 // 当参数传进来即可，与裸调 InitCrashReporter 完全等价。
 func BootstrapCrashCapture(opts ...coroutines.CrashOption) func(ctx context.Context) {
 	merged := append([]coroutines.CrashOption{coroutines.WithCrashDir(defaultCrashDir())}, opts...)
 	if err := coroutines.InitCrashReporter(merged...); err != nil {
-		log.WithContext(context.Background()).
-			WithField("action", "BootstrapCrashCapture").
-			Error(err.Error())
+		slog.Default().With("action", "BootstrapCrashCapture").ErrorContext(context.Background(), err.Error())
 		return func(context.Context) {}
 	}
 	return func(ctx context.Context) {
 		if err := coroutines.ReportPendingCrashes(ctx); err != nil {
-			log.WithContext(ctx).
-				WithField("action", "ReportPendingCrashes").
-				Error(err.Error())
+			slog.Default().With("action", "ReportPendingCrashes").ErrorContext(ctx, err.Error())
 		}
 	}
 }
@@ -92,7 +75,7 @@ func BootstrapCrashCapture(opts ...coroutines.CrashOption) func(ctx context.Cont
 // 使用 filepath.Join 而非字符串拼接，保证跨平台路径分隔符正确。
 // 对 serverName 做基本清洗（去掉 / \ 等路径字符），避免被恶意构造目录穿越。
 func defaultCrashDir() string {
-	name := strings.TrimSpace(appctx.ServerName())
+	name := strings.TrimSpace(appctx.Default().Service)
 	if name == "" {
 		return "./logs/crash"
 	}

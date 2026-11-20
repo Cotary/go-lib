@@ -6,13 +6,13 @@ package cmd
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"myproject/model"
 
 	"go-lib/cmd"
 	"go-lib/dao/gormDB"
-	"go-lib/log"
 )
 
 // ===== 定时任务启动 =====
@@ -60,10 +60,10 @@ func (j *OrderTimeoutJob) Do(ctx context.Context) error {
 	for _, order := range orders {
 		o := &model.Order{Status: model.OrderStatusFailed}
 		if updateErr := o.Update(ctx, []string{"status"}, gormDB.ID(order.ID)); updateErr != nil {
-			log.WithContext(ctx).WithField("order_id", order.ID).Error("update timeout order failed: " + updateErr.Error())
+			slog.Default().With("order_id", order.ID).ErrorContext(ctx, "update timeout order failed", "err", updateErr)
 		}
 	}
 
-	log.WithContext(ctx).Info("order timeout check completed")
+	slog.Default().InfoContext(ctx, "order timeout check completed")
 	return nil
 }

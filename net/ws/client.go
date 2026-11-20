@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"math/rand"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Cotary/go-lib/common/appctx"
 	"github.com/Cotary/go-lib/common/coroutines"
 	"github.com/Cotary/go-lib/log"
 	"github.com/gorilla/websocket"
@@ -109,7 +111,7 @@ func (c *Client) Start() {
 	}
 
 	c.wg.Add(1)
-	coroutines.SafeGo(coroutines.NewContext("WS start"), func(ctx context.Context) {
+	coroutines.SafeGo(coroutines.NewContext("WS start", appctx.Default()), func(ctx context.Context) {
 		c.run()
 	})
 }
@@ -167,8 +169,8 @@ func (c *Client) run() {
 		if err != nil {
 			wait := c.backoff(attempt)
 			attempt++
-			log.WithContext(context.Background()).WithFields(map[string]interface{}{"url": c.url}).
-				Error(fmt.Sprintf("WS connect failed: %v, retry in %s", err, wait))
+			slog.Default().With(log.WithFields(map[string]any{"url": c.url})...).
+				ErrorContext(context.Background(), fmt.Sprintf("WS connect failed: %v, retry in %s", err, wait))
 			if !c.waitOrDone(wait) {
 				return
 			}
@@ -178,7 +180,7 @@ func (c *Client) run() {
 		atomic.StoreInt32(&c.isConnected, 1)
 
 		if c.onConnect != nil {
-			coroutines.SafeFunc(coroutines.NewContext("WS OnConnect"), func(ctx context.Context) {
+			coroutines.SafeFunc(coroutines.NewContext("WS OnConnect", appctx.Default()), func(ctx context.Context) {
 				c.onConnect(ctx)
 			})
 		}
@@ -188,12 +190,12 @@ func (c *Client) run() {
 
 		var wgConn sync.WaitGroup
 		wgConn.Add(1)
-		coroutines.SafeGo(coroutines.NewContext("WS readLoop"), func(ctx context.Context) {
+		coroutines.SafeGo(coroutines.NewContext("WS readLoop", appctx.Default()), func(ctx context.Context) {
 			c.readLoop(ctxConn, conn, errConn, &wgConn)
 		})
 
 		wgConn.Add(1)
-		coroutines.SafeGo(coroutines.NewContext("WS pingLoop"), func(ctx context.Context) {
+		coroutines.SafeGo(coroutines.NewContext("WS pingLoop", appctx.Default()), func(ctx context.Context) {
 			c.pingLoop(ctxConn, conn, errConn, &wgConn)
 		})
 
@@ -213,7 +215,7 @@ func (c *Client) run() {
 
 		atomic.StoreInt32(&c.isConnected, 0)
 		if c.onDisconnect != nil {
-			coroutines.SafeFunc(coroutines.NewContext("WS onDisconnect"), func(ctx context.Context) {
+			coroutines.SafeFunc(coroutines.NewContext("WS onDisconnect", appctx.Default()), func(ctx context.Context) {
 				c.onDisconnect(ctx, cause)
 			})
 		}
@@ -290,7 +292,7 @@ func (c *Client) readLoop(ctx context.Context, conn *websocket.Conn, errCh chan<
 		}
 		if c.onMessage != nil {
 			data := msg
-			coroutines.SafeFunc(coroutines.NewContext("WS onMessage"), func(ctx context.Context) {
+			coroutines.SafeFunc(coroutines.NewContext("WS onMessage", appctx.Default()), func(ctx context.Context) {
 				c.onMessage(ctx, mt, data)
 			})
 		}

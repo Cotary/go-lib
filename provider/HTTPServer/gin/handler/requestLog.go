@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -187,14 +188,14 @@ func RequestLogMiddleware(opts ...RequestLogOption) gin.HandlerFunc {
 			"response_body_size": blw.written,
 		}
 
-		logger := log.WithContext(ctx).WithFields(logField)
+		entry := slog.Default().With(log.WithFields(logField)...)
 		switch {
 		case status >= 500:
-			logger.Error("request log")
+			entry.ErrorContext(ctx, "request log")
 		case status >= 400:
-			logger.Warn("request log")
+			entry.WarnContext(ctx, "request log")
 		default:
-			logger.Info("request log")
+			entry.InfoContext(ctx, "request log")
 		}
 	}
 }

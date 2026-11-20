@@ -3,6 +3,7 @@ package requestPool
 import (
 	"context"
 	"fmt"
+	"github.com/Cotary/go-lib/common/appctx"
 	"github.com/Cotary/go-lib/common/coroutines"
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
@@ -156,7 +157,7 @@ func NewPool(points []PointConfig) (*Pool, error) {
 	}
 
 	instance.run()
-	coroutines.SafeGo(coroutines.NewContext("healthy check"), func(ctx context.Context) {
+	coroutines.SafeGo(coroutines.NewContext("healthy check", appctx.Default()), func(ctx context.Context) {
 		instance.CheckStatus(ctx)
 	})
 	return instance, nil
@@ -302,7 +303,7 @@ func (p *Pool) run() {
 }
 
 func (p *Point) AddGoroutine() {
-	coroutines.SafeGo(coroutines.NewContext("AddGoroutine"), func(ctx context.Context) {
+	coroutines.SafeGo(coroutines.NewContext("AddGoroutine", appctx.Default()), func(ctx context.Context) {
 		p.startWorker(ctx)
 	})
 }
@@ -419,7 +420,7 @@ func (r routines) handleErrorRequest(req Request, err error) {
 	}
 
 	if req.errorNum > 20 && req.errorNum%20 == 0 {
-		notify.SendErrMessage(coroutines.NewContext("Error Request"),
+		notify.SendErrMessage(coroutines.NewContext("Error Request", appctx.Default()),
 			errors.New(fmt.Sprintf("ErrorNumBigErr:%d,url:%s ,path:%s,body:%v,lastError:%v", req.errorNum, r.point.Url, req.Path, req.Body, req.Error)))
 	}
 

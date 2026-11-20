@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/Cotary/go-lib/log"
@@ -24,7 +25,7 @@ func commandStarted(ctx context.Context, e *event.CommandStartedEvent) {
 		"request_id":  e.RequestID,
 		"raw_command": e.Command.String(),
 	}
-	log.WithContext(ctx).WithFields(fields).Info("Mongo command started")
+	slog.Default().With(log.WithFields(fields)...).InfoContext(ctx, "Mongo command started")
 }
 
 func commandSucceeded(ctx context.Context, e *event.CommandSucceededEvent) {
@@ -34,12 +35,12 @@ func commandSucceeded(ctx context.Context, e *event.CommandSucceededEvent) {
 		"request_id": e.RequestID,
 		"cost_ms":    e.Duration.Milliseconds(),
 	}
-	entry := log.WithContext(ctx).WithFields(fields)
+	entry := slog.Default().With(log.WithFields(fields)...)
 
 	if e.Duration > 500*time.Millisecond {
-		entry.Warn("Mongo slow command")
+		entry.WarnContext(ctx, "Mongo slow command")
 	} else {
-		entry.Info("Mongo command succeeded")
+		entry.InfoContext(ctx, "Mongo command succeeded")
 	}
 }
 
@@ -51,5 +52,5 @@ func commandFailed(ctx context.Context, e *event.CommandFailedEvent) {
 		"cost_ms":    e.Duration.Milliseconds(),
 		"error":      e.Failure.Error(),
 	}
-	log.WithContext(ctx).WithFields(fields).Error("Mongo command failed")
+	slog.Default().With(log.WithFields(fields)...).ErrorContext(ctx, "Mongo command failed")
 }

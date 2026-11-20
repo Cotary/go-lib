@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/Cotary/go-lib/common/utils"
 	e "github.com/Cotary/go-lib/err"
@@ -29,7 +30,7 @@ type Result struct {
 //
 // 注意：如果 keepLog 为 true，日志会由 RequestLogMiddleware 自动记录。
 // 此方法可用于在 NoKeepLog() 模式下手动记录日志。
-func (r *Result) Log(logEntry log.Logger) *Result {
+func (r *Result) Log(logEntry *slog.Logger) *Result {
 	ctx := r.Ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -38,14 +39,14 @@ func (r *Result) Log(logEntry log.Logger) *Result {
 	logMap := r.BuildLogMap()
 	if r.Error != nil {
 		if logEntry != nil {
-			logEntry.WithContext(ctx).WithFields(logMap).Error("HTTP Request")
+			logEntry.With(log.WithFields(logMap)...).ErrorContext(ctx, "HTTP Request")
 		}
 		if r.sendErrorMsg {
 			notify.SendErrMessage(ctx, errors.New("HTTP Request Error:"+utils.Json(logMap)))
 		}
 	} else {
 		if logEntry != nil {
-			logEntry.WithContext(ctx).WithFields(logMap).Info("HTTP Request")
+			logEntry.With(log.WithFields(logMap)...).InfoContext(ctx, "HTTP Request")
 		}
 	}
 	return r

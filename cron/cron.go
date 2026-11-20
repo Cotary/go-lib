@@ -26,7 +26,7 @@
 //   - 超时告警：任务执行耗时超过 MaxExecuteTime 时自动发送告警
 //   - Panic Recovery：任务内 panic 会被捕获并通过 SendErrMessage 告警，不影响调度器
 //   - 错误上报：任务返回 error 时自动通过 AfterJobRunsWithError 事件上报
-package cmd
+package cron
 
 import (
 	"context"
@@ -37,6 +37,7 @@ import (
 	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
 
+	"github.com/Cotary/go-lib/common/appctx"
 	"github.com/Cotary/go-lib/common/coroutines"
 	"github.com/Cotary/go-lib/notify"
 )
@@ -116,7 +117,7 @@ func (s *Scheduler) addJobLocked(id string, h Handler) error {
 		gocron.WithSingletonMode(gocron.LimitModeReschedule),
 		gocron.WithEventListeners(
 			gocron.AfterJobRunsWithError(func(jobID uuid.UUID, jobName string, jobErr error) {
-				ctx := coroutines.NewContext("CRON:" + jobName)
+				ctx := coroutines.NewContext("CRON:"+jobName, appctx.Default())
 				notify.SendErrMessage(ctx, jobErr)
 			}),
 		),
@@ -161,7 +162,7 @@ func (s *Scheduler) ListJobs() map[string]time.Time {
 
 func wrapTask(id string, h Handler) func() {
 	return func() {
-		ctx := coroutines.NewContext("CRON:" + id)
+		ctx := coroutines.NewContext("CRON:"+id, appctx.Default())
 		coroutines.SafeFunc(ctx, func(ctx context.Context) {
 			start := time.Now()
 			err := h.Do(ctx)
