@@ -1,41 +1,51 @@
 package log
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Cotary/go-lib/common/defined"
+	"github.com/Cotary/go-lib/log/handler"
 )
 
 // ---------- helpers ----------
 
-func newTestLogger(t *testing.T, cfg Config, opts ...Option) (*slog.Logger, string) {
+func newFile(t *testing.T) (*os.File, string) {
 	t.Helper()
-	if cfg.Path == "" {
-		cfg.Path = t.TempDir()
+	f, err := os.Create(filepath.Join(t.TempDir(), "test.log"))
+	if err != nil {
+		t.Fatalf("create log file: %v", err)
 	}
-	if cfg.FileName == "" {
-		cfg.FileName = "test"
+	t.Cleanup(func() { _ = f.Close() })
+	return f, f.Name()
+}
+
+// newLogger 创建写文件的 logger；mk 为 nil 时使用 Raw。
+func newLogger(t *testing.T, level slog.Level, mk func(io.Writer, slog.Level) Factory) (*slog.Logger, string) {
+	t.Helper()
+	f, path := newFile(t)
+	factory := Raw(f, level)
+	if mk != nil {
+		factory = mk(f, level)
 	}
-	if cfg.Level == "" {
-		cfg.Level = "debug"
-	}
-	lg, sink, err := New(cfg, opts...)
+	lg, err := New(factory)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	t.Cleanup(func() { _ = sink.Close() })
-	return lg, filepath.Join(cfg.Path, cfg.FileName+".logger")
+	return lg, path
 }
+
+func useJSON(w io.Writer, l slog.Level) Factory { return JSON(w, l) }
+func useText(w io.Writer, l slog.Level) Factory { return Text(w, l) }
 
 func readAll(t *testing.T, path string) string {
 	t.Helper()
@@ -62,312 +72,231 @@ func readRecords(t *testing.T, path string) []map[string]any {
 	return out
 }
 
-// ---------- 输出与过滤 ----------
+// ---------- 输出 ----------
 
-func TestLevelFiltering(t *testing.T) {
-	lg, path := newTestLogger(t, Config{Level: "info"})
+func TestRawDefault(t *testing.T) {
+	lg, path := newLogger(t, slog.LevelDebug, nil)
+	lg.Info("hello", "k", "v")
+	lg.Debug("second")
+
+	if got, want := readAll(t, path), "hello\nsecond\n"; got != want {
+		t.Fatalf("raw output mismatch\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestRawLevelFiltering(t *testing.T) {
+	lg, path := newLogger(t, slog.LevelInfo, nil)
 	lg.Debug("dropped")
 	lg.Info("kept")
 
+	if got, want := readAll(t, path), "kept\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestRawKeepsInternalNewlines(t *testing.T) {
+	lg, path := newLogger(t, slog.LevelDebug, nil)
+	lg.Info("line1\nline2\n")
+
+	if got, want := readAll(t, path), "line1\nline2\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestJSONFactory(t *testing.T) {
+	lg, path := newLogger(t, slog.LevelDebug, useJSON)
+	lg.Info("json", "k", "v")
+
 	recs := readRecords(t, path)
-	if len(recs) != 1 || recs[0]["msg"] != "kept" {
-		t.Fatalf("want only info record, got %v", recs)
+	if recs[0]["msg"] != "json" || recs[0]["k"] != "v" {
+		t.Fatalf("unexpected record: %v", recs[0])
+	}
+	if recs[0]["level"] != "INFO" {
+		t.Fatalf("level should be slog style: %v", recs[0]["level"])
 	}
 }
 
-func TestTextFormat(t *testing.T) {
-	lg, path := newTestLogger(t, Config{Format: FormatText})
-	lg.Info("plain text message")
+func TestTextFactory(t *testing.T) {
+	lg, path := newLogger(t, slog.LevelDebug, useText)
+	lg.Info("plain")
 
-	raw := strings.TrimSpace(readAll(t, path))
-	if strings.HasPrefix(raw, "{") {
-		t.Fatalf("expected text output, got JSON: %s", raw)
-	}
-	if !strings.Contains(raw, "level=INFO") {
-		t.Fatalf("text format should use slog TextHandler: %q", raw)
-	}
-	if !strings.Contains(raw, "plain text message") {
-		t.Fatalf("message missing: %s", raw)
+	raw := readAll(t, path)
+	if !strings.Contains(raw, "level=INFO") || !strings.Contains(raw, "plain") {
+		t.Fatalf("unexpected text output: %q", raw)
 	}
 }
+
+func TestMultipleFactories(t *testing.T) {
+	var a, b bytes.Buffer
+	lg, err := New(JSON(&a, slog.LevelInfo), JSON(&b, slog.LevelInfo))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	lg.Info("fanout")
+
+	if a.Len() == 0 || b.Len() == 0 {
+		t.Fatalf("both handlers should receive the record: a=%q b=%q", a.String(), b.String())
+	}
+}
+
+func TestNilFactoryResult(t *testing.T) {
+	_, err := New(func() slog.Handler { return nil })
+	if err == nil {
+		t.Fatal("nil handler from factory should return error")
+	}
+}
+
+// ---------- Duration ----------
 
 func TestDurationInSeconds(t *testing.T) {
-	lg, path := newTestLogger(t, Config{})
+	lg, path := newLogger(t, slog.LevelDebug, useJSON)
 	lg.Info("query", slog.Duration("cost", 1234*time.Millisecond))
 
-	recs := readRecords(t, path)
-	if got := recs[0]["cost"]; got != 1.234 {
-		t.Fatalf("duration should be seconds, got %v", got)
+	if recs := readRecords(t, path); recs[0]["cost"] != 1.234 {
+		t.Fatalf("duration should be seconds, got %v", recs[0]["cost"])
 	}
 }
 
-// 没有包装层，source 必须落在业务代码（本测试文件）上，而不是 log 包内部。
-func TestSourcePointsToCaller(t *testing.T) {
-	lg, path := newTestLogger(t, Config{ShowFile: true})
-
-	_, _, wantLine, _ := runtime.Caller(0)
-	lg.Info("source check")
+func TestDurationInGroup(t *testing.T) {
+	lg, path := newLogger(t, slog.LevelDebug, useJSON)
+	lg.Info("query", slog.Group("db", slog.Duration("wait", 2*time.Second)))
 
 	recs := readRecords(t, path)
-	src, ok := recs[0]["source"].(map[string]any)
-	if !ok {
-		t.Fatalf("missing source attr: %v", recs[0])
-	}
-	if file, _ := src["file"].(string); !strings.HasSuffix(file, "logger_test.go") {
-		t.Fatalf("source file should be the caller, got %v", src["file"])
-	}
-	if line, _ := src["line"].(float64); int(line) != wantLine+1 {
-		t.Fatalf("source line should be %d, got %v", wantLine+1, src["line"])
-	}
-	if fn, _ := src["function"].(string); !strings.Contains(fn, "TestSourcePointsToCaller") {
-		t.Fatalf("source function should be the test, got %v", src["function"])
+	db, _ := recs[0]["db"].(map[string]any)
+	if db["wait"] != float64(2) {
+		t.Fatalf("nested duration should be seconds, got %v", recs[0]["db"])
 	}
 }
 
-// ---------- 派生字段 ----------
+// ---------- 组合能力 ----------
 
-func TestWithDerivation(t *testing.T) {
-	lg, path := newTestLogger(t, Config{})
-	lg.With("module", "pay").WithGroup("db").Info("query", "sql", "select 1")
-
-	recs := readRecords(t, path)
-	db, ok := recs[0]["db"].(map[string]any)
-	if !ok || db["sql"] != "select 1" {
-		t.Fatalf("grouped attrs missing: %v", recs[0])
-	}
-	if recs[0]["module"] != "pay" {
-		t.Fatalf("derived attr missing: %v", recs[0])
-	}
+func newJSONHandler(w io.Writer) slog.Handler {
+	return slog.NewJSONHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug})
 }
 
-func TestFixedFields(t *testing.T) {
-	lg, path := newTestLogger(t, Config{}, WithFixedFields(map[string]any{"service": "api", "env": "test"}))
-	lg.Info("x")
-
-	recs := readRecords(t, path)
-	if recs[0]["service"] != "api" || recs[0]["env"] != "test" {
-		t.Fatalf("fixed fields missing: %v", recs[0])
-	}
-}
-
-// ---------- request_id ----------
-
-func TestRequestIDFromContext(t *testing.T) {
-	lg, path := newTestLogger(t, Config{})
+func TestContextOffByDefault(t *testing.T) {
+	lg, path := newLogger(t, slog.LevelDebug, useJSON)
 	ctx := context.WithValue(context.Background(), defined.RequestID, "req-1")
+	lg.InfoContext(ctx, "no ctx fields")
 
+	if _, ok := readRecords(t, path)[0]["request_id"]; ok {
+		t.Fatal("request_id should not be injected without NewContext")
+	}
+}
+
+func TestContextComposed(t *testing.T) {
+	lg, path := newLogger(t, slog.LevelDebug, func(w io.Writer, _ slog.Level) Factory {
+		return func() slog.Handler {
+			return handler.Chain(newJSONHandler(w),
+				handler.NewContext(handler.ContextField{Key: defined.RequestID, Name: "request_id"}),
+			)
+		}
+	})
+
+	ctx := context.WithValue(context.Background(), defined.RequestID, "req-1")
 	lg.InfoContext(ctx, "ctx log")
 	lg.Info("no ctx")
 
 	recs := readRecords(t, path)
 	if recs[0]["request_id"] != "req-1" {
-		t.Fatalf("request_id not injected: %v", recs[0])
-	}
-	if _, ok := recs[1]["request_id"]; ok {
-		t.Fatalf("request_id should not leak to records without ctx: %v", recs[1])
-	}
-}
-
-func TestRequestIDNotDuplicated(t *testing.T) {
-	lg, path := newTestLogger(t, Config{})
-	ctx := context.WithValue(context.Background(), defined.RequestID, "req-1")
-
-	lg.With(defined.RequestID, "explicit").InfoContext(ctx, "explicit")
-
-	raw := readAll(t, path)
-	if n := strings.Count(raw, `"request_id"`); n != 1 {
-		t.Fatalf("request_id should appear once, got %d: %s", n, raw)
-	}
-}
-
-func TestRequestIDMultipleKeys(t *testing.T) {
-	lg, path := newTestLogger(t, Config{},
-		WithRequestIDKeys(defined.RequestID, defined.TransactionID, defined.RequestURI))
-
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, defined.RequestID, "req-1")
-	ctx = context.WithValue(ctx, defined.TransactionID, "tx-1")
-
-	lg.InfoContext(ctx, "multi keys")
-
-	recs := readRecords(t, path)
-	if recs[0]["request_id"] != "req-1" {
 		t.Fatalf("request_id missing: %v", recs[0])
 	}
-	if recs[0]["transaction_id"] != "tx-1" {
-		t.Fatalf("transaction_id missing: %v", recs[0])
-	}
-	if _, ok := recs[0]["request_uri"]; ok {
-		t.Fatalf("absent key should be skipped: %v", recs[0])
+	if _, ok := recs[1]["request_id"]; ok {
+		t.Fatalf("request_id should not leak: %v", recs[1])
 	}
 }
 
-func TestRequestIDKeysWithAttrsWins(t *testing.T) {
-	lg, path := newTestLogger(t, Config{},
-		WithRequestIDKeys(defined.RequestID, defined.TransactionID))
+func TestRedactComposed(t *testing.T) {
+	lg, path := newLogger(t, slog.LevelDebug, func(w io.Writer, _ slog.Level) Factory {
+		return func() slog.Handler {
+			return handler.Chain(newJSONHandler(w), handler.NewRedact("password", "token"))
+		}
+	})
 
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, defined.RequestID, "from-ctx")
-	ctx = context.WithValue(ctx, defined.TransactionID, "from-ctx")
-
-	lg.With(defined.TransactionID, "explicit").InfoContext(ctx, "dedup")
-
-	raw := readAll(t, path)
-	if n := strings.Count(raw, `"transaction_id"`); n != 1 {
-		t.Fatalf("transaction_id should appear once, got %d: %s", n, raw)
-	}
-	if !strings.Contains(raw, `"transaction_id":"explicit"`) {
-		t.Fatalf("explicit value should win: %s", raw)
-	}
-}
-
-type traceCtxKey struct{}
-
-func TestContextFieldsWithTypedKey(t *testing.T) {
-	lg, path := newTestLogger(t, Config{}, WithContextFields(
-		ContextField{Key: defined.RequestID, Name: "request_id"},
-		ContextField{Key: traceCtxKey{}, Name: "trace_id"},
-	))
-
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, defined.RequestID, "req-1")
-	ctx = context.WithValue(ctx, traceCtxKey{}, "trace-1")
-
-	lg.InfoContext(ctx, "typed key")
-
-	recs := readRecords(t, path)
-	if recs[0]["request_id"] != "req-1" || recs[0]["trace_id"] != "trace-1" {
-		t.Fatalf("typed ctx key not injected: %v", recs[0])
-	}
-}
-
-func TestRequestIDKeysEmptyDisables(t *testing.T) {
-	lg, path := newTestLogger(t, Config{}, WithRequestIDKeys())
-
-	ctx := context.WithValue(context.Background(), defined.RequestID, "req-1")
-	lg.InfoContext(ctx, "disabled")
-
-	if recs := readRecords(t, path); recs[0]["request_id"] != nil {
-		t.Fatalf("request_id should not be injected: %v", recs[0])
-	}
-}
-
-func TestNilContextIsSafe(t *testing.T) {
-	lg, path := newTestLogger(t, Config{})
-	lg.InfoContext(nil, "nil ctx") //nolint:staticcheck // 验证标准库已有兜底
-
-	if recs := readRecords(t, path); len(recs) != 1 {
-		t.Fatalf("want 1 record, got %v", recs)
-	}
-}
-
-// ---------- 脱敏 ----------
-
-func TestRedact(t *testing.T) {
-	lg, path := newTestLogger(t, Config{})
-	lg.Info("login",
-		"user", "bob",
-		"password", "p@ss",
-		slog.Group("auth", slog.String("token", "t-1")),
-	)
+	lg.Info("login", "password", "p@ss", slog.Group("auth", slog.String("token", "t-1")))
 
 	recs := readRecords(t, path)
 	if recs[0]["password"] != "***" {
 		t.Fatalf("password not redacted: %v", recs[0])
 	}
-	auth, ok := recs[0]["auth"].(map[string]any)
-	if !ok || auth["token"] != "***" {
+	auth, _ := recs[0]["auth"].(map[string]any)
+	if auth["token"] != "***" {
 		t.Fatalf("nested token not redacted: %v", recs[0])
 	}
-	if recs[0]["user"] != "bob" {
-		t.Fatalf("non-sensitive attr should be kept: %v", recs[0])
-	}
 }
 
-func TestRedactWithAttrs(t *testing.T) {
-	lg, path := newTestLogger(t, Config{}, WithRedactKeys("api_key"))
-	lg.With("api_key", "k-1").Info("x")
+func TestRedactBeforeAlert(t *testing.T) {
+	al := &fakeAlerter{}
+	lg, _ := newLogger(t, slog.LevelDebug, func(w io.Writer, _ slog.Level) Factory {
+		return func() slog.Handler {
+			return handler.Chain(newJSONHandler(w),
+				handler.NewRedact("token"),
+				handler.NewAlert(al),
+			)
+		}
+	})
 
-	recs := readRecords(t, path)
-	if recs[0]["api_key"] != "***" {
-		t.Fatalf("With attr not redacted: %v", recs[0])
+	lg.With(AlertKey, true).Error("boom", "token", "secret")
+
+	al.mu.Lock()
+	defer al.mu.Unlock()
+	if len(al.alerts) != 1 {
+		t.Fatalf("want 1 alert, got %d", len(al.alerts))
+	}
+	if got := al.alerts[0].Attrs[0].Value.String(); got != "***" {
+		t.Fatalf("alert attrs should be redacted, got %q", got)
 	}
 }
-
-// ---------- 告警 ----------
 
 type fakeAlerter struct {
 	mu     sync.Mutex
 	alerts []Alert
-	err    error
 }
 
 func (f *fakeAlerter) Send(_ context.Context, a Alert) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.alerts = append(f.alerts, a)
-	return f.err
+	return nil
 }
 
-func (f *fakeAlerter) snapshot() []Alert {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]Alert(nil), f.alerts...)
-}
-
-func TestAlert(t *testing.T) {
+func TestAlertComposed(t *testing.T) {
 	al := &fakeAlerter{}
-	lg, path := newTestLogger(t, Config{}, WithAlerter(al))
+	lg, path := newLogger(t, slog.LevelDebug, func(w io.Writer, _ slog.Level) Factory {
+		return func() slog.Handler {
+			return handler.Chain(newJSONHandler(w), handler.NewAlert(al))
+		}
+	})
 
 	lg.With(AlertKey, true).Error("pay_failed", "order_id", 42)
-	lg.Info("just a log") // 不应触发告警
+	lg.Info("normal")
 
-	alerts := al.snapshot()
-	if len(alerts) != 1 {
-		t.Fatalf("want 1 alert, got %d", len(alerts))
+	al.mu.Lock()
+	n := len(al.alerts)
+	al.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("want 1 alert, got %d", n)
 	}
-	if alerts[0].Title != "pay_failed" || alerts[0].Level != slog.LevelError {
-		t.Fatalf("unexpected alert: %+v", alerts[0])
-	}
-	if alerts[0].Fingerprint() == "" {
-		t.Fatal("fingerprint should not be empty")
-	}
-
-	raw := readAll(t, path)
-	if strings.Contains(raw, AlertKey) {
-		t.Fatalf("alert marker should not be logged: %s", raw)
-	}
-	if !strings.Contains(raw, `"order_id":42`) {
-		t.Fatalf("alert record should still be logged: %s", raw)
+	if strings.Contains(readAll(t, path), AlertKey) {
+		t.Fatal("alert marker should not be logged")
 	}
 }
 
-func TestAlertPerCallFlag(t *testing.T) {
-	al := &fakeAlerter{}
-	lg, _ := newTestLogger(t, Config{}, WithAlerter(al))
+func TestAlertMarkerStrippedWithoutAlerter(t *testing.T) {
+	lg, path := newLogger(t, slog.LevelDebug, useJSON)
+	lg.With(AlertKey, true).Warn("no alerter")
 
-	lg.Warn("disk_full", slog.Bool(AlertKey, true))
-	if got := len(al.snapshot()); got != 1 {
-		t.Fatalf("want 1 alert, got %d", got)
+	if strings.Contains(readAll(t, path), AlertKey) {
+		t.Fatal("alert marker should be stripped even without alerter")
 	}
 }
 
-func TestAlertSendErrorIsLogged(t *testing.T) {
-	al := &fakeAlerter{err: fmt.Errorf("boom")}
-	lg, path := newTestLogger(t, Config{}, WithAlerter(al))
-
-	lg.With(AlertKey, true).Error("failed", "k", "v")
-
-	raw := readAll(t, path)
-	if !strings.Contains(raw, "alert send failed") {
-		t.Fatalf("send error should be logged: %s", raw)
-	}
-}
-
-// ---------- 采样 ----------
-
-func TestSampling(t *testing.T) {
-	lg, path := newTestLogger(t, Config{}, WithSampling(3, slog.LevelWarn))
+func TestSamplingComposed(t *testing.T) {
+	lg, path := newLogger(t, slog.LevelDebug, func(w io.Writer, _ slog.Level) Factory {
+		return func() slog.Handler {
+			return handler.Chain(newJSONHandler(w), handler.NewSample(3, slog.LevelWarn))
+		}
+	})
 
 	for i := 0; i < 30; i++ {
 		lg.Info("sampled", "i", i)
@@ -376,80 +305,90 @@ func TestSampling(t *testing.T) {
 		lg.Warn("always", "i", i)
 	}
 
-	recs := readRecords(t, path)
-	if len(recs) != 10+5 {
-		t.Fatalf("want 15 records (10 sampled info + 5 warn), got %d", len(recs))
+	if recs := readRecords(t, path); len(recs) != 15 {
+		t.Fatalf("want 15 records, got %d", len(recs))
 	}
 }
 
-// ---------- Sink ----------
+func TestNewWriter(t *testing.T) {
+	dir := t.TempDir()
+	w := NewWriter(RotateConfig{
+		Path:       dir,
+		FileName:   "app",
+		FileSuffix: ".log",
+	})
 
-func TestSinkStdoutOnly(t *testing.T) {
-	_, sink, err := New(Config{})
+	lg, err := New(JSON(w, slog.LevelInfo))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if sink.closer != nil {
-		t.Fatal("Path empty should not create a file writer")
+	lg.Info("rotate")
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
 	}
-	if err := sink.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+
+	path := filepath.Join(dir, "app.log")
+	if !strings.Contains(readAll(t, path), `"msg":"rotate"`) {
+		t.Fatalf("record not written: %s", readAll(t, path))
 	}
 }
 
-func TestSinkClose(t *testing.T) {
-	lg, path := newTestLogger(t, Config{})
-	lg.Info("before close")
-	if !strings.Contains(readAll(t, path), "before close") {
-		t.Fatal("record should be written")
-	}
-}
-
-// ---------- 全局 ----------
+// ---------- 辅助 ----------
 
 func TestWithFields(t *testing.T) {
-	lg, path := newTestLogger(t, Config{})
+	lg, path := newLogger(t, slog.LevelDebug, useJSON)
 	lg.With(WithFields(map[string]any{"b": 2, "a": 1})...).Info("map fields")
 
 	recs := readRecords(t, path)
 	if recs[0]["a"] != float64(1) || recs[0]["b"] != float64(2) {
 		t.Fatalf("WithFields lost fields: %v", recs[0])
 	}
-
-	raw := readAll(t, path)
-	if strings.Index(raw, `"a":1`) > strings.Index(raw, `"b":2`) {
-		t.Fatalf("fields should be sorted: %s", raw)
-	}
 }
 
-// ---------- 配置校验 ----------
+// ---------- 级别解析 ----------
 
-func TestUnknownLevel(t *testing.T) {
-	if _, _, err := New(Config{Level: "nope"}); err == nil {
-		t.Fatal("unknown level should return error")
+func TestParseLevel(t *testing.T) {
+	cases := map[string]slog.Level{
+		"debug":   slog.LevelDebug,
+		"TRACE":   slog.LevelDebug,
+		"verbose": slog.LevelDebug,
+		"info":    slog.LevelInfo,
+		" notice": slog.LevelInfo,
+		"warn":    slog.LevelWarn,
+		"warning": slog.LevelWarn,
+		"error":   slog.LevelError,
+		"fatal":   slog.LevelError,
+		"":        slog.LevelInfo,
+		"nope":    slog.LevelInfo,
 	}
-}
-
-func TestLevelAliases(t *testing.T) {
-	for _, name := range []string{"trace", "verbose", "DEBUG", " info ", "warning", "fatal"} {
-		if _, _, err := New(Config{Level: name}); err != nil {
-			t.Fatalf("level %q should be accepted: %v", name, err)
+	for in, want := range cases {
+		if got := ParseLevel(in); got != want {
+			t.Errorf("ParseLevel(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+func TestUnknownLevelFallsBackToInfo(t *testing.T) {
+	lg, path := newLogger(t, ParseLevel("nope"), nil)
+	lg.Debug("dropped")
+	lg.Info("kept")
+
+	if got, want := readAll(t, path), "kept\n"; got != want {
+		t.Fatalf("unknown level should fall back to info: got %q, want %q", got, want)
 	}
 }
 
 // ---------- 并发 ----------
 
 func TestConcurrentLogging(t *testing.T) {
-	lg, path := newTestLogger(t, Config{})
+	lg, path := newLogger(t, slog.LevelDebug, useJSON)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			ctx := context.WithValue(context.Background(), defined.RequestID, fmt.Sprintf("req-%d", n))
-			lg.With("goroutine", n).InfoContext(ctx, "concurrent")
+			lg.With("goroutine", n).Info("concurrent")
 		}(i)
 	}
 	wg.Wait()

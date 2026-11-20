@@ -1,61 +1,18 @@
-// Package handler 是日志的 Handler 链实现：采样、ctx 字段注入、脱敏、告警。
+// Package handler 提供可组合的 slog Handler。
 //
-// 由 log 包装配，也可以单独使用：
+// 每个构造函数只接收必要参数并返回 Middleware，next 由 Chain 按数组顺序注入：
 //
-//	h := handler.New(os.Stdout, handler.Config{Level: slog.LevelInfo})
-//	logger := slog.New(h)
+//	h := Chain(base,
+//	        NewSample(100, slog.LevelWarn),
+//	        NewContext(ContextField{Key: requestID, Name: "request_id"}),
+//	        NewAlert(alerter))
+//
+// 不配置就不组合，没有隐式的默认能力。
 package handler
 
 import (
-	"io"
 	"log/slog"
 )
-
-// Config 是 Handler 链的配置。
-type Config struct {
-	Level         slog.Level
-	AddSource     bool
-	Console       bool
-	Alerter       Alerter
-	RedactKeys    map[string]struct{}
-	ContextFields []ContextField
-	SampleEvery   uint64
-	SampleBelow   slog.Level
-	Fields        []slog.Attr
-}
-
-// New 按固定顺序装配 Handler：采样 -> ctx 字段 -> 脱敏 -> 告警 -> 输出。
-// 告警在脱敏之后，投递出去的字段也是脱敏后的。
-func New(w io.Writer, c Config) slog.Handler {
-	opts := &slog.HandlerOptions{
-		Level:     c.Level,
-		AddSource: c.AddSource,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			// 沿用原 log 包 slog 分支的配置：Duration 统一成秒。
-			if a.Value.Kind() == slog.KindDuration {
-				return slog.Float64(a.Key, a.Value.Duration().Seconds())
-			}
-			return a
-		},
-	}
-
-	var h slog.Handler
-	if c.Console {
-		h = slog.NewTextHandler(w, opts)
-	} else {
-		h = slog.NewJSONHandler(w, opts)
-	}
-
-	h = &alertHandler{next: h, alerter: c.Alerter}
-	h = &redactHandler{next: h, keys: c.RedactKeys}
-	h = newContextHandler(h, c.ContextFields)
-	h = newSampleHandler(h, c.SampleEvery, c.SampleBelow)
-
-	if len(c.Fields) > 0 {
-		h = h.WithAttrs(c.Fields)
-	}
-	return h
-}
 
 // ---------- 工具 ----------
 
@@ -80,4 +37,22 @@ func withoutAttr(r slog.Record, key string) slog.Record {
 		return true
 	})
 	return nr
+}
+
+// Middleware 包装一个 Handler，返回新的 Handler。
+type Middleware func(next slog.Handler) slog.Handler
+
+// Chain 按数组顺序组合中间件：mws[0] 最外层，它的 next 是 mws[1]，依次到 base。
+//
+//	Chain(base, NewContext(...), NewRedact(...), NewAlert(...))
+//	// 等价于 NewContext(NewRedact(NewAlert(base)))
+func Chain(base slog.Handler, mws ...Middleware) slog.Handler {
+	h := base
+	for i := len(mws) - 1; i >= 0; i-- {
+		if mws[i] == nil {
+			continue
+		}
+		h = mws[i](h)
+	}
+	return h
 }

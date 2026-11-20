@@ -2,200 +2,170 @@
 
 基于标准库 `log/slog` 的日志包：**Logger 就是 `*slog.Logger`，不做任何包装**。
 
-- 格式化、级别过滤、脱敏、ctx 字段、告警、采样全部在 Handler 链里，实现在子包 `log/handler`；
-- 输出端（stdout + lumberjack 文件滚动）收进 `Sink`，和 Logger 解耦；
-- 不再有 `Raw`：需要原样输出的组件（如 GORM）直接持有 `Sink`。
+- 不管理配置：writer、level 都由调用方传给工厂；
+- 只负责 Handler 组合：格式、ctx 字段、脱敏、告警、采样；
+- 增强能力默认全关，用 `handler.Chain` 按需组合。
 
 ## 快速开始
 
 ```go
-logger, sink, err := log.New(log.Config{
-	Level:    "info",
-	Path:     "./logs/",   // 留空则只写 stdout，不落文件
-	FileName: "app",
-	Format:   log.FormatJSON,
-	ShowFile: true,
-})
+logger, err := log.New(log.JSON(os.Stdout, slog.LevelInfo))
 if err != nil {
 	return err
 }
-defer sink.Close()
 
 logger.Info("hello", "key", "value")
-logger.InfoContext(ctx, "request handled", "status", 200) // 自动带 request_id
 ```
 
-`New` 返回的 `*slog.Logger` 是标准库类型，`ShowFile` 打开时 `source` 记录的就是调用点：
-
-```json
-{"time":"2026-11-20T10:26:54.421+08:00","level":"INFO","source":{"function":"main.main","file":"main.go","line":42},"msg":"hello","key":"value"}
-```
-
-## 输出格式
-
-沿用原 `log` 包 slog 分支的配置（`slog.NewJSONHandler` / `slog.NewTextHandler` + `ReplaceAttr`），
-级别、时间戳、调用点这些都与原来一致：
-
-- `level` 大写：`DEBUG` / `INFO` / `WARN` / `ERROR`
-- `time` 为 RFC3339Nano：`2026-11-20T10:26:54.421+08:00`
-- `ShowFile` 打开时输出 `source` 分组：`function` / `file` / `line`
-- `msg` 之后是结构化字段，`time.Duration` 输出为秒
-- `Format: text` 为 slog TextHandler：`time=... level=INFO msg=... key=value`
-
-## 为什么没有包装
-
-如果包一层 `type Logger struct{ inner *slog.Logger }`，再让 `Info` 转发，
-slog 内部固定深度的 `runtime.Callers(3, ...)` 会把来源记到包装层文件上。
-不包装是让 `source` 行号正确的最简单方式，也省掉了 `WithContext` 存 ctx 这类怪设计。
-
-需要接口做依赖注入时用 `log.Logger`（`*slog.Logger` 的方法子集）：
+写文件 + 轮转用 `NewWriter`（零值即默认配置）：
 
 ```go
-var _ log.Logger = (*slog.Logger)(nil) // 编译期保证
+w := log.NewWriter(log.RotateConfig{Path: "./logs", FileName: "app"})
+defer w.Close()
+
+logger, err := log.New(log.JSON(w, slog.LevelInfo))
 ```
 
-## 配置
-
-| 字段 | 默认 | 说明 |
-|------|------|------|
-| `Level` | `info` | `debug` / `info` / `warn` / `error`，兼容 `trace`/`verbose`/`notice`/`warning`/`fatal`，大小写与首尾空格不敏感 |
-| `Path` | `""` | 空：只写 stdout；非空：同时写 `Path/FileName+FileSuffix`，自动滚动 |
-| `FileName` | `runtime` | 不含后缀 |
-| `FileSuffix` | `.logger` | |
-| `MaxAge` | `30` | 保留天数；`-1` 表示不限 |
-| `MaxBackups` | `0` | 最大备份数；`0` 不限 |
-| `MaxSize` | `10` | 单文件上限（MB） |
-| `Compress` | `false` | 归档是否压缩 |
-| `ShowFile` | `false` | 是否记录调用点 |
-| `Format` | `json` | `json` / `text` |
-
-`time.Duration` 统一输出为秒（float64），避免 JSON 里出现纳秒整数。
-
-## WithFields
-
-map 形式的字段用 `log.WithFields` 展开（按 key 排序，输出稳定）：
+## 轮转 writer
 
 ```go
-logger.With(log.WithFields(map[string]any{
-	"order_id": "ORD-001",
-	"amount":   99.9,
-})...).InfoContext(ctx, "pay success")
+type RotateConfig struct {
+	Path       string // 默认 ./logs/
+	FileName   string // 默认 runtime
+	FileSuffix string // 默认 .log
+	MaxSize    int    // MB，默认 10
+	MaxAge     int    // 天，默认 30；-1 不限
+	MaxBackups int    // 0 不限
+	Compress   bool
+}
+
+func NewWriter(cfg RotateConfig) RotateWriter
 ```
 
-`With` 本身就是标准库方法，`log.WithFields` 只是把 map 转成 `slog` 参数。
-
-## Option
+`RotateWriter` 内嵌 `io.Writer`，并实现 `io.Closer`：
 
 ```go
-log.New(cfg,
-	log.WithAlerter(suppressor),
-	log.WithFixedFields(map[string]any{"service": "api", "env": "prod"}),
-	log.WithRedactKeys("password", "token", "secret", "authorization"),
-	log.WithSampling(100, slog.LevelInfo), // info 及以下 1/100 抽样
-)
+type RotateWriter struct {
+	io.Writer
+	// ...
+}
+
+func (w *RotateWriter) Close() error
 ```
 
-| Option | 作用 |
+行为：
+
+- 固定写 `stdout + 文件`，用 `io.MultiWriter` 组合；
+- `RotateConfig{}` 等价于 `./logs/runtime.log`、10MB 轮转、保留 30 天；
+- 退出前调用 `Close()` 释放文件句柄。
+
+## 内置工厂
+
+| 工厂 | 输出 |
 |---|---|
-| `WithAlerter(Alerter)` | 注入告警出口 |
-| `WithFixedFields(map)` | 每条日志附加固定字段（按 key 排序） |
-| `WithRedactKeys(...)` | 覆盖默认脱敏字段集合 |
-| `WithRequestIDKeys(...)` | 从 ctx 注入哪些 key（默认 `request_id`），key 同时作为字段名 |
-| `WithContextFields(...)` | 注入任意 ctx key（支持自定义类型），可指定字段名 |
-| `WithSampling(every, below)` | 低于 `below` 级别的记录按 1/`every` 抽样 |
+| `log.JSON(w, level)` | JSON |
+| `log.Text(w, level)` | `key=value` 文本 |
+| `log.Raw(w, level)` | 只写 msg + 换行 |
+| `New()` 不传工厂 | `Raw(os.Stdout, Info)` |
 
-## 派生
+`JSON` / `Text` 内置 `ReplaceAttr`：`Duration` 转秒、剥离 `_alert` 标记。
 
-```go
-logger.With("module", "pay").WithGroup("db").Info("query", "sql", "select 1")
-```
-
-```json
-{"level":"INFO","msg":"query","module":"pay","db":{"sql":"select 1"}}
-```
-
-`With` / `WithGroup` 都是标准库方法，返回 `*slog.Logger`。
-
-## request_id
-
-默认从 ctx 注入 `request_id`，已有同名字段则跳过：
+## Factory
 
 ```go
-logger.InfoContext(ctx, "handled", "status", 200)
+type Factory func() slog.Handler
 ```
 
-需要一次带多个链路字段时，在 `New` 时传一组 ctx key：
+writer 和级别都在闭包里捕获，`New` 只负责组合：
 
 ```go
-logger, sink, _ := log.New(cfg,
-	log.WithRequestIDKeys(defined.RequestID, defined.TransactionID, defined.RequestURI),
+log.New(log.JSON(os.Stdout, slog.LevelInfo))
+log.New(log.JSON(file, slog.LevelInfo), log.Raw(os.Stderr, slog.LevelDebug))
+```
+
+- 多工厂用 `slog.NewMultiHandler` 组合；
+- 工厂返回 nil 时 `New` 返回 error；
+- 自定义工厂：
+
+```go
+log.New(func() slog.Handler {
+	return slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{AddSource: true})
+})
+```
+
+## 级别解析
+
+```go
+level := log.ParseLevel("warn") // 未知或空 → slog.LevelInfo
+```
+
+- 支持 `debug`/`trace`/`verbose`、`info`/`notice`、`warn`/`warning`、`error`/`err`/`fatal`；
+- 不返回 error，未知一律回退 `info`。
+
+## 组合能力
+
+每个能力都是中间件，只收必要参数；`next` 由 `handler.Chain` 按数组顺序注入：
+
+```go
+h := handler.Chain(
+	slog.NewJSONHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo}),
+	handler.NewSample(100, slog.LevelInfo),   // 最外层
+	handler.NewContext(handler.ContextField{Key: defined.RequestID, Name: "request_id"}),
+	handler.NewRedact("password", "token"),
+	handler.NewAlert(alerter),                // 最内层
 )
 
-// ctx 里有什么就注入什么，取不到或为空的 key 直接跳过
-logger.InfoContext(ctx, "handled") // request_id / transaction_id 都会带上
+logger, err := log.New(func() slog.Handler { return h })
 ```
 
-ctx key 是自定义类型时，用 `WithContextFields` 显式指定字段名：
+`Chain` 的语义：`mws[0]` 最外层，它的 `next` 是 `mws[1]`，依次到 `base`：
 
-```go
-type traceKey struct{}
-
-logger, sink, _ := log.New(cfg, log.WithContextFields(
-	log.ContextField{Key: defined.RequestID, Name: "request_id"},
-	log.ContextField{Key: traceKey{}, Name: "trace_id"},
-))
+```text
+Chain(base, A, B, C) == A(B(C(base)))
 ```
 
-key 同时是日志字段名；已经通过 `With` 显式传过的字段不会被覆盖。
+| 构造函数 | 必传参数 | 不满足时 |
+|---|---|---|
+| `handler.NewRaw(w, level)` | writer、级别 | — |
+| `handler.NewContext(fields...)` | 至少一个字段 | identity |
+| `handler.NewRedact(keys...)` | 至少一个 key | identity |
+| `handler.NewAlert(alerter)` | alerter | identity |
+| `handler.NewSample(every, below)` | — | `every <= 1` 时 identity |
 
+推荐顺序（数组从外到内）：
+
+```text
+采样 -> ctx 字段 -> 脱敏 -> 告警 -> 格式
+```
 
 ## 告警
 
-告警是标记，不是级别：`AlertKey`（`_alert`）为 true 的记录会转给 `Alerter`，
-标记本身不会出现在输出里，且不参与采样。
+告警是标记：`AlertKey`（`_alert`）为 true 的记录会转给 `Alerter`。
 
 ```go
 logger.With(log.AlertKey, true).Error("order.pay_failed", "trade_no", tradeNo)
-
-type Alerter interface {
-	Send(ctx context.Context, a Alert) error
-}
 ```
 
-`Alert` 带 `Title` / `Msg` / `Level` / `Time` / `Attrs`，`Fingerprint()` 用于去重
-（`notify.Suppressor` 直接使用）。发送失败会记一条 `alert send failed`，不重试。
+- `Alert` 带 `Title` / `Msg` / `Level` / `Time` / `Attrs`，`Fingerprint()` 用于去重；
+- 标记不会出现在输出里（`NewAlert` 或内置 `JSON`/`Text` 的 `ReplaceAttr` 负责剥离）；
+- 不组合 `NewAlert` 时不会发送。
 
-## 脱敏
+## 和 GORM 的分工
 
-默认把 `password` / `token` / `secret` / `authorization` 的值替换成 `***`，
-分组内的同名字段同样处理，`With` 进去的字段也会被处理。
-
-## GORM 等需要原样输出的场景
-
-`Sink` 就是 `io.Writer`，直接拿它写原始文本：
-
-```go
-type GormLogWriter struct{ out io.Writer }
-
-func (w *GormLogWriter) Printf(format string, v ...any) {
-	line := strings.TrimRight(fmt.Sprintf(format, v...), "\r\n")
-	_, _ = io.WriteString(w.out, line+"\n")
-}
-```
-
-```go
-logger, sink, _ := log.New(cfg)
-gormLogger := gormlogger.New(NewGormLogWriter(sink), gormlogger.Config{...})
-```
+GORM 的 SQL 日志是纯文本，由 `dao/gormDB` 自己持有 lumberjack 轮转，
+不经过 slog；慢 SQL 告警由 GORM 的 `Sender` 直接发送。
 
 ## 从旧版迁移
 
 | 旧写法 | 新写法 |
 |---|---|
-| `l.WithField(k, v)` | `l.With(k, v)` |
-| `l.WithFields(map)` | `l.With(k1, v1, k2, v2)` |
-| `l.Raw(s)` | 用 `Sink` 直接写 |
-| `logger.WithContext(ctx)` | `logger.InfoContext(ctx, ...)` |
-| `log.WithContext(ctx)` / `log.Default()` | 已移除，用 `slog.Default()` / `slog.SetDefault` 或显式注入 |
-| `NewLogger(cfg)` | `New(cfg)`，多一个 `Sink` 返回值 |
-| `Config.Driver` | 已删除，只保留 slog |
+| `New(cfg)` | `New(factories...)` 或 `New(log.JSON(w, level))` |
+| `Config.Path/FileName/Max*` | `log.NewWriter(log.RotateConfig{...})` |
+| `Config.Level` | `log.ParseLevel(s)` 或直接 `slog.Level` |
+| `New(cfg, opts...)` | `New(factories...)` |
+| `WithAlerter` / `WithRedactKeys` / `WithContextFields` / `WithSampling` | `handler.Chain` + `NewAlert` / `NewRedact` / `NewContext` / `NewSample` |
+| `Config.Format` / `ShowFile` | Factory 里的 `slog.HandlerOptions` |
+| `log.Logger` 接口 | 直接用 `*slog.Logger` |
+| `l.WithField(s)` | `l.With(...)` / `l.With(log.WithFields(m)...)` |
+| `l.Raw(s)` | `log.Raw(w, level)` |
+| `logger.WithContext(ctx)` | `logger.InfoContext(ctx, ...)` + `NewContext` |

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"log/slog"
+	"strings"
 )
 
 // RedactedValue 是敏感字段的替换值。
@@ -78,4 +79,22 @@ func redactAttr(a slog.Attr, keys map[string]struct{}) (slog.Attr, bool) {
 		return slog.String(a.Key, RedactedValue), true
 	}
 	return a, false
+}
+
+// NewRedact 创建脱敏中间件：把 keys 对应字段的值替换成 ***。
+//
+// keys 必传；为空时返回 identity。
+func NewRedact(keys ...string) Middleware {
+	set := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		if k = strings.TrimSpace(k); k != "" {
+			set[k] = struct{}{}
+		}
+	}
+	return func(next slog.Handler) slog.Handler {
+		if len(set) == 0 {
+			return next
+		}
+		return &redactHandler{next: next, keys: set}
+	}
 }

@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"strings"
 )
 
 // ContextField 描述一个要从 ctx 提取并写入日志的字段。
@@ -70,4 +72,42 @@ func (h *contextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h *contextHandler) WithGroup(name string) slog.Handler {
 	return &contextHandler{next: h.next.WithGroup(name), fields: h.fields, set: h.set}
+}
+
+// NewContext 创建 ctx 字段注入中间件。
+//
+// fields 必传；为空时返回 identity。Name 为空时：string key 用 key 本身，
+// 其他类型用 fmt.Sprint(key)。
+func NewContext(fields ...ContextField) Middleware {
+	normalized := normalizeFields(fields)
+	return func(next slog.Handler) slog.Handler {
+		if len(normalized) == 0 {
+			return next
+		}
+		return newContextHandler(next, normalized)
+	}
+}
+
+func normalizeFields(fields []ContextField) []ContextField {
+	out := make([]ContextField, 0, len(fields))
+	seen := make(map[string]struct{}, len(fields))
+	for _, f := range fields {
+		name := strings.TrimSpace(f.Name)
+		if name == "" {
+			if s, ok := f.Key.(string); ok {
+				name = strings.TrimSpace(s)
+			} else if f.Key != nil {
+				name = fmt.Sprint(f.Key)
+			}
+		}
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, ContextField{Key: f.Key, Name: name})
+	}
+	return out
 }

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// AlertKey 是"这条日志要告警"的标记字段名，不会出现在输出里。
+// AlertKey 是"这条日志要告警"的标记字段名；内置 JSON/Text 输出时会剥离。
 const AlertKey = "_alert"
 
 // Alert 是投递给 Alerter 的一条告警。
@@ -101,5 +101,17 @@ func (h *alertHandler) toAlert(r slog.Record) Alert {
 		Level: r.Level,
 		Time:  r.Time,
 		Attrs: attrs,
+	}
+}
+
+// NewAlert 创建告警中间件：带 AlertKey 标记的记录转给 alerter。
+//
+// alerter 必传；为 nil 时返回 identity（不启用告警）。
+func NewAlert(alerter Alerter) Middleware {
+	return func(next slog.Handler) slog.Handler {
+		if alerter == nil {
+			return next
+		}
+		return &alertHandler{next: next, alerter: alerter}
 	}
 }

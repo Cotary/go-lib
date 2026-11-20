@@ -39,3 +39,15 @@ func (h *sampleHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 func (h *sampleHandler) WithGroup(name string) slog.Handler {
 	return &sampleHandler{next: h.next.WithGroup(name), every: h.every, below: h.below, n: h.n}
 }
+
+// NewSample 创建采样中间件：低于 below 的记录按 1/every 抽样。
+//
+// every <= 1 时返回 identity。
+func NewSample(every uint64, below slog.Level) Middleware {
+	return func(next slog.Handler) slog.Handler {
+		if every <= 1 {
+			return next
+		}
+		return newSampleHandler(next, every, below)
+	}
+}
