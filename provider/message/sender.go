@@ -2,8 +2,7 @@ package message
 
 import (
 	"context"
-
-	"github.com/Cotary/go-lib/log"
+	"log/slog"
 
 	"github.com/Cotary/go-lib/common/utils"
 )
@@ -13,16 +12,13 @@ type Sender interface {
 }
 
 func SendMsg(ctx context.Context, title string, msg *utils.OrderedMap[string, string]) {
-	sender := GetGlobalSender()
-	if sender == nil {
-		return
-	}
-	sendErr := sender.Send(ctx, title, msg)
+	sendErr := Default().Send(ctx, title, msg)
 	if sendErr != nil {
-		log.WithContext(ctx).WithFields(map[string]interface{}{
-			"action":  "SendMsg",
-			"title":   title,
-			"message": msg.String(),
-		}).Error(sendErr.Error())
+		slog.ErrorContext(ctx, "SendMsg failed",
+			"action", "SendMsg",
+			"title", title,
+			"message", msg.String(),
+			"err", sendErr,
+		)
 	}
 }
