@@ -40,13 +40,3 @@ func Default() Sender {
 	}
 	return noopSender{}
 }
-
-// SetGlobalSender 是 SetDefault 的旧名字。
-//
-// Deprecated: 使用 SetDefault。
-func SetGlobalSender(s Sender) { SetDefault(s) }
-
-// GetGlobalSender 是 Default 的旧名字。
-//
-// Deprecated: 使用 Default。
-func GetGlobalSender() Sender { return Default() }
