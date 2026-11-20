@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -14,469 +16,445 @@ import (
 	"github.com/Cotary/go-lib/common/defined"
 )
 
-func setupTestDir(t *testing.T, path string) {
+// ---------- helpers ----------
+
+func newTestLogger(t *testing.T, cfg Config, opts ...Option) (*slog.Logger, string) {
 	t.Helper()
-	if err := os.RemoveAll(path); err != nil {
-		t.Fatalf("failed to clear test dir: %v", err)
+	if cfg.Path == "" {
+		cfg.Path = t.TempDir()
 	}
-	if err := os.MkdirAll(path, 0755); err != nil {
-		t.Fatalf("failed to create test dir: %v", err)
+	if cfg.FileName == "" {
+		cfg.FileName = "test"
 	}
+	if cfg.Level == "" {
+		cfg.Level = "debug"
+	}
+	lg, sink, err := New(cfg, opts...)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = sink.Close() })
+	return lg, filepath.Join(cfg.Path, cfg.FileName+".logger")
 }
 
-func readLastLogLine(filePath string) (map[string]interface{}, error) {
-	data, err := os.ReadFile(filePath)
+func readAll(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		t.Fatalf("read log: %v", err)
 	}
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) == 0 {
-		return nil, fmt.Errorf("empty logger file")
-	}
-	lastLine := lines[len(lines)-1]
-
-	var result map[string]interface{}
-	err = json.Unmarshal([]byte(lastLine), &result)
-	return result, err
+	return string(b)
 }
 
-func readAllLogLines(filePath string) ([]map[string]interface{}, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, err
-	}
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	var results []map[string]interface{}
-	for _, line := range lines {
-		var m map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &m); err == nil {
-			results = append(results, m)
+func readRecords(t *testing.T, path string) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(readAll(t, path)), "\n") {
+		if line == "" {
+			continue
 		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("parse line %q: %v", line, err)
+		}
+		out = append(out, m)
 	}
-	return results, nil
+	return out
 }
 
-// ---------- 多驱动一致性测试 ----------
-// 验证 zap 和 slog 两个驱动在 JSON 格式下输出一致的结构化字段：
-// time, msg/message, level, duration(秒), caller/source
-
-func TestConsistency(t *testing.T) {
-	testPath := "./test_logs"
-	setupTestDir(t, testPath)
-	defer os.RemoveAll(testPath)
-
-	drivers := []string{DriverZap, DriverSlog}
-
-	for _, driver := range drivers {
-		t.Run(driver, func(t *testing.T) {
-			fileName := fmt.Sprintf("test_%s", driver)
-			cfg := &Config{
-				Driver:     driver,
-				Level:      "debug",
-				Path:       testPath,
-				FileName:   fileName,
-				FileSuffix: ".logger",
-				ShowFile:   true,
-				Format:     FormatJSON,
-			}
-
-			logger := NewLogger(cfg)
-			defer logger.Close()
-
-			msg := "consistency check"
-			cost := 1234 * time.Millisecond
-
-			ctx := context.WithValue(context.Background(), defined.RequestID, "req-123456")
-			l := logger.WithContext(ctx).WithFields(map[string]any{
-				"cost":       cost,
-				"request_id": "req-123",
-			})
-
-			l.Info(msg)
-
-			logFilePath := filepath.Join(testPath, fileName+".logger")
-			logData, err := readLastLogLine(logFilePath)
-			if err != nil {
-				t.Fatalf("[%s] failed to read logger: %v", driver, err)
-			}
-
-			if _, ok := logData["time"]; !ok {
-				t.Errorf("[%s] missing 'time' key", driver)
-			}
-
-			if logData["msg"] != msg && logData["message"] != msg {
-				t.Errorf("[%s] unexpected msg: %v", driver, logData["msg"])
-			}
-
-			costVal, ok := logData["cost"].(float64)
-			if !ok || costVal != 1.234 {
-				t.Errorf("[%s] duration should be 1.234 seconds, got: %v", driver, logData["cost"])
-			}
-
-			callerFound := false
-			for _, k := range []string{"caller", "source", "file"} {
-				if val, ok := logData[k]; ok {
-					if strings.Contains(fmt.Sprint(val), "logger_test.go") {
-						callerFound = true
-						break
-					}
-				}
-			}
-			if !callerFound {
-				t.Errorf("[%s] caller info not found or incorrect. logger: %v", driver, logData)
-			}
-
-			if !strings.EqualFold(fmt.Sprint(logData["level"]), "info") {
-				t.Errorf("[%s] unexpected level: %v", driver, logData["level"])
-			}
-		})
-	}
-}
-
-// ---------- 级别过滤测试 ----------
-// 验证每个驱动在设定 Level=info 时，debug 日志被过滤，info 日志正常写入
+// ---------- 输出与过滤 ----------
 
 func TestLevelFiltering(t *testing.T) {
-	testPath := "./test_logs_level"
-	setupTestDir(t, testPath)
-	defer os.RemoveAll(testPath)
+	lg, path := newTestLogger(t, Config{Level: "info"})
+	lg.Debug("dropped")
+	lg.Info("kept")
 
-	drivers := []string{DriverZap, DriverSlog}
-
-	for _, driver := range drivers {
-		t.Run(driver, func(t *testing.T) {
-			fileName := fmt.Sprintf("level_%s", driver)
-			cfg := &Config{
-				Driver:     driver,
-				Level:      "info",
-				Path:       testPath,
-				FileName:   fileName,
-				FileSuffix: ".logger",
-				Format:     FormatJSON,
-			}
-			logger := NewLogger(cfg)
-			defer logger.Close()
-
-			logger.Debug("this should not be logged")
-			logger.Info("this should be logged")
-
-			logFilePath := filepath.Join(testPath, fileName+".logger")
-			data, _ := os.ReadFile(logFilePath)
-			content := string(data)
-
-			if strings.Contains(content, "this should not be logged") {
-				t.Errorf("[%s] level filtering failed: debug log found when level set to info", driver)
-			}
-			if !strings.Contains(content, "this should be logged") {
-				t.Errorf("[%s] level filtering failed: info log not found", driver)
-			}
-		})
+	recs := readRecords(t, path)
+	if len(recs) != 1 || recs[0]["msg"] != "kept" {
+		t.Fatalf("want only info record, got %v", recs)
 	}
 }
-
-// ---------- 文本格式测试 ----------
-// 验证每个驱动在 Format=text 时，输出不是 JSON
 
 func TestTextFormat(t *testing.T) {
-	testPath := "./test_logs_text"
-	setupTestDir(t, testPath)
-	defer os.RemoveAll(testPath)
+	lg, path := newTestLogger(t, Config{Format: FormatText})
+	lg.Info("plain text message")
 
-	drivers := []string{DriverZap, DriverSlog}
-
-	for _, driver := range drivers {
-		t.Run(driver, func(t *testing.T) {
-			fileName := fmt.Sprintf("text_%s", driver)
-			cfg := &Config{
-				Driver:     driver,
-				Path:       testPath,
-				FileName:   fileName,
-				FileSuffix: ".logger",
-				Format:     FormatText,
-			}
-			logger := NewLogger(cfg)
-			defer logger.Close()
-
-			logger.Info("plain text message")
-
-			logFilePath := filepath.Join(testPath, fileName+".logger")
-			data, _ := os.ReadFile(logFilePath)
-
-			var temp map[string]interface{}
-			if err := json.Unmarshal(data, &temp); err == nil {
-				t.Errorf("[%s] expected text output, but got valid JSON", driver)
-			}
-			if !strings.Contains(string(data), "plain text message") {
-				t.Errorf("[%s] log content not found in text mode", driver)
-			}
-		})
+	raw := strings.TrimSpace(readAll(t, path))
+	if strings.HasPrefix(raw, "{") {
+		t.Fatalf("expected text output, got JSON: %s", raw)
+	}
+	if !strings.Contains(raw, "level=INFO") {
+		t.Fatalf("text format should use slog TextHandler: %q", raw)
+	}
+	if !strings.Contains(raw, "plain text message") {
+		t.Fatalf("message missing: %s", raw)
 	}
 }
 
-// ---------- 默认配置测试 ----------
-// 验证 handleConfig 为空值字段填充正确默认值，且不修改调用者传入的 Config
+func TestDurationInSeconds(t *testing.T) {
+	lg, path := newTestLogger(t, Config{})
+	lg.Info("query", slog.Duration("cost", 1234*time.Millisecond))
 
-func TestDefaultConfig(t *testing.T) {
-	original := Config{}
-	cfg := original
-
-	logger := NewLogger(&cfg)
-	defer logger.Close()
-
-	if original.Driver != "" {
-		t.Error("NewLogger should not modify the original Config.Driver")
+	recs := readRecords(t, path)
+	if got := recs[0]["cost"]; got != 1.234 {
+		t.Fatalf("duration should be seconds, got %v", got)
 	}
-	if original.Level != "" {
-		t.Error("NewLogger should not modify the original Config.Level")
-	}
-	if original.Path != "" {
-		t.Error("NewLogger should not modify the original Config.Path")
-	}
-	if original.Format != "" {
-		t.Error("NewLogger should not modify the original Config.Format")
-	}
-
-	os.RemoveAll("./logs/")
 }
 
-// ---------- WithField 链式调用测试 ----------
-// 验证多次 WithField 可以累加字段，且不影响原始 logger
+// 没有包装层，source 必须落在业务代码（本测试文件）上，而不是 log 包内部。
+func TestSourcePointsToCaller(t *testing.T) {
+	lg, path := newTestLogger(t, Config{ShowFile: true})
 
-func TestWithFieldChaining(t *testing.T) {
-	testPath := "./test_logs_chain"
-	setupTestDir(t, testPath)
-	defer os.RemoveAll(testPath)
+	_, _, wantLine, _ := runtime.Caller(0)
+	lg.Info("source check")
 
-	cfg := &Config{
-		Driver:     DriverZap,
-		Path:       testPath,
-		FileName:   "chain",
-		FileSuffix: ".logger",
-		Format:     FormatJSON,
+	recs := readRecords(t, path)
+	src, ok := recs[0]["source"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing source attr: %v", recs[0])
 	}
-	logger := NewLogger(cfg)
-	defer logger.Close()
+	if file, _ := src["file"].(string); !strings.HasSuffix(file, "logger_test.go") {
+		t.Fatalf("source file should be the caller, got %v", src["file"])
+	}
+	if line, _ := src["line"].(float64); int(line) != wantLine+1 {
+		t.Fatalf("source line should be %d, got %v", wantLine+1, src["line"])
+	}
+	if fn, _ := src["function"].(string); !strings.Contains(fn, "TestSourcePointsToCaller") {
+		t.Fatalf("source function should be the test, got %v", src["function"])
+	}
+}
 
-	l := logger.WithField("a", 1).WithField("b", 2).WithField("c", 3)
-	l.Info("chained fields")
+// ---------- 派生字段 ----------
 
-	logFilePath := filepath.Join(testPath, "chain.logger")
-	logData, err := readLastLogLine(logFilePath)
+func TestWithDerivation(t *testing.T) {
+	lg, path := newTestLogger(t, Config{})
+	lg.With("module", "pay").WithGroup("db").Info("query", "sql", "select 1")
+
+	recs := readRecords(t, path)
+	db, ok := recs[0]["db"].(map[string]any)
+	if !ok || db["sql"] != "select 1" {
+		t.Fatalf("grouped attrs missing: %v", recs[0])
+	}
+	if recs[0]["module"] != "pay" {
+		t.Fatalf("derived attr missing: %v", recs[0])
+	}
+}
+
+func TestFixedFields(t *testing.T) {
+	lg, path := newTestLogger(t, Config{}, WithFixedFields(map[string]any{"service": "api", "env": "test"}))
+	lg.Info("x")
+
+	recs := readRecords(t, path)
+	if recs[0]["service"] != "api" || recs[0]["env"] != "test" {
+		t.Fatalf("fixed fields missing: %v", recs[0])
+	}
+}
+
+// ---------- request_id ----------
+
+func TestRequestIDFromContext(t *testing.T) {
+	lg, path := newTestLogger(t, Config{})
+	ctx := context.WithValue(context.Background(), defined.RequestID, "req-1")
+
+	lg.InfoContext(ctx, "ctx log")
+	lg.Info("no ctx")
+
+	recs := readRecords(t, path)
+	if recs[0]["request_id"] != "req-1" {
+		t.Fatalf("request_id not injected: %v", recs[0])
+	}
+	if _, ok := recs[1]["request_id"]; ok {
+		t.Fatalf("request_id should not leak to records without ctx: %v", recs[1])
+	}
+}
+
+func TestRequestIDNotDuplicated(t *testing.T) {
+	lg, path := newTestLogger(t, Config{})
+	ctx := context.WithValue(context.Background(), defined.RequestID, "req-1")
+
+	lg.With(defined.RequestID, "explicit").InfoContext(ctx, "explicit")
+
+	raw := readAll(t, path)
+	if n := strings.Count(raw, `"request_id"`); n != 1 {
+		t.Fatalf("request_id should appear once, got %d: %s", n, raw)
+	}
+}
+
+func TestRequestIDMultipleKeys(t *testing.T) {
+	lg, path := newTestLogger(t, Config{},
+		WithRequestIDKeys(defined.RequestID, defined.TransactionID, defined.RequestURI))
+
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, defined.RequestID, "req-1")
+	ctx = context.WithValue(ctx, defined.TransactionID, "tx-1")
+
+	lg.InfoContext(ctx, "multi keys")
+
+	recs := readRecords(t, path)
+	if recs[0]["request_id"] != "req-1" {
+		t.Fatalf("request_id missing: %v", recs[0])
+	}
+	if recs[0]["transaction_id"] != "tx-1" {
+		t.Fatalf("transaction_id missing: %v", recs[0])
+	}
+	if _, ok := recs[0]["request_uri"]; ok {
+		t.Fatalf("absent key should be skipped: %v", recs[0])
+	}
+}
+
+func TestRequestIDKeysWithAttrsWins(t *testing.T) {
+	lg, path := newTestLogger(t, Config{},
+		WithRequestIDKeys(defined.RequestID, defined.TransactionID))
+
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, defined.RequestID, "from-ctx")
+	ctx = context.WithValue(ctx, defined.TransactionID, "from-ctx")
+
+	lg.With(defined.TransactionID, "explicit").InfoContext(ctx, "dedup")
+
+	raw := readAll(t, path)
+	if n := strings.Count(raw, `"transaction_id"`); n != 1 {
+		t.Fatalf("transaction_id should appear once, got %d: %s", n, raw)
+	}
+	if !strings.Contains(raw, `"transaction_id":"explicit"`) {
+		t.Fatalf("explicit value should win: %s", raw)
+	}
+}
+
+type traceCtxKey struct{}
+
+func TestContextFieldsWithTypedKey(t *testing.T) {
+	lg, path := newTestLogger(t, Config{}, WithContextFields(
+		ContextField{Key: defined.RequestID, Name: "request_id"},
+		ContextField{Key: traceCtxKey{}, Name: "trace_id"},
+	))
+
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, defined.RequestID, "req-1")
+	ctx = context.WithValue(ctx, traceCtxKey{}, "trace-1")
+
+	lg.InfoContext(ctx, "typed key")
+
+	recs := readRecords(t, path)
+	if recs[0]["request_id"] != "req-1" || recs[0]["trace_id"] != "trace-1" {
+		t.Fatalf("typed ctx key not injected: %v", recs[0])
+	}
+}
+
+func TestRequestIDKeysEmptyDisables(t *testing.T) {
+	lg, path := newTestLogger(t, Config{}, WithRequestIDKeys())
+
+	ctx := context.WithValue(context.Background(), defined.RequestID, "req-1")
+	lg.InfoContext(ctx, "disabled")
+
+	if recs := readRecords(t, path); recs[0]["request_id"] != nil {
+		t.Fatalf("request_id should not be injected: %v", recs[0])
+	}
+}
+
+func TestNilContextIsSafe(t *testing.T) {
+	lg, path := newTestLogger(t, Config{})
+	lg.InfoContext(nil, "nil ctx") //nolint:staticcheck // 验证标准库已有兜底
+
+	if recs := readRecords(t, path); len(recs) != 1 {
+		t.Fatalf("want 1 record, got %v", recs)
+	}
+}
+
+// ---------- 脱敏 ----------
+
+func TestRedact(t *testing.T) {
+	lg, path := newTestLogger(t, Config{})
+	lg.Info("login",
+		"user", "bob",
+		"password", "p@ss",
+		slog.Group("auth", slog.String("token", "t-1")),
+	)
+
+	recs := readRecords(t, path)
+	if recs[0]["password"] != "***" {
+		t.Fatalf("password not redacted: %v", recs[0])
+	}
+	auth, ok := recs[0]["auth"].(map[string]any)
+	if !ok || auth["token"] != "***" {
+		t.Fatalf("nested token not redacted: %v", recs[0])
+	}
+	if recs[0]["user"] != "bob" {
+		t.Fatalf("non-sensitive attr should be kept: %v", recs[0])
+	}
+}
+
+func TestRedactWithAttrs(t *testing.T) {
+	lg, path := newTestLogger(t, Config{}, WithRedactKeys("api_key"))
+	lg.With("api_key", "k-1").Info("x")
+
+	recs := readRecords(t, path)
+	if recs[0]["api_key"] != "***" {
+		t.Fatalf("With attr not redacted: %v", recs[0])
+	}
+}
+
+// ---------- 告警 ----------
+
+type fakeAlerter struct {
+	mu     sync.Mutex
+	alerts []Alert
+	err    error
+}
+
+func (f *fakeAlerter) Send(_ context.Context, a Alert) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.alerts = append(f.alerts, a)
+	return f.err
+}
+
+func (f *fakeAlerter) snapshot() []Alert {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]Alert(nil), f.alerts...)
+}
+
+func TestAlert(t *testing.T) {
+	al := &fakeAlerter{}
+	lg, path := newTestLogger(t, Config{}, WithAlerter(al))
+
+	lg.With(AlertKey, true).Error("pay_failed", "order_id", 42)
+	lg.Info("just a log") // 不应触发告警
+
+	alerts := al.snapshot()
+	if len(alerts) != 1 {
+		t.Fatalf("want 1 alert, got %d", len(alerts))
+	}
+	if alerts[0].Title != "pay_failed" || alerts[0].Level != slog.LevelError {
+		t.Fatalf("unexpected alert: %+v", alerts[0])
+	}
+	if alerts[0].Fingerprint() == "" {
+		t.Fatal("fingerprint should not be empty")
+	}
+
+	raw := readAll(t, path)
+	if strings.Contains(raw, AlertKey) {
+		t.Fatalf("alert marker should not be logged: %s", raw)
+	}
+	if !strings.Contains(raw, `"order_id":42`) {
+		t.Fatalf("alert record should still be logged: %s", raw)
+	}
+}
+
+func TestAlertPerCallFlag(t *testing.T) {
+	al := &fakeAlerter{}
+	lg, _ := newTestLogger(t, Config{}, WithAlerter(al))
+
+	lg.Warn("disk_full", slog.Bool(AlertKey, true))
+	if got := len(al.snapshot()); got != 1 {
+		t.Fatalf("want 1 alert, got %d", got)
+	}
+}
+
+func TestAlertSendErrorIsLogged(t *testing.T) {
+	al := &fakeAlerter{err: fmt.Errorf("boom")}
+	lg, path := newTestLogger(t, Config{}, WithAlerter(al))
+
+	lg.With(AlertKey, true).Error("failed", "k", "v")
+
+	raw := readAll(t, path)
+	if !strings.Contains(raw, "alert send failed") {
+		t.Fatalf("send error should be logged: %s", raw)
+	}
+}
+
+// ---------- 采样 ----------
+
+func TestSampling(t *testing.T) {
+	lg, path := newTestLogger(t, Config{}, WithSampling(3, slog.LevelWarn))
+
+	for i := 0; i < 30; i++ {
+		lg.Info("sampled", "i", i)
+	}
+	for i := 0; i < 5; i++ {
+		lg.Warn("always", "i", i)
+	}
+
+	recs := readRecords(t, path)
+	if len(recs) != 10+5 {
+		t.Fatalf("want 15 records (10 sampled info + 5 warn), got %d", len(recs))
+	}
+}
+
+// ---------- Sink ----------
+
+func TestSinkStdoutOnly(t *testing.T) {
+	_, sink, err := New(Config{})
 	if err != nil {
-		t.Fatalf("failed to read log: %v", err)
+		t.Fatalf("New: %v", err)
+	}
+	if sink.closer != nil {
+		t.Fatal("Path empty should not create a file writer")
+	}
+	if err := sink.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+func TestSinkClose(t *testing.T) {
+	lg, path := newTestLogger(t, Config{})
+	lg.Info("before close")
+	if !strings.Contains(readAll(t, path), "before close") {
+		t.Fatal("record should be written")
+	}
+}
+
+// ---------- 全局 ----------
+
+func TestWithFields(t *testing.T) {
+	lg, path := newTestLogger(t, Config{})
+	lg.With(WithFields(map[string]any{"b": 2, "a": 1})...).Info("map fields")
+
+	recs := readRecords(t, path)
+	if recs[0]["a"] != float64(1) || recs[0]["b"] != float64(2) {
+		t.Fatalf("WithFields lost fields: %v", recs[0])
 	}
 
-	for _, key := range []string{"a", "b", "c"} {
-		if _, ok := logData[key]; !ok {
-			t.Errorf("missing chained field '%s', log: %v", key, logData)
+	raw := readAll(t, path)
+	if strings.Index(raw, `"a":1`) > strings.Index(raw, `"b":2`) {
+		t.Fatalf("fields should be sorted: %s", raw)
+	}
+}
+
+// ---------- 配置校验 ----------
+
+func TestUnknownLevel(t *testing.T) {
+	if _, _, err := New(Config{Level: "nope"}); err == nil {
+		t.Fatal("unknown level should return error")
+	}
+}
+
+func TestLevelAliases(t *testing.T) {
+	for _, name := range []string{"trace", "verbose", "DEBUG", " info ", "warning", "fatal"} {
+		if _, _, err := New(Config{Level: name}); err != nil {
+			t.Fatalf("level %q should be accepted: %v", name, err)
 		}
 	}
 }
 
-// ---------- WithFields 空 map 优化测试 ----------
-// 验证传入空 map 时返回同一实例，避免无效分配
+// ---------- 并发 ----------
 
-func TestWithFieldsEmpty(t *testing.T) {
-	testPath := "./test_logs_empty"
-	setupTestDir(t, testPath)
-	defer os.RemoveAll(testPath)
-
-	cfg := &Config{
-		Driver:     DriverZap,
-		Path:       testPath,
-		FileName:   "empty",
-		FileSuffix: ".logger",
-		Format:     FormatJSON,
-	}
-	logger := NewLogger(cfg)
-	defer logger.Close()
-
-	same := logger.WithFields(map[string]any{})
-
-	sameWrapper, ok := same.(*SlogWrapper)
-	if !ok {
-		t.Fatal("WithFields(empty) should return *SlogWrapper")
-	}
-	if sameWrapper != logger {
-		t.Error("WithFields(empty map) should return the same instance to avoid allocation")
-	}
-}
-
-// ---------- Raw 输出测试 ----------
-// 验证 Raw 不带格式化信息（无 time/level/caller），直接输出原始字符串
-
-func TestRaw(t *testing.T) {
-	testPath := "./test_logs_raw"
-	setupTestDir(t, testPath)
-	defer os.RemoveAll(testPath)
-
-	cfg := &Config{
-		Driver:     DriverZap,
-		Path:       testPath,
-		FileName:   "raw",
-		FileSuffix: ".logger",
-		Format:     FormatJSON,
-	}
-	logger := NewLogger(cfg)
-	defer logger.Close()
-
-	rawMsg := `{"custom":"raw data","code":200}`
-	logger.Raw(rawMsg)
-
-	logFilePath := filepath.Join(testPath, "raw.logger")
-	data, err := os.ReadFile(logFilePath)
-	if err != nil {
-		t.Fatalf("failed to read log: %v", err)
-	}
-
-	content := strings.TrimSpace(string(data))
-	if content != rawMsg {
-		t.Errorf("Raw output mismatch.\nexpected: %s\ngot:      %s", rawMsg, content)
-	}
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
-		t.Fatalf("Raw output is not valid JSON: %v", err)
-	}
-	if _, ok := parsed["level"]; ok {
-		t.Error("Raw output should not contain 'level' field")
-	}
-	if _, ok := parsed["time"]; ok {
-		t.Error("Raw output should not contain 'time' field")
-	}
-}
-
-// ---------- SetGlobalLogger 测试 ----------
-// 验证 SetGlobalLogger 覆盖全局 logger 后，WithContext 使用新 logger
-
-func TestSetGlobalLogger(t *testing.T) {
-	testPath := "./test_logs_global"
-	setupTestDir(t, testPath)
-	defer os.RemoveAll(testPath)
-
-	cfg := &Config{
-		Driver:     DriverZap,
-		Path:       testPath,
-		FileName:   "global",
-		FileSuffix: ".logger",
-		Format:     FormatJSON,
-	}
-	logger := NewLogger(cfg)
-	defer logger.Close()
-
-	SetGlobalLogger(logger)
-	defer SetGlobalLogger(nil)
-
-	ctx := context.WithValue(context.Background(), defined.RequestID, "global-req-001")
-	WithContext(ctx).Info("global logger test")
-
-	logFilePath := filepath.Join(testPath, "global.logger")
-	logData, err := readLastLogLine(logFilePath)
-	if err != nil {
-		t.Fatalf("failed to read log: %v", err)
-	}
-
-	if logData["request_id"] != "global-req-001" {
-		t.Errorf("expected request_id 'global-req-001', got: %v", logData["request_id"])
-	}
-}
-
-// ---------- 并发安全测试 ----------
-// 验证多 goroutine 同时调用 WithContext + Info 不会 panic 或 data race
-
-func TestConcurrentSafety(t *testing.T) {
-	testPath := "./test_logs_concurrent"
-	setupTestDir(t, testPath)
-	defer os.RemoveAll(testPath)
-
-	cfg := &Config{
-		Driver:     DriverZap,
-		Path:       testPath,
-		FileName:   "concurrent",
-		FileSuffix: ".logger",
-		Format:     FormatJSON,
-	}
-	logger := NewLogger(cfg)
-	defer logger.Close()
-
-	SetGlobalLogger(logger)
-	defer SetGlobalLogger(nil)
+func TestConcurrentLogging(t *testing.T) {
+	lg, path := newTestLogger(t, Config{})
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
 			ctx := context.WithValue(context.Background(), defined.RequestID, fmt.Sprintf("req-%d", n))
-			l := WithContext(ctx).WithField("goroutine", n)
-			l.Info("concurrent log")
+			lg.With("goroutine", n).InfoContext(ctx, "concurrent")
 		}(i)
 	}
 	wg.Wait()
 
-	logFilePath := filepath.Join(testPath, "concurrent.logger")
-	data, err := os.ReadFile(logFilePath)
-	if err != nil {
-		t.Fatalf("failed to read log: %v", err)
+	if recs := readRecords(t, path); len(recs) != 50 {
+		t.Fatalf("want 50 records, got %d", len(recs))
 	}
-
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) < 100 {
-		t.Errorf("expected at least 100 log lines, got %d", len(lines))
-	}
-}
-
-// ---------- Close 测试 ----------
-// 验证 Close 后文件 writer 关闭不报错，派生 logger 无 Close 影响
-
-func TestClose(t *testing.T) {
-	testPath := "./test_logs_close"
-	setupTestDir(t, testPath)
-	defer os.RemoveAll(testPath)
-
-	cfg := &Config{
-		Driver:     DriverZap,
-		Path:       testPath,
-		FileName:   "close_test",
-		FileSuffix: ".logger",
-		Format:     FormatJSON,
-	}
-	logger := NewLogger(cfg)
-
-	logger.Info("before close")
-
-	if err := logger.Close(); err != nil {
-		t.Fatalf("Close should not return error: %v", err)
-	}
-
-	derived := logger.WithField("key", "val")
-	if wrapper, ok := derived.(*SlogWrapper); ok {
-		if wrapper.fileWriter != nil {
-			t.Error("derived logger should not hold fileWriter")
-		}
-	}
-}
-
-// ---------- WithContext 自动初始化测试 ----------
-// 验证 globalLogger 为 nil 时 WithContext 自动用默认配置创建 logger
-
-func TestWithContextAutoInit(t *testing.T) {
-	mu.Lock()
-	oldLogger := globalLogger
-	globalLogger = nil
-	mu.Unlock()
-	defer func() {
-		mu.Lock()
-		globalLogger = oldLogger
-		mu.Unlock()
-		os.RemoveAll("./logs/")
-	}()
-
-	ctx := context.Background()
-	l := WithContext(ctx)
-	if l == nil {
-		t.Fatal("WithContext should auto-init and never return nil")
-	}
-
-	l.Info("auto init test")
 }

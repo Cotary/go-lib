@@ -1,21 +1,13 @@
 package log
 
 import (
-	"context"
-	"io"
+	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
+	"sort"
 	"strings"
 
-	"github.com/natefinch/lumberjack"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-)
-
-const (
-	DriverZap  string = "zap"
-	DriverSlog string = "slog"
+	"github.com/Cotary/go-lib/common/defined"
+	"github.com/Cotary/go-lib/log/handler"
 )
 
 const (
@@ -23,8 +15,18 @@ const (
 	FormatText = "text"
 )
 
+// 公开类型转发到 log/handler，调用方仍然只 import log。
+type (
+	Alert        = handler.Alert
+	Alerter      = handler.Alerter
+	ContextField = handler.ContextField
+)
+
+// AlertKey 是"这条日志要告警"的标记字段名。
+const AlertKey = handler.AlertKey
+
+// Config 是日志输出端的配置。Path 为空表示只写 stdout，不落文件。
 type Config struct {
-	Driver     string `mapstructure:"driver" yaml:"driver"`
 	Level      string `mapstructure:"level" yaml:"level"`
 	Path       string `mapstructure:"path" yaml:"path"`
 	FileName   string `mapstructure:"fileName" yaml:"fileName"`
@@ -37,120 +39,222 @@ type Config struct {
 	Format     string `mapstructure:"format" yaml:"format"`
 }
 
-func NewLogger(cfg *Config) *SlogWrapper {
-	c := *cfg
-	handleConfig(&c)
-
-	writer := &lumberjack.Logger{
-		Filename:   filepath.Join(c.Path, c.FileName+c.FileSuffix),
-		MaxSize:    int(c.MaxSize),
-		MaxBackups: int(c.MaxBackups),
-		MaxAge:     int(c.MaxAge),
-		Compress:   c.Compress,
-		LocalTime:  true,
+// New 构造日志。返回值是标准库 *slog.Logger，不做任何包装，
+// 因此 AddSource 记录的调用点就是业务代码。
+//
+// 格式化、级别过滤、脱敏、request_id、告警、采样都在 Handler 链里完成；
+// Sink 负责输出端和文件句柄，调用方退出前 Close。
+func New(cfg Config, opts ...Option) (*slog.Logger, *Sink, error) {
+	c, level, err := normalize(cfg)
+	if err != nil {
+		return nil, nil, err
 	}
-	output := io.MultiWriter(os.Stdout, writer)
 
-	var handler slog.Handler
-
-	switch c.Driver {
-	case DriverZap:
-		encCfg := zap.NewProductionEncoderConfig()
-		encCfg.TimeKey = "time"
-		encCfg.EncodeTime = zapcore.ISO8601TimeEncoder
-		encCfg.EncodeDuration = zapcore.SecondsDurationEncoder
-		encCfg.EncodeCaller = zapcore.ShortCallerEncoder
-
-		var encoder zapcore.Encoder
-		if c.Format == FormatJSON {
-			encoder = zapcore.NewJSONEncoder(encCfg)
-		} else {
-			encoder = zapcore.NewConsoleEncoder(encCfg)
-		}
-
-		core := zapcore.NewCore(encoder, zapcore.AddSync(output), zap.NewAtomicLevelAt(getZapLevel(c.Level)))
-		handler = &ZapHandler{core: core, cfg: &c}
-
-	default:
-		opts := &slog.HandlerOptions{
-			Level:     getSlogLevel(c.Level),
-			AddSource: c.ShowFile,
-			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-				if a.Key == slog.TimeKey {
-					a.Key = "time"
-				}
-				if a.Value.Kind() == slog.KindDuration {
-					return slog.Float64(a.Key, a.Value.Duration().Seconds())
-				}
-				return a
-			},
-		}
-		if c.Format == FormatJSON {
-			handler = slog.NewJSONHandler(output, opts)
-		} else {
-			handler = slog.NewTextHandler(output, opts)
+	o := defaultOptions()
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&o)
 		}
 	}
 
-	return &SlogWrapper{
-		inner:      slog.New(handler),
-		ctx:        context.Background(),
-		writer:     output,
-		fileWriter: writer,
+	sink := newSink(c)
+	h := handler.New(sink.Writer, handler.Config{
+		Level:         level,
+		AddSource:     c.ShowFile,
+		Console:       c.Format == FormatText,
+		Alerter:       o.alerter,
+		RedactKeys:    o.redactKeys,
+		ContextFields: o.contextFields,
+		SampleEvery:   o.sampleEvery,
+		SampleBelow:   o.sampleBelow,
+		Fields:        o.fields,
+	})
+
+	return slog.New(h), sink, nil
+}
+
+func normalize(cfg Config) (Config, slog.Level, error) {
+	c := cfg
+
+	level, err := parseLevel(c.Level)
+	if err != nil {
+		return c, 0, err
+	}
+	c.Level = strings.ToLower(strings.TrimSpace(c.Level))
+
+	c.Format = strings.ToLower(strings.TrimSpace(c.Format))
+	if c.Format == "" {
+		c.Format = FormatJSON
+	}
+	if c.Format != FormatJSON && c.Format != FormatText {
+		return c, 0, fmt.Errorf("log: unknown format %q", cfg.Format)
+	}
+
+	if c.Path != "" {
+		if c.FileName == "" {
+			c.FileName = "runtime"
+		}
+		if c.FileSuffix == "" {
+			c.FileSuffix = ".logger"
+		}
+		if c.MaxAge == 0 {
+			c.MaxAge = 30
+		} else if c.MaxAge < 0 {
+			c.MaxAge = 0
+		}
+		if c.MaxSize == 0 {
+			c.MaxSize = 10
+		}
+		if c.MaxBackups < 0 {
+			c.MaxBackups = 0
+		}
+	}
+
+	return c, level, nil
+}
+
+// parseLevel 支持常见别名，便于从配置文件直接映射。
+func parseLevel(s string) (slog.Level, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "info", "information", "notice":
+		return slog.LevelInfo, nil
+	case "debug", "trace", "verbose":
+		return slog.LevelDebug, nil
+	case "warn", "warning":
+		return slog.LevelWarn, nil
+	case "error", "err", "fatal":
+		return slog.LevelError, nil
+	}
+	return 0, fmt.Errorf("log: unknown level %q", s)
+}
+
+// ---------- Option ----------
+
+type options struct {
+	alerter       Alerter
+	redactKeys    map[string]struct{}
+	contextFields []ContextField
+	sampleEvery   uint64
+	sampleBelow   slog.Level
+	fields        []slog.Attr
+}
+
+// Option 定制 Logger 行为。
+type Option func(*options)
+
+func defaultOptions() options {
+	keys := []string{"password", "token", "secret", "authorization"}
+	o := options{
+		redactKeys:    make(map[string]struct{}, len(keys)),
+		contextFields: []ContextField{{Key: defined.RequestID, Name: defined.RequestID}},
+	}
+	for _, k := range keys {
+		o.redactKeys[k] = struct{}{}
+	}
+	return o
+}
+
+// WithFields 把 map 展开成 slog 参数（按 key 排序，输出稳定）。
+//
+//	logger.With(log.WithFields(map[string]any{"k": "v"})...).Info("x")
+func WithFields(fields map[string]any) []any {
+	if len(fields) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	out := make([]any, 0, len(fields)*2)
+	for _, k := range keys {
+		out = append(out, k, fields[k])
+	}
+	return out
+}
+
+// WithAlerter 注入告警出口：带 AlertKey 标记的日志会转给它。
+func WithAlerter(a Alerter) Option {
+	return func(o *options) { o.alerter = a }
+}
+
+// WithRedactKeys 覆盖默认的脱敏字段集合（password/token/secret/authorization）。
+func WithRedactKeys(keys ...string) Option {
+	return func(o *options) {
+		set := make(map[string]struct{}, len(keys))
+		for _, k := range keys {
+			if k = strings.TrimSpace(k); k != "" {
+				set[k] = struct{}{}
+			}
+		}
+		o.redactKeys = set
 	}
 }
 
-func handleConfig(config *Config) {
-	if config.Driver == "" {
-		config.Driver = DriverZap
-	}
-	if config.Level == "" {
-		config.Level = "debug"
-	}
-	if config.Path == "" {
-		config.Path = "./logs/"
-	}
-	if config.FileSuffix == "" {
-		config.FileSuffix = ".logger"
-	}
-	if config.FileName == "" {
-		config.FileName = "runtime"
-	}
-	if config.MaxAge == 0 {
-		config.MaxAge = 30
-	} else if config.MaxAge < 0 {
-		config.MaxAge = 0
-	}
-	if config.MaxSize == 0 {
-		config.MaxSize = 10
-	}
-	if config.Format == "" {
-		config.Format = FormatJSON
+// WithContextFields 设置从 ctx 提取并写入日志的字段列表，默认 request_id。
+//
+// ctx 里取不到、值为空或已经通过 With 显式传过的字段会被跳过。
+// 传空列表等于关闭自动注入。
+func WithContextFields(fields ...ContextField) Option {
+	return func(o *options) {
+		o.contextFields = normalizeFields(fields)
 	}
 }
 
-func getSlogLevel(l string) slog.Level {
-	switch strings.ToLower(l) {
-	case "debug":
-		return slog.LevelDebug
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
+// WithRequestIDKeys 是 WithContextFields 的简化写法：key 与字段名同名。
+func WithRequestIDKeys(keys ...string) Option {
+	fields := make([]ContextField, 0, len(keys))
+	for _, k := range keys {
+		fields = append(fields, ContextField{Key: k, Name: k})
+	}
+	return WithContextFields(fields...)
+}
+
+func normalizeFields(fields []ContextField) []ContextField {
+	out := make([]ContextField, 0, len(fields))
+	seen := make(map[string]struct{}, len(fields))
+	for _, f := range fields {
+		name := strings.TrimSpace(f.Name)
+		if name == "" {
+			if s, ok := f.Key.(string); ok {
+				name = strings.TrimSpace(s)
+			} else if f.Key != nil {
+				name = fmt.Sprint(f.Key)
+			}
+		}
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, ContextField{Key: f.Key, Name: name})
+	}
+	return out
+}
+
+// WithSampling 对低于 below 级别的日志按 1/every 抽样；every <= 1 表示关闭。
+// 带告警标记的记录不参与抽样。
+func WithSampling(every uint64, below slog.Level) Option {
+	return func(o *options) {
+		o.sampleEvery = every
+		o.sampleBelow = below
 	}
 }
 
-func getZapLevel(l string) zapcore.Level {
-	switch strings.ToLower(l) {
-	case "debug":
-		return zap.DebugLevel
-	case "warn":
-		return zap.WarnLevel
-	case "error":
-		return zap.ErrorLevel
-	default:
-		return zap.InfoLevel
+// WithFixedFields 给每条日志附加固定字段（如 service/env/version）。
+// 按 key 排序，保证输出稳定。
+func WithFixedFields(fields map[string]any) Option {
+	return func(o *options) {
+		keys := make([]string, 0, len(fields))
+		for k := range fields {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			o.fields = append(o.fields, slog.Any(k, fields[k]))
+		}
 	}
 }
