@@ -50,7 +50,7 @@ func CD[T any, R any](wrapper ServiceFuncWrapper[T, R], hooks ...controllerHook.
 		}
 
 		if err = c.ShouldBind(req); err != nil {
-			return nil, e.NewHttpErr(e.ParamErr, err).SetData(err.Error())
+			return nil, e.NewBusinessErr(e.ParamErr, err).SetData(err.Error())
 		}
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 

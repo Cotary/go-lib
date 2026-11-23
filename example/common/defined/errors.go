@@ -18,28 +18,51 @@ const (
 	payGatewayErrCode
 )
 
-// 业务错误实例，Level 决定告警级别：
+// 业务错误实例。
+//
+// 【三个维度】
+//   - Code  业务码，服务内唯一，errors.Is 按它判定
+//   - Class 错误类别，决定协议层怎么表达（gRPC 的 status code）
+//   - Msg   面向用户的文案
+//
+// Class 决定客户端能不能做出正确决策：
+//   - ClassNotFound          资源不存在
+//   - ClassFailedPrecondition 状态不允许（订单已支付、余额不足）
+//   - ClassPermissionDenied  凭证有效但没权限
+//   - ClassUnavailable       下游故障，客户端可以退避重试
+//
+// Level 决定告警级别：
 //   - e.InfoLevel：业务正常分支（如数据不存在），仅记日志
 //   - e.ErrorLevel：需关注的错误，触发告警
 //   - e.PanicLevel：严重错误，立即告警
 var (
-	OrderNotFound       = e.NewCodeErr(OrderNotFoundCode, "Order not found", e.InfoLevel)
-	OrderAlreadyPaid    = e.NewCodeErr(OrderAlreadyPaidCode, "Order already paid", e.InfoLevel)
-	InsufficientBalance = e.NewCodeErr(InsufficientBalanceCode, "Insufficient balance", e.InfoLevel)
-	AccountDisabled     = e.NewCodeErr(AccountDisabledCode, "Account disabled", e.InfoLevel)
-	payGatewayErr       = e.NewCodeErr(payGatewayErrCode, "pay gateway error", e.ErrorLevel)
+	OrderNotFound = e.NewCodeErr(OrderNotFoundCode, e.ClassNotFound,
+		"Order not found", e.InfoLevel)
+	OrderAlreadyPaid = e.NewCodeErr(OrderAlreadyPaidCode, e.ClassFailedPrecondition,
+		"Order already paid", e.InfoLevel)
+	InsufficientBalance = e.NewCodeErr(InsufficientBalanceCode, e.ClassFailedPrecondition,
+		"Insufficient balance", e.InfoLevel)
+	AccountDisabled = e.NewCodeErr(AccountDisabledCode, e.ClassPermissionDenied,
+		"Account disabled", e.InfoLevel)
+	payGatewayErr = e.NewCodeErr(payGatewayErrCode, e.ClassUnavailable,
+		"pay gateway error", e.ErrorLevel)
 )
 
 // ===== 使用方式 =====
 //
 // HTTP 层返回业务错误（客户端可见）：
-//   return nil, e.NewHttpErr(defined.OrderNotFound, nil)
+//   return nil, e.NewBusinessErr(defined.OrderNotFound, nil)
 //
 // 携带底层错误信息（底层错误不暴露给客户端，但会记录到日志/告警）：
-//   return nil, e.NewHttpErr(defined.payGatewayErr, err)
+//   return nil, e.NewBusinessErr(defined.payGatewayErr, err)
 //
 // 包装底层错误（保留堆栈，向上传播）：
 //   return nil, e.Err(err)
 //
 // 附带额外数据返回给客户端：
-//   return nil, e.NewHttpErr(e.ParamErr, err).SetData("field 'amount' is required")
+//   return nil, e.NewBusinessErr(e.ParamErr, err).SetData("field 'amount' is required")
+//
+// 字段级校验错误（gRPC 侧转成 google.rpc.BadRequest）：
+//   return nil, e.NewBusinessErr(e.ParamErr, err).SetData([]e.FieldViolation{
+//       {Field: "amount", Description: "amount is required"},
+//   })

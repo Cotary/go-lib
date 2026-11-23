@@ -14,8 +14,8 @@ import (
 )
 
 func SendMessageWithLevel(ctx context.Context, err error) {
-	codeErr := e.AsCodeErr(err)
-	if codeErr != nil && codeErr.Level <= e.WarnLevel {
+	bizErr := e.AsBusinessErr(err)
+	if bizErr != nil && bizErr.Level <= e.WarnLevel {
 		SendErrMessage(ctx, err)
 	}
 }

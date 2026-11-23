@@ -53,7 +53,7 @@ func OrderDetail(c *gin.Context, req apiDto.OrderDetailRequest) (*model.Order, e
 	if err != nil {
 		// gormDB.DbErr 将 RecordNotFound 转为 nil
 		if gormDB.DbErr(err) == nil {
-			return nil, e.NewHttpErr(defined.OrderNotFound, nil)
+			return nil, e.NewBusinessErr(defined.OrderNotFound, nil)
 		}
 		return nil, e.Err(err)
 	}
@@ -84,7 +84,7 @@ func CreateOrder(c *gin.Context, req apiDto.CreateOrderRequest) (*apiDto.CreateO
 	payURL, err := provider.Createpay(ctx, tradeNo, req.Amount, req.Currency)
 	if err != nil {
 		// 使用业务错误码返回，底层 err 记入日志但不暴露给客户端
-		return nil, e.NewHttpErr(defined.payGatewayErr, err)
+		return nil, e.NewBusinessErr(defined.payGatewayErr, err)
 	}
 
 	return &apiDto.CreateOrderResponse{

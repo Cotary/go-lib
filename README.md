@@ -130,17 +130,32 @@ fmt.Println(e.GetErrMessage(err, false))
 // ...
 ```
 
-### HTTP 错误码
+### 业务错误码
+
+错误分三个维度：**类别**（协议层怎么表达）、**业务码**（服务内唯一标识）、**文案**（面向用户）。
 
 ```go
-// 定义业务错误码
-var ParamErr = e.NewCodeErr(400, "参数错误", e.WarnLevel)
-var AuthErr  = e.NewCodeErr(401, "未授权",   e.WarnLevel)
+// 定义业务错误：业务码 + 类别 + 文案 + 告警级别
+var (
+    ParamErr  = e.NewCodeErr(10003, e.ClassInvalidArgument, "参数错误", e.InfoLevel)
+    AuthErr   = e.NewCodeErr(10006, e.ClassUnauthenticated,   "未授权",   e.InfoLevel)
+    OrderNotFound = e.NewCodeErr(20001, e.ClassNotFound,        "订单不存在", e.InfoLevel)
+)
 
 // 在 handler 中使用
-return e.NewHttpErr(e.ParamErr, err).SetData(err.Error())
-// 响应: {"code": 400, "message": "参数错误", "data": "name is required"}
+return nil, e.NewBusinessErr(ParamErr, err).SetData(err.Error())
+// 响应: {"code":10003,"reason":"INVALID_ARGUMENT","msg":"参数错误","data":"name is required"}
 ```
+
+`e.Class` 的取值与 `google.rpc.Code` 一致（0~16），所以同一个错误声明在 HTTP 和 gRPC 上都能用：
+
+| | HTTP | gRPC |
+|---|---|---|
+| 类别 | `reason` 字段 | `status.code` |
+| 业务码 | `code` 字段 | `ErrorInfo.metadata.biz_code` |
+| 文案 | `msg` 字段 | `status.message` |
+
+**告警判定只有一处**（HTTP 和 gRPC 各一个收口点，但逻辑相同）：`Level <= e.WarnLevel` 才发告警。业务层只声明错误语义，不写日志也不发告警。
 
 ---
 
@@ -171,10 +186,13 @@ r.POST("/user/create", handler.CD(func(c *gin.Context, req CreateUserReq) (*User
     return &UserResp{ID: user.ID, Name: user.Name}, nil
 }))
 
-// 成功响应: {"code": 0, "message": "success", "data": {"id": 1, "name": "test"}}
-// 失败响应: {"code": 500, "message": "创建失败"}
-// 参数错误: {"code": 400, "message": "参数错误", "data": "Name is required"}
+// 成功响应: {"code": 0, "reason": "", "msg": "success", "data": {"id": 1, "name": "test"}}
+// 失败响应: {"code": 10002, "reason": "INTERNAL", "msg": "创建失败"}
+// 参数错误: {"code": 10003, "reason": "INVALID_ARGUMENT", "msg": "参数错误", "data": "Name is required"}
 ```
+
+> HTTP 状态码恒为 200，业务错误靠 body 里的 `code` 判定。
+> gRPC 则用真正的 `status.code`（详见 `provider/GRPCServer`）。
 
 ### 内置 Hook 链
 

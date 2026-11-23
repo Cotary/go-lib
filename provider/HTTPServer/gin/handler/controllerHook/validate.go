@@ -18,7 +18,7 @@ var fieldValidatorType = reflect.TypeOf((*fieldValidator)(nil)).Elem()
 // 典型用途：TimeRange 的 year_month/date 格式校验。
 var ValidateHook Hook = func(c *gin.Context, req any, next func() (any, error)) (any, error) {
 	if err := runValidate(req); err != nil {
-		return nil, e.NewHttpErr(e.ParamErr, err).SetData(err.Error())
+		return nil, e.NewBusinessErr(e.ParamErr, err).SetData(err.Error())
 	}
 	return next()
 }

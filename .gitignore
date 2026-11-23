@@ -1,4 +1,4 @@
 .idea
 .cursor
-
+.gocache
 go.sum
