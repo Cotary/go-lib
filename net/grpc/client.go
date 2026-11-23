@@ -7,7 +7,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Client 是 gRPC 客户端。
@@ -20,6 +19,9 @@ type Client struct {
 }
 
 // Dial 创建客户端连接。
+//
+// 【必须指定凭证】WithInsecure / WithTLS / WithCredentials 三选一，
+// 都不写会返回 "no transport security set" 错误。没有默认明文兜底。
 //
 // 【注意】grpc.NewClient 是惰性连接：它不会立刻建连，
 // 第一次调用时才真正连接。这样启动时不会因为下游不可达而卡住。
@@ -34,13 +36,11 @@ func Dial(ctx context.Context, target string, opts ...Option) (*Client, error) {
 		opt(o)
 	}
 
-	dialOpts := o.dialOptionsList()
-	if len(dialOpts) == 0 {
-		// 没指定凭证时默认明文，避免必须显式写 WithInsecure。
-		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	}
-
-	conn, err := grpc.NewClient(target, dialOpts...)
+	// 不做明文兜底：没指定凭证时 grpc.NewClient 会直接报错。
+	//
+	// 这是刻意的。兜底会让「生产环境忘了写 WithTLS」变成静默明文，
+	// 而显式报错能让它在启动时就暴露出来。
+	conn, err := grpc.NewClient(target, o.dialOptionsList()...)
 	if err != nil {
 		return nil, fmt.Errorf("grpc: dial %s: %w", target, err)
 	}

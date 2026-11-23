@@ -123,6 +123,23 @@ func WithKeepalive(params keepalive.ServerParameters) Option {
 	return func(s *Server) { s.srvOpts = append(s.srvOpts, grpc.KeepaliveParams(params)) }
 }
 
+// WithServerOption 透传原生 grpc.ServerOption。
+//
+// 用于本库没有单独封装的能力，典型场景：
+//
+//	// OpenTelemetry（官方推荐的 stats.Handler 方式）
+//	grpcserver.WithServerOption(grpc.StatsHandler(otelgrpc.NewServerHandler()))
+//
+//	// 自定义编码器 / 压缩 / 拦截器链
+//	grpcserver.WithServerOption(grpc.ForceServerCodec(codec))
+//
+// 它和 WithUnaryInterceptor 等选项可以混用：拦截器链在最后统一注册，
+// 所以不会和这里传入的 grpc.ChainUnaryInterceptor 冲突——除非你自己也传了
+// 一个 ChainUnaryInterceptor，那两条链都会生效，顺序由 grpc 内部决定。
+func WithServerOption(opts ...grpc.ServerOption) Option {
+	return func(s *Server) { s.srvOpts = append(s.srvOpts, opts...) }
+}
+
 // New 创建 gRPC 服务端。
 //
 // 【典型用法】

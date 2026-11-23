@@ -83,6 +83,22 @@ func WithUserAgent(ua string) Option {
 	}
 }
 
+// WithDialOption 透传原生 grpc.DialOption。
+//
+// 用于本库没有单独封装的能力，典型场景：
+//
+//	// OpenTelemetry（官方推荐的 stats.Handler 方式）
+//	grpcx.WithDialOption(grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
+//
+//	// 自定义负载均衡 / 服务发现 / 连接池
+//	grpcx.WithDialOption(grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`))
+//
+// 可以直接传 grpc.WithTransportCredentials，但注意它和 WithInsecure / WithTLS
+// 是互斥的：同时传会以最后生效的为准，不会报错。
+func WithDialOption(opts ...grpc.DialOption) Option {
+	return func(o *options) { o.dialOptions = append(o.dialOptions, opts...) }
+}
+
 // dialOptionsList 组装最终的 grpc.DialOption 列表。
 func (o *options) dialOptionsList() []grpc.DialOption {
 	out := make([]grpc.DialOption, 0, len(o.dialOptions)+2)
